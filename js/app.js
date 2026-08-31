@@ -20,6 +20,9 @@ function spacingStyle(type, itemSpacing){
   return `margin-top:${mt}px;margin-bottom:${mb}px;`;
 }
 function z(v){ return (v==null || v==='' || Number.isNaN(Number(v))) ? 0 : Number(v); }
+function getPageMargins(){ return data.pageMargins || defaultPageMargins; }
+function mmToPx(mm){ return mm * 3.7795275591; }  // 96 DPI: 1 mm ≈ 3.7795 px
+function pxToMm(px){ return px / 3.7795275591; }
 
 /* 取文本：兼容「对象 {text}」与「纯字符串」两种数据形态（迁移过渡用） */
 function T(x){ return (x && typeof x==='object' && 'text' in x) ? (x.text||'') : (x||''); }
@@ -125,7 +128,13 @@ function renderResumeInner(){
 }
 
 const preview = document.getElementById('preview');
-function renderPreview(){ preview.innerHTML = `<div class="resume" style="${getVarStr()}">${renderResumeInner()}</div>`; drawPageGuides(); saveState(); }
+function renderPreview(){
+  const m = getPageMargins();
+  const marginStyle = `width:210mm;max-width:none;box-sizing:border-box;padding-top:${mmToPx(m.top)}px;padding-right:${mmToPx(m.right)}px;padding-bottom:${mmToPx(m.bottom)}px;padding-left:${mmToPx(m.left)}px;`;
+  preview.innerHTML = `<div class="resume" style="${getVarStr()}${marginStyle}">${renderResumeInner()}</div>`;
+  drawPageGuides();
+  saveState();
+}
 
 /* ============ 拖拽重排（左侧预览） ============ */
 let drag = null;
@@ -470,7 +479,7 @@ function restoreSnapshot(s){
     const o = JSON.parse(s);
     data = o.data; currentFonts = o.fonts; currentSpacing = o.spacing;
   }catch(e){ return; }
-  renderSettings(); renderSpacingSettings(); renderEditor(); renderPreview(); applyPanelState();
+  renderSettings(); renderMarginSettings(); renderSpacingSettings(); renderEditor(); renderPreview(); applyPanelState();
 }
 /* 记录一次变更。kind 相同且时间相近的连续「编辑/设置」会合并为一个撤销步（避免逐字符/逐格历史爆炸）；
    'action' 类（增删/移动/拖拽/导入/重置）每次都是独立可撤销步，不合并 */
@@ -542,6 +551,25 @@ function renderSpacingSettings(){
   });
 }
 function resetSpacing(){ recordHistory('action'); currentSpacing=JSON.parse(JSON.stringify(defaultSpacing)); renderSpacingSettings(); renderPreview(); }
+function renderMarginSettings(){
+  const wrap = document.getElementById('marginSettings');
+  if(!wrap) return;
+  const m = getPageMargins();
+  const mk = (label, key)=>`<div class="setting"><label>${label}</label><input type="number" min="0" max="60" step="1" value="${m[key]}" data-margin="${key}" title="${label}" style="width:60px;"></div>`;
+  wrap.innerHTML = mk('上边距', 'top') + mk('右边距', 'right') + mk('下边距', 'bottom') + mk('左边距', 'left');
+  wrap.querySelectorAll('input[data-margin]').forEach(inp=>{
+    inp.addEventListener('input', function(){
+      const key = this.dataset.margin;
+      let v = parseFloat(this.value); if(isNaN(v)) return;
+      recordHistory('setting');
+      v = Math.max(0, Math.min(60, v));
+      data.pageMargins = data.pageMargins || {top:14, right:14, bottom:14, left:14};
+      data.pageMargins[key] = v;
+      renderPreview();
+    });
+  });
+}
+function resetMargins(){ recordHistory('action'); data.pageMargins = JSON.parse(JSON.stringify(defaultPageMargins)); renderMarginSettings(); renderPreview(); }
 
 /* ============ 右侧面板折叠 / 展开（状态持久化到 localStorage） ============ */
 const PANEL_STATE_KEY = 'resume_collapsed_panels_v1';
@@ -553,7 +581,7 @@ function savePanelState(state){
 }
 let panelCollapsed = loadPanelState();
 function applyPanelState(){
-  ['panel-fonts','panel-spacing','panel-editor'].forEach(id=>{
+  ['panel-fonts','panel-margins','panel-spacing','panel-editor'].forEach(id=>{
     const el = document.getElementById(id);
     if(!el) return;
     if(panelCollapsed[id]) el.classList.add('collapsed'); else el.classList.remove('collapsed');
@@ -578,22 +606,27 @@ if(editorPane){
 
 /* ============ A4 分页参考线（与 PDF 截图分页严格对齐，支持强制换页） ============ */
 let guidesOn = false;
-// 计算每一页的高度（像素）：按 A4 的 210:297 比例，以简历真实宽度为基准
+/* 以 A4 210 mm 为基准，把页边距去掉后得到内容区域；
+   分页参考线与图片版 PDF 都按内容区域高度计算。 */
 function getPageMetrics(){
   const resume = preview.querySelector('.resume');
   if(!resume) return null;
-  const w = resume.offsetWidth;
-  const pageH = w * 297 / 210;     // 单页高度（px）
-  const totalH = resume.offsetHeight;
-  return { resume, w, pageH, totalH };
+  const m = getPageMargins();
+  const pl = mmToPx(m.left), pr = mmToPx(m.right), pt = mmToPx(m.top), pb = mmToPx(m.bottom);
+  const pageW = resume.offsetWidth;       // A4 实际渲染宽度（px）
+  const contentW = pageW - pl - pr;       // A4 内容区域宽度（px）
+  const pageH = contentW * 297 / 210;     // A4 内容区域高度（px）
+  const totalH = Math.max(0, resume.offsetHeight - pt - pb); // 内容总高度（px）
+  return { resume, pageW, contentW, pageH, totalH, pt, pr, pb, pl };
 }
 // 计算真实分页位置：先收集右侧勾选的「强制换页」元素 offsetTop，再与自然 A4 高度取并集
+// 返回的 break 值是相对于内容区域顶部的偏移（不含上页边距）
 function computePageBreaks(){
   const m = getPageMetrics();
   if(!m) return [];
-  const { resume, pageH, totalH } = m;
+  const { resume, pageH, totalH, pt } = m;
   const forced = Array.from(resume.querySelectorAll('.page-break-before'))
-    .map(el => el.offsetTop - resume.offsetTop)
+    .map(el => (el.offsetTop - resume.offsetTop) - pt)
     .filter(y => y > 2)
     .sort((a, b) => a - b);
   const breaks = [0];
@@ -620,15 +653,15 @@ function drawPageGuides(){
   if(breaks.length < 2) return;
   const rect = m.resume.getBoundingClientRect();
   const prect = preview.getBoundingClientRect();
-  const left = rect.left - prect.left;
+  const left = rect.left - prect.left + m.pl;
   const frag = document.createDocumentFragment();
   for(let n = 1; n < breaks.length; n++){
-    const y = breaks[n];
+    const y = breaks[n] + m.pt;
     const d = document.createElement('div'); d.className = 'page-guide';
     d.style.top = (rect.top - prect.top + y) + 'px';
     d.style.left = left + 'px';
     d.style.right = 'auto';
-    d.style.width = m.w + 'px';
+    d.style.width = m.contentW + 'px';
     d.innerHTML = '<span>第 ' + n + ' 页底 / 第 ' + (n + 1) + ' 页顶</span>';
     frag.appendChild(d);
   }
@@ -643,17 +676,20 @@ window.addEventListener('resize', ()=>{ if(guidesOn) drawPageGuides(); });
 
 /* ============ 导出 PDF：按实时预览的分页逐页截图，再拼成 PDF ============ */
 let currentPdfBlobUrl = null;
-// 把实时预览里的 .resume 克隆到屏幕外容器中（固定真实宽度），用于 html2canvas 整页截图
+// 把实时预览里的 .resume 克隆到屏幕外容器中（固定 A4 宽度并按页边距留白），用于 html2canvas 整页截图
 function makeCaptureClone(live){
-  const w = live.offsetWidth;
-  const totalH = live.offsetHeight;
+  const margins = getPageMargins();
+  const pt = mmToPx(margins.top), pr = mmToPx(margins.right), pb = mmToPx(margins.bottom), pl = mmToPx(margins.left);
+  const totalW = live.offsetWidth;         // 与预览同宽（A4 实际像素宽度）
+  const totalH = live.offsetHeight;        // 与预览同高（已含 padding）
   const wrapper = document.createElement('div');
-  wrapper.style.cssText = 'position:fixed;left:-9999px;top:0;width:'+w+'px;height:'+totalH+'px;overflow:hidden;z-index:-1;background:#fff;';
+  wrapper.style.cssText = 'position:fixed;left:-9999px;top:0;width:'+totalW+'px;height:'+totalH+'px;overflow:hidden;z-index:-1;background:#fff;';
   const clone = live.cloneNode(true);
   clone.style.boxSizing = 'border-box';
-  clone.style.width = w + 'px';
+  clone.style.width = totalW + 'px';
   clone.style.maxWidth = 'none';
   clone.style.margin = '0';
+  clone.style.padding = pt + 'px ' + pr + 'px ' + pb + 'px ' + pl + 'px';
   clone.style.boxShadow = 'none';
   clone.style.borderRadius = '0';
   clone.style.background = '#fff';
@@ -663,7 +699,7 @@ function makeCaptureClone(live){
   clone.querySelectorAll('.dragging,.drop-before,.drop-after').forEach(n=>n.classList.remove('dragging','drop-before','drop-after'));
   wrapper.appendChild(clone);
   document.body.appendChild(wrapper);
-  return { wrapper, clone, w, totalH };
+  return { wrapper, clone, totalW, totalH, pt, pr, pb, pl };
 }
 async function buildImagePdf(){
   const live = preview.querySelector('.resume');
@@ -672,33 +708,39 @@ async function buildImagePdf(){
   const jsPDFCtor = (window.jspdf && window.jspdf.jsPDF) ? window.jspdf.jsPDF : window.jsPDF;
   if(!jsPDFCtor) throw new Error('PDF 库(jsPDF)未加载，请检查网络');
 
-  const m = { w: live.offsetWidth, pageH: live.offsetWidth * 297 / 210, totalH: live.offsetHeight };
-  // 整页截图（屏幕外克隆，避免滚动影响）
+  const margins = getPageMargins();
   const cap = makeCaptureClone(live);
   try{
     if(document.fonts && document.fonts.ready) await document.fonts.ready;
     const canvas = await html2canvas(cap.clone, {
       scale: 3, useCORS: true, logging: false, backgroundColor: '#ffffff',
-      width: cap.w, height: cap.totalH, windowWidth: cap.w, windowHeight: cap.totalH, x: 0, y: 0
+      width: cap.totalW, height: cap.totalH, windowWidth: cap.totalW, windowHeight: cap.totalH, x: 0, y: 0
     });
-    const srcScale = canvas.width / cap.w;           // 截图实际像素 / CSS 宽度
-    const breaks = computePageBreaks();              // 真实分页位置（已含强制换页）
+    const srcScale = canvas.width / cap.totalW;      // 截图实际像素 / CSS 宽度
+    const breaks = computePageBreaks();              // 真实分页位置（已含强制换页，相对内容区域顶部）
     const pages = Math.max(1, breaks.length - 1);
     const pdf = new jsPDFCtor('p','mm','a4');
     const PW = 210, PH = 297;
+    const contentW = PW - margins.left - margins.right;
+    const contentH = PH - margins.top - margins.bottom;
+    const contentWpx = cap.totalW - cap.pl - cap.pr; // 截图内容区域宽度（px）
+    const pageHpx = contentWpx * 297 / 210;          // A4 内容区域高度（px）
     for(let i=0; i<pages; i++){
       const y = breaks[i];
       const h = breaks[i+1] - y;
-      const sx = 0, sy = Math.floor(y * srcScale);
-      const sW = canvas.width, sH = Math.floor(h * srcScale);
+      // 截取内容区域（去掉左右边距 + 上边距 + 已分页的内容偏移）
+      const sx = Math.floor(cap.pl * srcScale);
+      const sy = Math.floor((cap.pt + y) * srcScale);
+      const sW = Math.floor(contentWpx * srcScale);
+      const sH = Math.floor(h * srcScale);
       const pc = document.createElement('canvas');
       pc.width = sW; pc.height = sH;
       pc.getContext('2d').drawImage(canvas, sx, sy, sW, sH, 0, 0, sW, sH);
       const img = pc.toDataURL('image/jpeg', 0.98);
       if(i>0) pdf.addPage();
-      // 宽度铺满 A4，高度按真实比例（短页不拉伸，底部留白）
-      const imgH = (h / m.pageH) * PH;
-      pdf.addImage(img, 'JPEG', 0, 0, PW, imgH);
+      // 把内容区域图片放到 A4 的内容区域内（四边留出页边距，短页不拉伸）
+      const imgH = (h / pageHpx) * contentH;
+      pdf.addImage(img, 'JPEG', margins.left, margins.top, contentW, imgH);
     }
     return { blob: pdf.output('blob'), pages };
   } finally {
@@ -706,11 +748,11 @@ async function buildImagePdf(){
   }
 }
 function exportPDF(){
-  const btn = document.querySelector('.toolbar button[onclick="exportPDF()"]');
+  const btn = document.querySelector('.toolbar button[onclick="ResumeEditor.exportPDF()"]');
   if(btn){ btn.disabled = true; btn.textContent = '生成中…'; }
   if(!preview.querySelector('.resume')){
     alert('预览未渲染，请稍候重试。');
-    if(btn){ btn.disabled = false; btn.textContent = 'PDF 预览 / 导出'; }
+    if(btn){ btn.disabled = false; btn.textContent = 'PDF 预览'; }
     return;
   }
   buildImagePdf().then(({blob, pages})=>{
@@ -722,21 +764,121 @@ function exportPDF(){
   }).catch(err=>{
     alert('PDF 生成失败：' + (err && err.message ? err.message : err));
   }).finally(()=>{
-    if(btn){ btn.disabled = false; btn.textContent = 'PDF 预览 / 导出'; }
+    if(btn){ btn.disabled = false; btn.textContent = 'PDF 预览'; }
   });
 }
 function downloadPDFNow(){
   if(!currentPdfBlobUrl){ exportPDF(); return; }
   const a = document.createElement('a');
-  a.href = currentPdfBlobUrl; a.download = ((data.name||'简历').replace(/\s+/g,'_')) + '_简历.pdf';
+  a.href = currentPdfBlobUrl; a.download = getFileName('', 'pdf');
   document.body.appendChild(a); a.click(); a.remove();
 }
 function closePdfModal(){
   document.getElementById('pdfModal').style.display = 'none';
   document.getElementById('pdfFrame').src = 'about:blank';
 }
+
+/* ============ 通用导出预览弹层（图片版 / 单文件 HTML 共用） ============ */
+/* 先看预览，弹层内再点「下载」真正落盘；关闭时自动回收 blob URL。 */
+let currentExportBlobUrl = null;
+let currentExportName = '';
+function showExportModal(kind, blobUrl, downloadName, title){
+  const img = document.getElementById('exportModalImg');
+  const frame = document.getElementById('exportModalFrame');
+  document.getElementById('exportModalTitle').textContent = title;
+  currentExportBlobUrl = blobUrl;
+  currentExportName = downloadName;
+  if(kind === 'image'){
+    img.src = blobUrl; img.style.display = 'block'; frame.style.display = 'none';
+  } else {
+    frame.src = blobUrl; frame.style.display = 'block'; img.style.display = 'none';
+  }
+  document.getElementById('exportModal').style.display = 'flex';
+}
+function closeExportModal(){
+  document.getElementById('exportModal').style.display = 'none';
+  const img = document.getElementById('exportModalImg');
+  const frame = document.getElementById('exportModalFrame');
+  img.style.display = 'none'; img.removeAttribute('src');
+  frame.style.display = 'none'; frame.src = 'about:blank';
+  if(currentExportBlobUrl){ URL.revokeObjectURL(currentExportBlobUrl); currentExportBlobUrl = null; }
+}
+function doExportDownload(){
+  if(!currentExportBlobUrl) return;
+  const a = document.createElement('a');
+  a.href = currentExportBlobUrl; a.download = currentExportName;
+  document.body.appendChild(a); a.click(); a.remove();
+}
+
+/* ============ 导出长图：把 .resume 整页截为一张 PNG，先预览再下载 ============ */
+async function exportLongImage(){
+  const live = preview.querySelector('.resume');
+  if(!live){ alert('预览未渲染，请稍候重试。'); return; }
+  if(typeof html2canvas === 'undefined'){ alert('截图库(html2canvas)未加载，请检查网络'); return; }
+  const btn = document.querySelector('.toolbar button[onclick="ResumeEditor.exportLongImage()"]');
+  if(btn){ btn.disabled = true; btn.textContent = '生成中…'; }
+  const cap = makeCaptureClone(live);
+  try{
+    if(document.fonts && document.fonts.ready) await document.fonts.ready;
+    const canvas = await html2canvas(cap.clone, {
+      scale: 3, useCORS: true, logging: false, backgroundColor: '#ffffff',
+      width: cap.totalW, height: cap.totalH, windowWidth: cap.totalW, windowHeight: cap.totalH, x: 0, y: 0
+    });
+    const blob = await new Promise(res=>canvas.toBlob(res, 'image/png'));
+    const url = URL.createObjectURL(blob);
+    showExportModal('image', url, getFileName('_长图', 'png'), '图片版预览（长图）');
+  }catch(err){
+    alert('长图导出失败：' + (err && err.message ? err.message : err));
+  }finally{
+    document.body.removeChild(cap.wrapper);
+    if(btn){ btn.disabled = false; btn.textContent = '导出（图片版）'; }
+  }
+}
+
+/* ============ 导出单文件 HTML：仅含简历本身，内联样式，先预览再下载 ============ */
+function exportSingleFileHTML(){
+  const live = preview.querySelector('.resume');
+  if(!live){ alert('预览未渲染，请稍候重试。'); return; }
+  const clone = live.cloneNode(true);
+  clone.querySelectorAll('[data-drag]').forEach(n=>n.removeAttribute('data-drag'));
+  clone.querySelectorAll('[draggable]').forEach(n=>n.removeAttribute('draggable'));
+  clone.querySelectorAll('.dragging,.drop-before,.drop-after').forEach(n=>n.classList.remove('dragging','drop-before','drop-after'));
+  const styleEl = document.querySelector('style');
+  const css = styleEl ? styleEl.textContent : '';
+  const html = `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>${esc(data.name || '简历')}</title>
+<style>
+${css}
+.resume{max-width:1000px;margin:0 auto;background:#fff;box-shadow:0 4px 18px rgba(0,0,0,.10);border-radius:4px;}
+@media print{
+  @page{ size:A4; margin:14mm 14mm; }
+  html,body{height:auto;overflow:visible;background:#fff;}
+  .resume{max-width:100% !important;width:100% !important;margin:0 !important;padding:0 !important;box-shadow:none !important;border-radius:0 !important;}
+  *{ -webkit-print-color-adjust:exact !important; print-color-adjust:exact !important; }
+  .resume .job,.resume .project,.resume .skill-group,.resume .adv li{ break-inside:avoid; }
+  .resume .section-title,.resume .job-title,.resume .job-role,.resume .project-title{ break-after:avoid; }
+  .page-break-before{ break-before:page; }
+}
+</style>
+</head>
+<body style="margin:0;padding:18px;background:#f0f0f0;">
+${clone.outerHTML}
+</body>
+</html>`;
+  const blob = new Blob([html], {type:'text/html;charset=utf-8'});
+  const url = URL.createObjectURL(blob);
+  showExportModal('html', url, getFileName('', 'html'), '单文件 HTML 预览');
+}
+
 document.addEventListener('keydown', e=>{
-  if(e.key === 'Escape'){ const m=document.getElementById('pdfModal'); if(m && m.style.display==='flex') closePdfModal(); }
+  if(e.key === 'Escape'){
+    const m=document.getElementById('pdfModal'); if(m && m.style.display==='flex') closePdfModal();
+    const em=document.getElementById('exportModal'); if(em && em.style.display==='flex') closeExportModal();
+  }
   // 撤销 / 重做（应用级；会覆盖输入框的原生撤销，换取整段内容的撤销能力）
   const mod = e.ctrlKey || e.metaKey;
   if(mod && (e.key==='z' || e.key==='Z')){ e.preventDefault(); if(e.shiftKey) redo(); else undo(); }
@@ -746,8 +888,19 @@ document.addEventListener('keydown', e=>{
 /* ============ 自动保存（编辑即存入浏览器 localStorage，重新打开本文件时恢复） ============ */
 const SAVE_KEY = 'resume_builder_data_v1';
 const SAVE_KEY_LEGACY = 'resume_chenpeisheng_v1';
-const SAVE_VERSION = 6;
+const SAVE_VERSION = 7;
+const FILENAME_BASE_KEY = 'resume_filename_base_v1';
+let fileNameBase = '';
 let bootDone = false;
+
+/* ============ 导出文件名管理 ============ */
+function getDefaultFileNameBase(){ return (data.name || '简历').replace(/\s+/g,'_').replace(/[\\/:*?"<>|]/g,'_'); }
+function loadFileNameBase(){ try{ fileNameBase = localStorage.getItem(FILENAME_BASE_KEY) || ''; }catch(e){ fileNameBase = ''; } }
+function saveFileNameBase(){ try{ localStorage.setItem(FILENAME_BASE_KEY, fileNameBase); }catch(e){} }
+function setFileNameBase(v){ fileNameBase = String(v==null?'':v).trim(); saveFileNameBase(); updateFileNameInput(); }
+function updateFileNameInput(){ const el=document.getElementById('filenameBase'); if(!el) return; el.placeholder = getDefaultFileNameBase(); el.value = fileNameBase; }
+function getFileName(suffix, ext){ const base = fileNameBase || getDefaultFileNameBase(); return base + (suffix||'') + '.' + ext; }
+
 function migrateQuoteColors(d){
   (d.sections||[]).forEach(sec=>{
     if(sec.type==='career'){
@@ -812,6 +965,22 @@ function saveState(){
     const el=document.getElementById('autosave');
     if(el) el.textContent = '⚠ 自动保存不可用（浏览器禁用了本地存储）';
   }
+  // 实时写回仓库 data/resume.json（需经本地写服务 npm start 打开）；file:// 或只读服务器会静默失败、回退 localStorage
+  pushRepoDebounced();
+}
+/* 把当前数据 POST 到本地写服务（tools/serve.js），落盘为 data/resume.json，实现「实时保存不丢失」 */
+let _repoPushTimer = null;
+function pushRepo(){
+  if(typeof fetch !== 'function') return;
+  const payload = JSON.stringify({data, fonts: currentFonts, spacing: currentSpacing, v: SAVE_VERSION});
+  fetch('/api/resume', {method:'POST', headers:{'Content-Type':'application/json'}, body: payload, keepalive:true})
+    .then(r=>{ if(!r.ok) throw new Error('HTTP ' + r.status); })
+    .catch(()=>{ /* 服务不可写：静默，依赖浏览器 localStorage 兜底 */ });
+}
+function pushRepoDebounced(){
+  if(typeof fetch !== 'function') return;
+  if(_repoPushTimer) clearTimeout(_repoPushTimer);
+  _repoPushTimer = setTimeout(pushRepo, 800);
 }
 function loadState(){
   try{
@@ -833,17 +1002,18 @@ function loadState(){
       migrateSpacing(data);
       migratePageBreaks(data);
       migrateSpacingDefaults();
+      data.pageMargins = data.pageMargins || JSON.parse(JSON.stringify(defaultPageMargins));
       try{ localStorage.setItem(SAVE_KEY, JSON.stringify({data, fonts: currentFonts, spacing: currentSpacing, v: SAVE_VERSION})); }catch(_){}
     }
     return true;
   }catch(e){ return false; }
 }
-// 将「指数引力」公司设为强制从新一页开始（其后紧跟的「周生生」会随之进入第二页）
+// 迁移：确保 career 板块每段的 pageBreak 为合法布尔值（旧数据可能缺失该字段）
 function migratePageBreaks(d){
   (d.sections||[]).forEach(sec=>{
     if(sec.type==='career'){
       (sec.items||[]).forEach(job=>{
-        if(/指数引力/.test(job.company||'')) job.pageBreak = true;
+        if(job.pageBreak === undefined) job.pageBreak = false;
       });
     }
   });
@@ -867,7 +1037,7 @@ function exportJSON(){
   const blob = new Blob([JSON.stringify(payload, null, 2)], {type:'application/json'});
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
-  a.href = url; a.download = ((data.name||'resume').replace(/\s+/g,'_')) + '_简历数据.json';
+  a.href = url; a.download = getFileName('_数据', 'json');
   document.body.appendChild(a); a.click(); a.remove();
   URL.revokeObjectURL(url);
 }
@@ -888,6 +1058,21 @@ function importJSON(input){
   reader.onerror = ()=>{ alert('导入失败：文件读取错误'); input.value = ''; };
   reader.readAsText(file);
 }
+/* 把一份 {data,fonts,spacing} 形态的载荷应用为当前内容（导入 / 加载仓库 data/resume.json 共用） */
+function applyDataPayload(obj){
+  data = obj.data;
+  if(obj.fonts && typeof obj.fonts==='object') currentFonts = obj.fonts;
+  if(obj.spacing && typeof obj.spacing==='object') currentSpacing = obj.spacing;
+  data.pageMargins = data.pageMargins || JSON.parse(JSON.stringify(defaultPageMargins));
+  migrateQuoteColors(data);
+  migrateSpacing(data);
+  if(!data.sections) data.sections = [];
+  saveState();
+  renderSettings(); renderMarginSettings(); renderSpacingSettings(); renderEditor(); renderPreview(); applyPanelState();
+  updateFileNameInput();
+  try{ document.title = (data.name||'简历') + ' · 简历编辑器'; }catch(_){}
+  showAutosave();
+}
 function applyImported(obj){
   if(!obj || typeof obj!=='object' || !obj.data || !Array.isArray(obj.data.sections)){
     alert('导入失败：文件格式不正确（缺少 data.sections）');
@@ -895,31 +1080,78 @@ function applyImported(obj){
   }
   if(!confirm('导入将用文件内容覆盖当前编辑器中的全部内容，确定继续？')) return;
   recordHistory('action');   // 导入前记录，导入结果可撤销
-  // 规范化数据形态（兼容旧版纯字符串 / 分页符残留）
-  data = obj.data;
-  if(obj.fonts && typeof obj.fonts==='object') currentFonts = obj.fonts;
-  if(obj.spacing && typeof obj.spacing==='object') currentSpacing = obj.spacing;
-  migrateQuoteColors(data);
-  migrateSpacing(data);
-  if(!data.sections) data.sections = [];
-  saveState();
-  renderSettings(); renderSpacingSettings(); renderEditor(); renderPreview(); applyPanelState();
-  try{ document.title = (data.name||'简历') + ' · 简历编辑器'; }catch(_){}
-  showAutosave();
+  applyDataPayload(obj);
   alert('✓ 已导入数据');
+}
+/* 从仓库根目录 data/resume.json 加载（版本化数据源）。
+   仅当通过 http(s) 打开且文件存在时生效；本地 file:// 或单文件版无法读取外部文件，会静默跳过、回退到内置默认数据。 */
+async function loadRepoData(opts){
+  opts = opts || {};
+  if(typeof fetch !== 'function') return false;
+  let res;
+  try{ res = await fetch('./data/resume.json', {cache:'no-store'}); }
+  catch(e){ if(!opts.silent) alert('未找到仓库 data/resume.json（需通过本地服务器打开，且文件存在）'); return false; }
+  if(!res || !res.ok){ if(!opts.silent) alert('未找到仓库 data/resume.json（HTTP ' + (res?res.status:'?') + '）'); return false; }
+  let obj;
+  try{ obj = await res.json(); }
+  catch(e){ if(!opts.silent) alert('data/resume.json 不是有效的 JSON'); return false; }
+  if(!obj || !obj.data || !Array.isArray(obj.data.sections)){ if(!opts.silent) alert('data/resume.json 格式不正确（缺少 data.sections）'); return false; }
+  if(!opts.silent && !confirm('将从仓库 data/resume.json 重新加载全部内容，覆盖当前编辑器数据，确定继续？')) return false;
+  applyDataPayload(obj);
+  if(!opts.silent) alert('✓ 已从仓库 data/resume.json 加载');
+  return true;
+}
+
+/* 从仓库根目录 template.json 加载「示范数据」（公开模板的演示内容）。
+   仅在 data/resume.json 不存在时作为兜底演示；经本地服务器（npm start）打开时生效，
+   file:// 或单文件版无法读取外部文件，会静默跳过、回退到内置默认数据（js/data.js）。 */
+async function loadTemplateData(opts){
+  opts = opts || {};
+  if(typeof fetch !== 'function') return false;
+  let res;
+  try{ res = await fetch('./template.json', {cache:'no-store'}); }
+  catch(e){ return false; }
+  if(!res || !res.ok) return false;
+  let obj;
+  try{ obj = await res.json(); }
+  catch(e){ return false; }
+  if(!obj || !obj.data || !Array.isArray(obj.data.sections)) return false;
+  applyDataPayload(obj);
+  return true;
 }
 
 /* ============ 初始化 ============ */
+loadFileNameBase();
 const restored = loadState();
 renderSettings();
+renderMarginSettings();
 renderSpacingSettings();
 renderEditor();
 renderPreview();
 applyPanelState();
+updateFileNameInput();
 try{ document.title = (data.name||'简历') + ' · 简历编辑器'; }catch(_){}
 updateUndoButtons();
 if(restored){ const el=document.getElementById('autosave'); if(el) el.textContent='✓ 已恢复上次保存的内容'; }
 bootDone = true;
+// 初始化数据源优先级：
+//   1) 仓库 data/resume.json（用户私有实时数据，最高优先）
+//   2) 否则 template.json（公开示范数据）
+//   3) 都没有（如 file:// / 单文件版）→ 回退 js/data.js 内置默认数据
+// 需经本地写服务（npm start）打开才能读到；file:// 或只读服务器读取失败时静默回退
+loadRepoData({silent:true}).then(applied=>{
+  if(applied){
+    const el=document.getElementById('autosave');
+    if(el) el.textContent = '✓ 已从仓库 data/resume.json 加载';
+    return;
+  }
+  return loadTemplateData({silent:true}).then(tApplied=>{
+    const el=document.getElementById('autosave');
+    if(el) el.textContent = tApplied
+      ? '✓ 已加载示范数据（template.json，可编辑后导出 / 实时保存）'
+      : '✓ 已加载（未连接本地写服务，编辑仅存本浏览器，请改用 npm start 启动）';
+  });
+}).catch(()=>{});
 
 /* ============ 对外命名空间（集中挂载，避免污染全局 window） ============ */
 /* 仅 index.html 内联事件所需的函数，以及测试 / 调试用内部函数，暴露在此对象上；
@@ -929,11 +1161,18 @@ global.ResumeEditor = {
   toggleGuides: toggleGuides,
   exportPDF: exportPDF,
   exportJSON: exportJSON,
+  exportLongImage: exportLongImage,
+  exportSingleFileHTML: exportSingleFileHTML,
+  closeExportModal: closeExportModal,
+  doExportDownload: doExportDownload,
+  setFileNameBase: setFileNameBase,
   importJSON: importJSON,
+  loadRepoData: loadRepoData,
   clearSaved: clearSaved,
   undo: undo,
   redo: redo,
   resetSpacing: resetSpacing,
+  resetMargins: resetMargins,
   closePdfModal: closePdfModal,
   downloadPDFNow: downloadPDFNow,
   // —— 供单元测试 / 调试复用（非公开 API） ——
@@ -945,6 +1184,7 @@ global.ResumeEditor = {
   applyImported: applyImported,
   renderResumeInner: renderResumeInner,
   migrateSpacing: migrateSpacing,
+  getFileName: getFileName,
   SAVE_KEY: SAVE_KEY,
   SAVE_KEY_LEGACY: SAVE_KEY_LEGACY
 };

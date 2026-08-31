@@ -1,6 +1,10 @@
 # 构建产物（由 tools/build-single.js 生成，不入库）
 dist/
 
+# 个人简历数据（含真实信息，公开仓库必须隔离、不入库）
+# data/ 整体不入库（私有实时数据源 resume.json 等）；公开示范模板已移到仓库根目录 template.json
+data/
+
 # 系统与编辑器
 .DS_Store
 Thumbs.db

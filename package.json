@@ -4,6 +4,7 @@
   "private": true,
   "description": "简历编辑器（拖拽排版 / 纯文本编辑），含单文件版构建与核心逻辑测试",
   "scripts": {
+    "start": "node tools/serve.js",
     "test": "node test/run.js",
     "build": "node tools/build-single.js"
   },

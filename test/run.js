@@ -110,8 +110,13 @@ F('打印样式存在 @media print', /@media\s+print/.test(cssCode));
 F('打印时隐藏编辑区与工具栏', /@media\s+print[\s\S]*?\.toolbar,\.editor-pane[^;]*display\s*:\s*none/.test(cssCode));
 F('打印条目分页保护 break-inside:avoid', /break-inside\s*:\s*avoid/.test(cssCode));
 F('打印纸张为 A4', /@page\{[^}]*size\s*:\s*A4/.test(cssCode));
-F('工具栏含原生打印按钮 window.print', /onclick="window\.print\(\)"/.test(htmlCode));
-F('图片版导出已明确标注', /PDF 预览 \/ 导出（图片版）/.test(htmlCode));
+F('工具栏含 PDF 预览按钮', /ResumeEditor\.exportPDF\(\)/.test(htmlCode));
+F('工具栏含导出图片版按钮', /ResumeEditor\.exportLongImage\(\)/.test(htmlCode));
+F('工具栏含导出单文件 HTML 按钮', /ResumeEditor\.exportSingleFileHTML\(\)/.test(htmlCode));
+F('工具栏含文件名输入框', /id="filenameBase"/.test(htmlCode));
+F('导出预览弹层存在（exportModal）', /id="exportModal"/.test(htmlCode));
+F('导出预览弹层含下载按钮 closeExportModal', /ResumeEditor\.closeExportModal\(\)/.test(htmlCode));
+F('图片版导出按钮标注为「导出（图片版）"', /导出（图片版）/.test(htmlCode));
 F('入口已接入 ResumeEditor 命名空间（toggleGuides）', /onclick="ResumeEditor\.toggleGuides\(\)"/.test(htmlCode));
 F('入口已接入 ResumeEditor 命名空间（exportPDF）', /onclick="ResumeEditor\.exportPDF\(\)"/.test(htmlCode));
 

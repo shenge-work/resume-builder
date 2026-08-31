@@ -11,9 +11,6 @@
 <script src="vendor/html2canvas.min.js"></script>
 <script src="vendor/jspdf.umd.min.js"></script>
 
-<!-- 本项目代码：data.js 必须在 app.js 之前加载 -->
-<script src="js/data.js"></script>
-<script src="js/app.js"></script>
 </head>
 <body>
 
@@ -25,11 +22,17 @@
       <button onclick="ResumeEditor.toggleGuides()" id="guideBtn">显示分页线</button>
       <button onclick="ResumeEditor.exportJSON()">导出数据</button>
       <button onclick="document.getElementById('importFile').click()">导入数据</button>
+      <button onclick="ResumeEditor.loadRepoData()" title="从仓库根目录 data/resume.json 重新加载（需通过本地服务器打开）">从仓库 data/resume.json 重载</button>
       <input type="file" id="importFile" accept=".json,application/json" style="display:none" onchange="ResumeEditor.importJSON(this)">
       <button onclick="ResumeEditor.undo()" id="undoBtn" title="撤销 (Ctrl/Cmd+Z)">撤销</button>
       <button onclick="ResumeEditor.redo()" id="redoBtn" title="重做 (Ctrl/Cmd+Shift+Z / Ctrl+Y)">重做</button>
-      <button onclick="window.print()" title="浏览器原生打印：导出可选中文字、体积小的矢量 PDF（推荐）">打印 / 另存为 PDF</button>
-      <button onclick="ResumeEditor.exportPDF()" title="旧版：html2canvas 截图拼合，文字不可选、体积较大">PDF 预览 / 导出（图片版）</button>
+      <span class="filename-wrap" title="导出文件的默认文件名前缀">
+        <label for="filenameBase">文件名</label>
+        <input type="text" id="filenameBase" placeholder="姓名_简历" onchange="ResumeEditor.setFileNameBase(this.value)">
+      </span>
+      <button onclick="ResumeEditor.exportPDF()" title="html2canvas 截图拼合，生成图片版 PDF 预览">PDF 预览</button>
+      <button onclick="ResumeEditor.exportLongImage()" title="导出页面完整长图，与预览完全一致">导出（图片版）</button>
+      <button onclick="ResumeEditor.exportSingleFileHTML()" title="导出仅含简历本身的独立 HTML 文件，可直接双击打开">导出单文件 HTML</button>
       <span class="autosave" id="autosave"></span>
       <button class="link-btn" onclick="ResumeEditor.clearSaved()">重置为初始数据</button>
     </div>
@@ -40,6 +43,15 @@
     <div class="panel" id="panel-fonts">
       <div class="panel-header collapsible" data-panel="panel-fonts">字号配置（px）<span class="chevron">▾</span></div>
       <div class="panel-body"><div class="font-settings" id="settings"></div></div>
+    </div>
+
+    <div class="panel" id="panel-margins">
+      <div class="panel-header collapsible" data-panel="panel-margins">
+        <span style="flex:1;">页面边距（mm）</span>
+        <button class="mini-btn" style="height:22px;font-size:11px;" onclick="ResumeEditor.resetMargins()">恢复默认</button>
+        <span class="chevron">▾</span>
+      </div>
+      <div class="panel-body"><div class="font-settings" id="marginSettings"></div></div>
     </div>
 
     <div class="panel" id="panel-spacing">
@@ -77,6 +89,25 @@
   </div>
 </div>
 
+<!-- 通用导出预览弹层（图片版 / 单文件 HTML 共用：先看预览，再点下载） -->
+<div class="pdf-modal" id="exportModal">
+  <div class="pdf-modal-box">
+    <div class="pdf-modal-bar">
+      <span class="t" id="exportModalTitle">预览</span>
+      <span class="sp"></span>
+      <button class="dl" id="exportModalDownload" onclick="ResumeEditor.doExportDownload()">下载</button>
+      <button class="close" onclick="ResumeEditor.closeExportModal()">关闭</button>
+    </div>
+    <div class="pdf-modal-body">
+      <img id="exportModalImg" alt="导出预览" style="display:none;">
+      <iframe id="exportModalFrame" title="导出预览" style="display:none;"></iframe>
+    </div>
+  </div>
+</div>
 
+
+<!-- 本项目代码：data.js 必须在 app.js 之前加载；放在 body 末尾，确保 DOM 就绪 -->
+<script src="js/data.js"></script>
+<script src="js/app.js"></script>
 </body>
 </html>

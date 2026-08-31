@@ -10,14 +10,19 @@
 
   /* 左侧预览区 */
   .preview-pane{flex:1;display:flex;flex-direction:column;min-width:0;background:var(--ui-bg);}
-  .toolbar{height:46px;background:var(--ui-tool);color:#fff;display:flex;align-items:center;gap:12px;padding:0 14px;flex-shrink:0;}
-  .toolbar h1{font-size:14px;font-weight:700;margin:0;flex:1;}
-  .toolbar .tip{font-size:11.5px;color:#cfcfcf;font-weight:400;}
-  .toolbar button{height:30px;padding:0 16px;font-size:12.5px;font-weight:600;background:#fff;color:var(--ui-tool);border:none;border-radius:4px;cursor:pointer;}
+  .toolbar{min-height:46px;height:auto;background:var(--ui-tool);color:#fff;display:flex;align-items:center;flex-wrap:wrap;gap:8px 12px;padding:8px 14px;flex-shrink:0;}
+  .toolbar h1{font-size:14px;font-weight:700;margin:0;flex:1;white-space:nowrap;min-width:90px;}
+  .toolbar .tip{font-size:11.5px;color:#cfcfcf;font-weight:400;white-space:nowrap;}
+  .toolbar button{height:30px;padding:0 14px;font-size:12.5px;font-weight:600;background:#fff;color:var(--ui-tool);border:none;border-radius:4px;cursor:pointer;white-space:nowrap;flex-shrink:0;}
   .toolbar button:hover{background:#e0e0e0;}
   .toolbar .autosave{font-size:11.5px;color:#d8d8d8;font-weight:400;white-space:nowrap;}
   .toolbar .link-btn{height:30px;padding:0 12px;font-size:12px;font-weight:400;background:transparent;color:#fff;border:1px solid rgba(255,255,255,.55);border-radius:4px;cursor:pointer;}
   .toolbar .link-btn:hover{background:rgba(255,255,255,.15);}
+  .toolbar .filename-wrap{display:flex;align-items:center;gap:6px;margin-right:4px;}
+  .toolbar .filename-wrap label{font-size:11.5px;color:#cfcfcf;font-weight:400;white-space:nowrap;}
+  .toolbar .filename-wrap input{height:28px;width:120px;padding:0 8px;font-size:12px;border:1px solid rgba(255,255,255,.35);border-radius:4px;background:rgba(255,255,255,.12);color:#fff;outline:none;}
+  .toolbar .filename-wrap input::placeholder{color:#aaa;}
+  .toolbar .filename-wrap input:focus{border-color:rgba(255,255,255,.7);background:rgba(255,255,255,.18);}
   .preview-frame{flex:1;overflow:auto;padding:18px;position:relative;}
 
   /* 右侧编辑区 */
@@ -50,6 +55,7 @@
   .item-head .tag{flex:1;color:var(--ui-text);}
   .mini-btn{width:24px;height:22px;font-size:12px;line-height:1;border:1px solid var(--ui-border);background:#fff;border-radius:3px;cursor:pointer;color:var(--ui-text);}
   .mini-btn:hover{background:#eee;}
+  .panel-header .mini-btn{width:auto;padding:0 8px;white-space:nowrap;}
   .mini-btn.del{color:#444;}
   .field{margin-bottom:7px;}
   .field label{display:block;font-size:11.5px;color:var(--ui-muted);margin-bottom:3px;}
@@ -65,7 +71,7 @@
   /* ===== 简历本身样式（黑白灰） ===== */
   .resume{
     --font-base:12px;--font-name:28px;--font-section:16px;--font-job:14px;--font-role:12px;--font-stack:11px;--font-contact:12px;
-    max-width:1000px;margin:0 auto;background:#fff;padding:42px 52px 36px;box-shadow:0 4px 18px rgba(0,0,0,.10);border-radius:4px;
+    max-width:1000px;margin:0 auto;background:#fff;padding:0;box-shadow:0 4px 18px rgba(0,0,0,.10);border-radius:4px;
     font-family:"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Source Han Sans SC",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
     color:#1a1a1a;background:#fff;line-height:1.65;font-size:var(--font-base);-webkit-font-smoothing:antialiased;
   }
@@ -89,9 +95,9 @@
   .resume .adv b{color:#1a1a1a;}
   .resume .job{cursor:grab;}
   .resume .job-header{display:flex;justify-content:space-between;align-items:center;}
-  .resume .job-title-wrap{display:flex;align-items:center;gap:9px;min-width:0;flex:1;}
-  .resume .job-logo{height:28px;width:auto;max-width:320px;object-fit:contain;flex-shrink:0;}
-  .resume .job-title{font-weight:700;font-size:var(--font-job);margin:0;color:#1a1a1a;flex:1;}
+.resume .job-title-wrap{display:flex;align-items:center;gap:9px;min-width:0;flex:1;}
+.resume .job-logo{height:28px;width:auto;max-width:320px;object-fit:contain;flex-shrink:0;}
+.resume .job-title{font-weight:700;font-size:var(--font-job);margin:0;color:#1a1a1a;flex:1;line-height:28px;padding:0;}
   .resume .job-date{color:#888;font-size:var(--font-role);white-space:nowrap;}
   .resume .job-role{color:#555;font-size:var(--font-role);margin:0;font-weight:600;}
   .resume .job-summary{color:#444;font-size:var(--font-base);line-height:1.7;margin:0;}
@@ -131,8 +137,10 @@
   .pdf-modal-bar button.dl:hover{background:#26754a;}
   .pdf-modal-bar button.close{background:transparent;color:#fff;border:1px solid rgba(255,255,255,.55);}
   .pdf-modal-bar button.close:hover{background:rgba(255,255,255,.15);}
-  .pdf-modal-body{flex:1;background:#525659;overflow:hidden;}
+  .pdf-modal-body{flex:1;background:#525659;overflow:auto;}
   .pdf-modal-body iframe{display:block;width:100%;height:100%;border:none;}
+  /* 图片版预览：按宽度自适应，高度撑开后由主体滚动查看长图 */
+  .pdf-modal-body img{display:block;width:100%;height:auto;margin:0 auto;}
 
   @media print{
     /* 纸张：A4，外边距交给 @page，简历内部不再额外留白 */
@@ -143,7 +151,7 @@
     .app{display:block;height:auto;}
     .preview-pane{display:block;background:#fff;}
     .preview-frame{overflow:visible;padding:0;height:auto;}
-    .resume{max-width:100%;width:100%;margin:0;padding:0;box-shadow:none;border-radius:0;}
+    .resume{max-width:100% !important;width:100% !important;margin:0 !important;padding:0 !important;box-shadow:none !important;border-radius:0 !important;}
     /* 背景色 / 边框精确打印（引用块底色、标签底色、分隔线等） */
     *{ -webkit-print-color-adjust:exact !important; print-color-adjust:exact !important; }
     /* 条目级分页保护：避免一条经历 / 项目被拦腰截断 */
