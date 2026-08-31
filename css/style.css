@@ -135,8 +135,22 @@
   .pdf-modal-body iframe{display:block;width:100%;height:100%;border:none;}
 
   @media print{
-    body{background:#fff;}
-    .resume{max-width:100%;margin:0;padding:14px 20px;box-shadow:none;border-radius:0;}
-    .resume .section{margin-bottom:14px;}
-    .page-break-before{break-before:page;}
+    /* 纸张：A4，外边距交给 @page，简历内部不再额外留白 */
+    @page{ size:A4; margin:14mm 14mm; }
+    html,body{height:auto;overflow:visible;background:#fff;}
+    /* 隐藏全部编辑/工具 UI，只输出简历本身（文字可选中、体积小） */
+    .toolbar,.editor-pane,.pdf-modal,.page-guide,.autosave{display:none !important;}
+    .app{display:block;height:auto;}
+    .preview-pane{display:block;background:#fff;}
+    .preview-frame{overflow:visible;padding:0;height:auto;}
+    .resume{max-width:100%;width:100%;margin:0;padding:0;box-shadow:none;border-radius:0;}
+    /* 背景色 / 边框精确打印（引用块底色、标签底色、分隔线等） */
+    *{ -webkit-print-color-adjust:exact !important; print-color-adjust:exact !important; }
+    /* 条目级分页保护：避免一条经历 / 项目被拦腰截断 */
+    .resume .job,.resume .project,.resume .skill-group,.resume .adv li,
+    .resume .card,.resume .item-row{ break-inside:avoid; }
+    /* 标题与首条内容不分离 */
+    .resume .section-title,.resume .job-title,.resume .job-role,.resume .project-title{ break-after:avoid; }
+    /* 保留数据里的「强制从新页开始」 */
+    .page-break-before{ break-before:page; }
   }

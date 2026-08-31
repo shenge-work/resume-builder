@@ -1,0 +1,13 @@
+{
+  "name": "resume-builder",
+  "version": "1.0.0",
+  "private": true,
+  "description": "简历编辑器（拖拽排版 / 纯文本编辑），含单文件版构建与核心逻辑测试",
+  "scripts": {
+    "test": "node test/run.js",
+    "build": "node tools/build-single.js"
+  },
+  "engines": {
+    "node": ">=16"
+  }
+}

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>陈培胜 · 简历编辑器（拖拽排版 / 纯文本编辑）</title>
+<title>简历编辑器（拖拽排版 / 纯文本编辑）</title>
 
 <link rel="stylesheet" href="css/style.css">
 
@@ -22,10 +22,16 @@
     <div class="toolbar">
       <h1>简历实时预览</h1>
       <span class="tip">拖拽左侧板块/条目可重排顺序</span>
-      <button onclick="toggleGuides()" id="guideBtn">显示分页线</button>
-      <button onclick="exportPDF()">PDF 预览 / 导出</button>
+      <button onclick="ResumeEditor.toggleGuides()" id="guideBtn">显示分页线</button>
+      <button onclick="ResumeEditor.exportJSON()">导出数据</button>
+      <button onclick="document.getElementById('importFile').click()">导入数据</button>
+      <input type="file" id="importFile" accept=".json,application/json" style="display:none" onchange="ResumeEditor.importJSON(this)">
+      <button onclick="ResumeEditor.undo()" id="undoBtn" title="撤销 (Ctrl/Cmd+Z)">撤销</button>
+      <button onclick="ResumeEditor.redo()" id="redoBtn" title="重做 (Ctrl/Cmd+Shift+Z / Ctrl+Y)">重做</button>
+      <button onclick="window.print()" title="浏览器原生打印：导出可选中文字、体积小的矢量 PDF（推荐）">打印 / 另存为 PDF</button>
+      <button onclick="ResumeEditor.exportPDF()" title="旧版：html2canvas 截图拼合，文字不可选、体积较大">PDF 预览 / 导出（图片版）</button>
       <span class="autosave" id="autosave"></span>
-      <button class="link-btn" onclick="clearSaved()">重置为初始数据</button>
+      <button class="link-btn" onclick="ResumeEditor.clearSaved()">重置为初始数据</button>
     </div>
     <div class="preview-frame" id="preview"></div>
   </div>
@@ -39,7 +45,7 @@
     <div class="panel" id="panel-spacing">
       <div class="panel-header collapsible" data-panel="panel-spacing">
         <span style="flex:1;">间距配置（px）</span>
-        <button class="mini-btn" style="height:22px;font-size:11px;" onclick="resetSpacing()">恢复默认</button>
+        <button class="mini-btn" style="height:22px;font-size:11px;" onclick="ResumeEditor.resetSpacing()">恢复默认</button>
         <span class="chevron">▾</span>
       </div>
       <div class="panel-body"><div class="font-settings" id="spacingSettings"></div></div>
@@ -62,8 +68,8 @@
       <span class="t">PDF 预览</span>
       <span class="pg" id="pdfPageInfo"></span>
       <span class="sp"></span>
-      <button class="dl" onclick="downloadPDFNow()">下载 PDF</button>
-      <button class="close" onclick="closePdfModal()">关闭</button>
+      <button class="dl" onclick="ResumeEditor.downloadPDFNow()">下载 PDF</button>
+      <button class="close" onclick="ResumeEditor.closePdfModal()">关闭</button>
     </div>
     <div class="pdf-modal-body">
       <iframe id="pdfFrame" title="PDF 预览"></iframe>

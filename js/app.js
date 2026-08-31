@@ -4,6 +4,8 @@
  * 渲染、拖拽排序、字号/间距配置、分页参考线、PDF 导出、自动保存。
  * 数据与默认值来自 js/data.js（需先加载）
  * ============================================================= */
+(function(global){
+'use strict';
 /* ============ 工具 ============ */
 function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function getSection(id){ return data.sections.find(s=>s.id===id); }
@@ -17,23 +19,7 @@ function spacingStyle(type, itemSpacing){
   const mb = (g.mb||0) + (s.mb||0);
   return `margin-top:${mt}px;margin-bottom:${mb}px;`;
 }
-function spacingClass(type, itemSpacing, baseClass){
-  return baseClass;
-}
 function z(v){ return (v==null || v==='' || Number.isNaN(Number(v))) ? 0 : Number(v); }
-function renderSpacingInputs(opts){
-  const s = opts.value || {mt:0, mb:0};
-  const mt = z(s.mt), mb = z(s.mb);
-  return `<span class="spacing-row">` +
-    `<label>上间距 <input type="number" step="1" data-action="spacing-mt" ${opts.dataset||''} value="${mt}"></label>` +
-    `<label>下间距 <input type="number" step="1" data-action="spacing-mb" ${opts.dataset||''} value="${mb}"></label>` +
-    `</span>`;
-}
-function labelWithSpacing(labelHtml, spacingInputs){
-  const m = labelHtml.match(/^(<label[^>]*>)([\s\S]*?)(<\/label>)$/);
-  if(!m) return labelHtml;
-  return m[1] + `<span style="display:flex;justify-content:space-between;align-items:center;gap:6px;">${m[2]}</span>` + m[3] + spacingInputs;
-}
 
 /* 取文本：兼容「对象 {text}」与「纯字符串」两种数据形态（迁移过渡用） */
 function T(x){ return (x && typeof x==='object' && 'text' in x) ? (x.text||'') : (x||''); }
@@ -104,6 +90,24 @@ function renderResumeInner(){
         });
         h+='</div>';
       });
+    } else if(sec.type==='projects'){
+      sec.items.forEach((p,i)=>{
+        const projBreak = p.pageBreak ? ' page-break-before' : '';
+        h+=`<div class="project nested${projBreak}" style="${spacingStyle('project', p.spacing)}">`;
+        h+=`<p class="project-title" style="${spacingStyle('pTitle', p.nameSpacing)}">${esc(T(p.name))}</p>`
+          +`<span class="stack" style="${spacingStyle('pStack', p.stackSpacing)}">${esc(T(p.stack))}</span>`;
+        const pQuote = p.descQuote !== false;
+        const pColor = esc(p.descColor || '#888888');
+        const pQStyle = pQuote ? `padding:6px 0 6px 10px;border-left:2px solid ${pColor};background:#fafafa;` : '';
+        h+=`<p class="desc" style="${spacingStyle('pDesc', p.descSpacing)}${pQStyle}">${esc(T(p.desc))}</p>`;
+        h+=`<ul>`;
+        (p.results||[]).forEach((r,ri)=>{
+          const rt = T(r);
+          if(!rt.trim()) return;
+          h+=`<li style="${spacingStyle('result', S(r).spacing)}">${esc(rt)}</li>`;
+        });
+        h+='</ul></div>';
+      });
     } else if(sec.type==='skills'){
       sec.groups.forEach((grp,g)=>{
         h+=`<div class="skill-group" data-drag="item:${sec.id}:${g}" draggable="true" style="${spacingStyle('skillGroup', grp.spacing)}"><h4 style="${spacingStyle('skillTitle', grp.nameSpacing)}">${esc(T(grp.name))}</h4><ul>`;
@@ -155,6 +159,7 @@ preview.addEventListener('dragover', e=>{
 preview.addEventListener('drop', e=>{
   if(!drag || !drag.dropEl) return;
   e.preventDefault();
+  recordHistory('action');
   const td = drag.dropEl.dataset.drag.split(':');
   if(drag.kind==='section') moveSection(drag.secId, td[1], drag.dropBefore);
   else if(drag.kind==='job') moveJob(drag.secId, +drag.idx, +td[2], drag.dropBefore);
@@ -200,9 +205,19 @@ const editor = document.getElementById('editor');
 function blankItem(type){
   if(type==='advantages') return {label:'',text:'',labelBold:true,spacing:{mt:0,mb:0}};
   if(type==='career')     return {company:'',role:'',date:'',summary:'',summaryQuote:true,summaryColor:'#888888',pageBreak:false,projects:[],spacing:{mt:0,mb:0},companySpacing:{mt:0,mb:0},roleSpacing:{mt:0,mb:0},dateSpacing:{mt:0,mb:0},summarySpacing:{mt:0,mb:0},logoSpacing:{mt:0,mb:0},logoSizeSpacing:{mt:0,mb:0},logoWidthSpacing:{mt:0,mb:0},logoGapSpacing:{mt:0,mb:0}};
+  if(type==='projects')   return blankProject();
   return {};
 }
 function blankProject(){ return {name:'',stack:'',desc:'',results:[], descQuote:true, descColor:'#888888', pageBreak:false, spacing:{mt:0,mb:0}, nameSpacing:{mt:0,mb:0}, stackSpacing:{mt:0,mb:0}, descSpacing:{mt:0,mb:0}}; }
+/* 新建一个空板块（用于「添加板块」）。id 随机生成，避免与已有板块冲突 */
+function blankSection(type){
+  const id = 's_' + Math.random().toString(36).slice(2, 9);
+  if(type==='advantages') return {id, type:'advantages', title:'个人优势', items:[ blankItem('advantages') ]};
+  if(type==='career')     return {id, type:'career', title:'职业履历', items:[ blankItem('career') ]};
+  if(type==='skills')     return {id, type:'skills', title:'核心技能', groups:[ {name:'', items:[], spacing:{mt:0,mb:0}, nameSpacing:{mt:0,mb:0}} ]};
+  if(type==='projects')   return {id, type:'projects', title:'项目经历', items:[ blankProject() ]};
+  return {id, type:'advantages', title:'个人优势', items:[ blankItem('advantages') ]};
+}
 /* 列表行（联系方式 / 量化成果 / 技能点）转为 {text, spacing} 对象，兼容旧版纯字符串 */
 function objify(x, text){
   const sp = (x && typeof x==='object' && x.spacing) ? x.spacing : {mt:0, mb:0};
@@ -241,7 +256,8 @@ function renderEditor(){
   data.sections.forEach(sec=>{
     h+='<div class="card"><div class="card-head"><span class="grow">'+esc(sec.title)+'</span>'
       +'<button class="mini-btn" data-action="move-sec" data-sec="'+sec.id+'" data-dir="up" title="上移板块">↑</button>'
-      +'<button class="mini-btn" data-action="move-sec" data-sec="'+sec.id+'" data-dir="down" title="下移板块">↓</button></div>'
+      +'<button class="mini-btn" data-action="move-sec" data-sec="'+sec.id+'" data-dir="down" title="下移板块">↓</button>'
+      +'<button class="mini-btn del" data-action="del-section" data-sec="'+sec.id+'" title="删除板块">×</button></div>'
       +'<div class="card-body">'+ fl('板块标题', '<input data-sec="'+sec.id+'" data-field="title" value="'+esc(sec.title)+'">', 's:'+sec.id, sec.spacing);
     if(sec.type==='advantages'){
       sec.items.forEach((it,i)=>{
@@ -317,6 +333,13 @@ function renderEditor(){
     }
     h+='</div></div>';
   });
+  // 添加板块
+  h+='<div class="card add-section-card"><div class="card-head">添加板块</div><div class="card-body add-section-body">'
+    +'<button class="add-btn" data-action="add-section" data-type="advantages">＋ 个人优势</button>'
+    +'<button class="add-btn" data-action="add-section" data-type="career">＋ 职业履历</button>'
+    +'<button class="add-btn" data-action="add-section" data-type="skills">＋ 核心技能</button>'
+    +'<button class="add-btn" data-action="add-section" data-type="projects">＋ 项目经历</button>'
+    +'</div></div>';
   editor.innerHTML = h;
 }
 
@@ -339,6 +362,7 @@ function parseSpacingTarget(code){
 /* 编辑输入：只改文字 → 更新模型 → 重渲染预览（不重建右侧，保留焦点） */
 editor.addEventListener('input', e=>{
   const t=e.target;
+  recordHistory('edit');   // 每次输入前记录（同类型在短时间内的连续输入会合并为一个撤销步）
   if(t.dataset.action==='spacing-mt' || t.dataset.action==='spacing-mb'){
     const target = parseSpacingTarget(t.dataset.sp);
     if(target){ const k = t.dataset.action==='spacing-mt' ? 'mt' : 'mb'; target.obj[target.key] = target.obj[target.key] || {mt:0,mb:0}; target.obj[target.key][k] = z(t.value); renderPreview(); }
@@ -402,24 +426,82 @@ editor.addEventListener('input', e=>{
 editor.addEventListener('click', e=>{
   const b=e.target.closest('button[data-action]'); if(!b) return;
   const act=b.dataset.action;
+  // 添加板块：无需已存在的 sec，单独处理
+  if(act==='add-section'){
+    const t=b.dataset.type; if(!t) return;
+    recordHistory('action');
+    data.sections.push(blankSection(t));
+    renderEditor(); renderPreview(); return;
+  }
   const secId=b.dataset.sec; const sec=getSection(secId); if(!sec) return;
-  if(act==='move-sec'){
+  if(act==='del-section'){
+    if(data.sections.length<=1){ alert('至少保留一个板块，无法删除。'); return; }
+    if(!confirm('确定删除整个「'+sec.title+'」板块吗？此操作可用「撤销」恢复。')) return;
+    recordHistory('action');
+    const i=data.sections.findIndex(s=>s.id===secId); if(i>=0) data.sections.splice(i,1);
+  } else if(act==='move-sec'){
+    recordHistory('action');
     const i=data.sections.findIndex(s=>s.id===secId); const j=i+(b.dataset.dir==='up'?-1:1);
     if(j>=0&&j<data.sections.length){ [data.sections[i],data.sections[j]]=[data.sections[j],data.sections[i]]; }
-  } else if(act==='add-item'){ sec.items.push(blankItem(sec.type)); }
-  else if(act==='del-item'){ sec.items.splice(+b.dataset.iidx,1); }
-  else if(act==='move-item'){ const i=+b.dataset.iidx; const j=i+(b.dataset.dir==='up'?-1:1); if(j>=0&&j<sec.items.length){ [sec.items[i],sec.items[j]]=[sec.items[j],sec.items[i]]; } }
-  else if(act==='add-group'){ sec.groups.push({name:'',items:[],spacing:{mt:0,mb:0},nameSpacing:{mt:0,mb:0}}); }
-  else if(act==='del-group'){ sec.groups.splice(+b.dataset.gidx,1); }
-  else if(act==='move-group'){ const g=+b.dataset.gidx; const j=g+(b.dataset.dir==='up'?-1:1); if(j>=0&&j<sec.groups.length){ [sec.groups[g],sec.groups[j]]=[sec.groups[j],sec.groups[g]]; } }
-  else if(act==='add-proj'){ const job=sec.items[+b.dataset.iidx]; if(job){ job.projects=job.projects||[]; job.projects.push(blankProject()); } }
-  else if(act==='del-proj'){ const job=sec.items[+b.dataset.iidx]; if(job&&job.projects) job.projects.splice(+b.dataset.pidx,1); }
+  } else if(act==='add-item'){ recordHistory('action'); sec.items.push(blankItem(sec.type)); }
+  else if(act==='del-item'){ recordHistory('action'); sec.items.splice(+b.dataset.iidx,1); }
+  else if(act==='move-item'){ recordHistory('action'); const i=+b.dataset.iidx; const j=i+(b.dataset.dir==='up'?-1:1); if(j>=0&&j<sec.items.length){ [sec.items[i],sec.items[j]]=[sec.items[j],sec.items[i]]; } }
+  else if(act==='add-group'){ recordHistory('action'); sec.groups.push({name:'',items:[],spacing:{mt:0,mb:0},nameSpacing:{mt:0,mb:0}}); }
+  else if(act==='del-group'){ recordHistory('action'); sec.groups.splice(+b.dataset.gidx,1); }
+  else if(act==='move-group'){ recordHistory('action'); const g=+b.dataset.gidx; const j=g+(b.dataset.dir==='up'?-1:1); if(j>=0&&j<sec.groups.length){ [sec.groups[g],sec.groups[j]]=[sec.groups[j],sec.groups[g]]; } }
+  else if(act==='add-proj'){ recordHistory('action'); const job=sec.items[+b.dataset.iidx]; if(job){ job.projects=job.projects||[]; job.projects.push(blankProject()); } }
+  else if(act==='del-proj'){ recordHistory('action'); const job=sec.items[+b.dataset.iidx]; if(job&&job.projects) job.projects.splice(+b.dataset.pidx,1); }
   else if(act==='move-proj'){
+    recordHistory('action');
     const job=sec.items[+b.dataset.iidx]; const p=+b.dataset.pidx; const j=p+(b.dataset.dir==='up'?-1:1);
     if(job&&job.projects&&j>=0&&j<job.projects.length){ [job.projects[p],job.projects[j]]=[job.projects[j],job.projects[p]]; }
   }
   renderEditor(); renderPreview();
 });
+
+/* ============ 撤销 / 重做（全量状态快照栈） ============ */
+const hist = { undo: [], redo: [], last: { kind:'', t:0 } };
+const HIST_MAX = 100;
+/* 取当前完整状态的可序列化快照 */
+function snapshot(){ return JSON.stringify({ data, fonts: currentFonts, spacing: currentSpacing }); }
+/* 从快照恢复并把所有面板重渲染 */
+function restoreSnapshot(s){
+  try{
+    const o = JSON.parse(s);
+    data = o.data; currentFonts = o.fonts; currentSpacing = o.spacing;
+  }catch(e){ return; }
+  renderSettings(); renderSpacingSettings(); renderEditor(); renderPreview(); applyPanelState();
+}
+/* 记录一次变更。kind 相同且时间相近的连续「编辑/设置」会合并为一个撤销步（避免逐字符/逐格历史爆炸）；
+   'action' 类（增删/移动/拖拽/导入/重置）每次都是独立可撤销步，不合并 */
+function recordHistory(kind){
+  const now = Date.now();
+  if((kind==='edit' || kind==='setting') && hist.last.kind===kind && (now - hist.last.t) < 700){ hist.last.t = now; return; }
+  hist.undo.push(snapshot());
+  if(hist.undo.length > HIST_MAX) hist.undo.shift();
+  hist.redo.length = 0;
+  hist.last = { kind, t: now };
+  updateUndoButtons();
+}
+function undo(){
+  if(!hist.undo.length){ return; }
+  hist.redo.push(snapshot());
+  restoreSnapshot(hist.undo.pop());
+  hist.last = { kind:'', t:0 };
+  updateUndoButtons();
+}
+function redo(){
+  if(!hist.redo.length){ return; }
+  hist.undo.push(snapshot());
+  restoreSnapshot(hist.redo.pop());
+  hist.last = { kind:'', t:0 };
+  updateUndoButtons();
+}
+function updateUndoButtons(){
+  const u=document.getElementById('undoBtn'), r=document.getElementById('redoBtn');
+  if(u) u.disabled = hist.undo.length===0;
+  if(r) r.disabled = hist.redo.length===0;
+}
 
 /* ============ 字体设置 ============ */
 const settings = document.getElementById('settings');
@@ -432,12 +514,13 @@ function renderSettings(){
   settings.querySelectorAll('input').forEach(inp=>{
     inp.addEventListener('input', function(){
       const k=this.dataset.key; let v=parseFloat(this.value); if(isNaN(v)) return;
+      recordHistory('setting');
       v=Math.max(currentFonts[k].min, Math.min(currentFonts[k].max, v));
       currentFonts[k].val=v; renderPreview();
     });
   });
 }
-function resetFonts(){ currentFonts=JSON.parse(JSON.stringify(defaultFonts)); renderSettings(); renderPreview(); }
+function resetFonts(){ recordHistory('action'); currentFonts=JSON.parse(JSON.stringify(defaultFonts)); renderSettings(); renderPreview(); }
 function renderSpacingSettings(){
   const wrap = document.getElementById('spacingSettings');
   wrap.innerHTML = Object.keys(currentSpacing).map(k=>{
@@ -452,12 +535,13 @@ function renderSpacingSettings(){
     inp.addEventListener('input', function(){
       const k=this.dataset.k; const pos=this.dataset.pos;
       let v=parseFloat(this.value); if(isNaN(v)) return;
+      recordHistory('setting');
       v=Math.max(-40, Math.min(80, v));
       currentSpacing[k][pos] = v; renderPreview();
     });
   });
 }
-function resetSpacing(){ currentSpacing=JSON.parse(JSON.stringify(defaultSpacing)); renderSpacingSettings(); renderPreview(); }
+function resetSpacing(){ recordHistory('action'); currentSpacing=JSON.parse(JSON.stringify(defaultSpacing)); renderSpacingSettings(); renderPreview(); }
 
 /* ============ 右侧面板折叠 / 展开（状态持久化到 localStorage） ============ */
 const PANEL_STATE_KEY = 'resume_collapsed_panels_v1';
@@ -644,7 +728,7 @@ function exportPDF(){
 function downloadPDFNow(){
   if(!currentPdfBlobUrl){ exportPDF(); return; }
   const a = document.createElement('a');
-  a.href = currentPdfBlobUrl; a.download = '陈培胜_简历.pdf';
+  a.href = currentPdfBlobUrl; a.download = ((data.name||'简历').replace(/\s+/g,'_')) + '_简历.pdf';
   document.body.appendChild(a); a.click(); a.remove();
 }
 function closePdfModal(){
@@ -653,10 +737,15 @@ function closePdfModal(){
 }
 document.addEventListener('keydown', e=>{
   if(e.key === 'Escape'){ const m=document.getElementById('pdfModal'); if(m && m.style.display==='flex') closePdfModal(); }
+  // 撤销 / 重做（应用级；会覆盖输入框的原生撤销，换取整段内容的撤销能力）
+  const mod = e.ctrlKey || e.metaKey;
+  if(mod && (e.key==='z' || e.key==='Z')){ e.preventDefault(); if(e.shiftKey) redo(); else undo(); }
+  else if(mod && (e.key==='y' || e.key==='Y')){ e.preventDefault(); redo(); }
 });
 
 /* ============ 自动保存（编辑即存入浏览器 localStorage，重新打开本文件时恢复） ============ */
-const SAVE_KEY = 'resume_chenpeisheng_v1';
+const SAVE_KEY = 'resume_builder_data_v1';
+const SAVE_KEY_LEGACY = 'resume_chenpeisheng_v1';
 const SAVE_VERSION = 6;
 let bootDone = false;
 function migrateQuoteColors(d){
@@ -726,7 +815,14 @@ function saveState(){
 }
 function loadState(){
   try{
-    const raw = localStorage.getItem(SAVE_KEY);
+    let raw = localStorage.getItem(SAVE_KEY);
+    // 兼容旧版个人化 key：首次启动把旧数据迁移到通用 key，避免内容丢失
+    if(!raw && SAVE_KEY_LEGACY){
+      raw = localStorage.getItem(SAVE_KEY_LEGACY);
+      if(raw){
+        try{ localStorage.setItem(SAVE_KEY, raw); localStorage.removeItem(SAVE_KEY_LEGACY); }catch(_){}
+      }
+    }
     if(!raw) return false;
     const obj = JSON.parse(raw);
     if(obj && obj.data) data = obj.data;
@@ -764,6 +860,55 @@ function showAutosave(){
   el.textContent = '✓ 已自动保存 · ' + p(t.getHours())+':'+p(t.getMinutes())+':'+p(t.getSeconds());
 }
 
+/* ============ 数据导入 / 导出（JSON，脱离浏览器存储的可移植备份） ============ */
+/* 导出当前全部数据为 JSON 文件，可在任意设备/浏览器导入恢复 */
+function exportJSON(){
+  const payload = {data, fonts: currentFonts, spacing: currentSpacing, v: SAVE_VERSION};
+  const blob = new Blob([JSON.stringify(payload, null, 2)], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = ((data.name||'resume').replace(/\s+/g,'_')) + '_简历数据.json';
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+}
+/* 由隐藏 file input 触发：读取并校验 JSON，覆盖式导入 */
+function importJSON(input){
+  const file = input.files && input.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = e=>{
+    try{
+      const obj = JSON.parse(e.target.result);
+      applyImported(obj);
+    }catch(err){
+      alert('导入失败：文件不是有效的 JSON\n' + (err && err.message ? err.message : err));
+    }
+    input.value = '';
+  };
+  reader.onerror = ()=>{ alert('导入失败：文件读取错误'); input.value = ''; };
+  reader.readAsText(file);
+}
+function applyImported(obj){
+  if(!obj || typeof obj!=='object' || !obj.data || !Array.isArray(obj.data.sections)){
+    alert('导入失败：文件格式不正确（缺少 data.sections）');
+    return;
+  }
+  if(!confirm('导入将用文件内容覆盖当前编辑器中的全部内容，确定继续？')) return;
+  recordHistory('action');   // 导入前记录，导入结果可撤销
+  // 规范化数据形态（兼容旧版纯字符串 / 分页符残留）
+  data = obj.data;
+  if(obj.fonts && typeof obj.fonts==='object') currentFonts = obj.fonts;
+  if(obj.spacing && typeof obj.spacing==='object') currentSpacing = obj.spacing;
+  migrateQuoteColors(data);
+  migrateSpacing(data);
+  if(!data.sections) data.sections = [];
+  saveState();
+  renderSettings(); renderSpacingSettings(); renderEditor(); renderPreview(); applyPanelState();
+  try{ document.title = (data.name||'简历') + ' · 简历编辑器'; }catch(_){}
+  showAutosave();
+  alert('✓ 已导入数据');
+}
+
 /* ============ 初始化 ============ */
 const restored = loadState();
 renderSettings();
@@ -771,5 +916,36 @@ renderSpacingSettings();
 renderEditor();
 renderPreview();
 applyPanelState();
+try{ document.title = (data.name||'简历') + ' · 简历编辑器'; }catch(_){}
+updateUndoButtons();
 if(restored){ const el=document.getElementById('autosave'); if(el) el.textContent='✓ 已恢复上次保存的内容'; }
 bootDone = true;
+
+/* ============ 对外命名空间（集中挂载，避免污染全局 window） ============ */
+/* 仅 index.html 内联事件所需的函数，以及测试 / 调试用内部函数，暴露在此对象上；
+   其余所有辅助函数 / 变量均为 IIFE 私有，不再泄漏到全局作用域。 */
+global.ResumeEditor = {
+  // —— 供 index.html 内联 onclick / onchange 调用 ——
+  toggleGuides: toggleGuides,
+  exportPDF: exportPDF,
+  exportJSON: exportJSON,
+  importJSON: importJSON,
+  clearSaved: clearSaved,
+  undo: undo,
+  redo: redo,
+  resetSpacing: resetSpacing,
+  closePdfModal: closePdfModal,
+  downloadPDFNow: downloadPDFNow,
+  // —— 供单元测试 / 调试复用（非公开 API） ——
+  blankSection: blankSection,
+  blankItem: blankItem,
+  recordHistory: recordHistory,
+  hist: hist,
+  loadState: loadState,
+  applyImported: applyImported,
+  renderResumeInner: renderResumeInner,
+  migrateSpacing: migrateSpacing,
+  SAVE_KEY: SAVE_KEY,
+  SAVE_KEY_LEGACY: SAVE_KEY_LEGACY
+};
+}) (typeof window !== 'undefined' ? window : globalThis);
