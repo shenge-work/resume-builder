@@ -1,0 +1,18 @@
+# 构建产物（由 tools/build-single.js 生成，不入库）
+dist/
+
+# 系统与编辑器
+.DS_Store
+Thumbs.db
+*.swp
+
+# 依赖与日志
+node_modules/
+npm-debug.log*
+yarn-error.log*
+
+# 编辑器配置
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace

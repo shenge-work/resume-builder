@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>陈培胜 · 简历编辑器（拖拽排版 / 纯文本编辑）</title>
+
+<link rel="stylesheet" href="css/style.css">
+
+<!-- 第三方库：PDF 导出用（html2canvas 截图 + jsPDF 拼页），本地存放，离线可用 -->
+<script src="vendor/html2canvas.min.js"></script>
+<script src="vendor/jspdf.umd.min.js"></script>
+
+<!-- 本项目代码：data.js 必须在 app.js 之前加载 -->
+<script src="js/data.js"></script>
+<script src="js/app.js"></script>
+</head>
+<body>
+
+<div class="app">
+  <div class="preview-pane">
+    <div class="toolbar">
+      <h1>简历实时预览</h1>
+      <span class="tip">拖拽左侧板块/条目可重排顺序</span>
+      <button onclick="toggleGuides()" id="guideBtn">显示分页线</button>
+      <button onclick="exportPDF()">PDF 预览 / 导出</button>
+      <span class="autosave" id="autosave"></span>
+      <button class="link-btn" onclick="clearSaved()">重置为初始数据</button>
+    </div>
+    <div class="preview-frame" id="preview"></div>
+  </div>
+
+  <div class="editor-pane">
+    <div class="panel" id="panel-fonts">
+      <div class="panel-header collapsible" data-panel="panel-fonts">字号配置（px）<span class="chevron">▾</span></div>
+      <div class="panel-body"><div class="font-settings" id="settings"></div></div>
+    </div>
+
+    <div class="panel" id="panel-spacing">
+      <div class="panel-header collapsible" data-panel="panel-spacing">
+        <span style="flex:1;">间距配置（px）</span>
+        <button class="mini-btn" style="height:22px;font-size:11px;" onclick="resetSpacing()">恢复默认</button>
+        <span class="chevron">▾</span>
+      </div>
+      <div class="panel-body"><div class="font-settings" id="spacingSettings"></div></div>
+    </div>
+
+    <div class="panel panel-grow" id="panel-editor">
+      <div class="panel-header collapsible" data-panel="panel-editor">内容编辑（仅改文字，代码自动生成）<span class="chevron">▾</span></div>
+      <div class="panel-body">
+        <div class="hint">左侧预览中可用鼠标拖拽板块/条目重排顺序；右侧只修改纯文本，无需写代码。每行字段均提供「上间距 / 下间距」微调，数值会与上方「间距配置」中的全局默认值叠加，只影响当前这一行。</div>
+        <div class="editor-scroll" id="editor"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- PDF 预览弹层 -->
+<div class="pdf-modal" id="pdfModal">
+  <div class="pdf-modal-box">
+    <div class="pdf-modal-bar">
+      <span class="t">PDF 预览</span>
+      <span class="pg" id="pdfPageInfo"></span>
+      <span class="sp"></span>
+      <button class="dl" onclick="downloadPDFNow()">下载 PDF</button>
+      <button class="close" onclick="closePdfModal()">关闭</button>
+    </div>
+    <div class="pdf-modal-body">
+      <iframe id="pdfFrame" title="PDF 预览"></iframe>
+    </div>
+  </div>
+</div>
+
+
+</body>
+</html>
