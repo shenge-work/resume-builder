@@ -2,16 +2,15 @@
 
 一个**纯前端、零依赖后端**的简历排版工具：左侧实时预览，右侧纯文本编辑，拖拽调序，一键导出 PDF。
 
-原文件是一份单文件 HTML；本项目把它拆成多文件，便于用 Git 管理与协作。
+原文件是一份单文件 HTML；本项目把它拆成多文件，便于用 Git 管理与协作。同时，构建好的单文件版 `简历编辑器-单文件.html` 已放在仓库根目录，可直接下载双击打开、断网可用（与 `dist/` 产物同源）。
 
 ---
 
 ## 快速开始
 
-**方式一：直接用多文件版**
+**方式一：直接用多文件版（开发 / 自托管）**
 
 ```bash
-# 用任意静态服务器打开（推荐，避免 file:// 的限制）
 cd resume-builder
 python3 -m http.server 8000
 # 浏览器访问 http://localhost:8000
@@ -24,6 +23,10 @@ node tools/build-single.js
 # 产物：dist/简历编辑器-单文件.html  → 可直接双击打开、断网可用
 ```
 
+**方式三：直接用仓库里的单文件版（推荐快速使用）**
+
+仓库根目录已提供预构建好的 `简历编辑器-单文件.html`，**无需任何构建、双击即开、断网可用**，适合直接下载使用或分享。
+
 > 直接双击 `index.html`（`file://`）大多也能正常工作；若遇到 PDF 导出异常，改用方式一的本地服务器即可。
 
 ---
@@ -32,7 +35,8 @@ node tools/build-single.js
 
 ```
 resume-builder/
-├── index.html              # 页面骨架
+├── index.html              # 页面骨架（多文件版入口）
+├── 简历编辑器-单文件.html   # ★ 预构建单文件版：双击即开、断网可用（已纳入版本控制）
 ├── css/
 │   └── style.css           # 全部样式
 ├── js/
@@ -43,7 +47,7 @@ resume-builder/
 │   └── jspdf.umd.min.js    #   把图片拼成 PDF
 ├── tools/
 │   └── build-single.js     # 打包脚本：多文件 → 单文件 HTML
-├── dist/                   # 构建产物（已被 .gitignore 忽略）
+├── dist/                   # 构建产物缓存（已被 .gitignore 忽略；根目录单文件与之同源）
 └── README.md
 ```
 
@@ -87,6 +91,10 @@ node tools/build-single.js
 脚本会依次把 `css/style.css`、两个 vendor 库、`js/data.js`、`js/app.js` 内联进 `index.html`，输出到 `dist/简历编辑器-单文件.html`。
 
 > 不要手改 `dist/` 下的产物，每次构建都会覆盖。
+> 仓库根目录的 `简历编辑器-单文件.html` 与本产物同源；改动源码后如需更新它：
+> ```bash
+> node tools/build-single.js && cp "dist/简历编辑器-单文件.html" "简历编辑器-单文件.html"
+> ```
 
 ---
 
