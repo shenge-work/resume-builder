@@ -104,3 +104,28 @@ recordHistory('edit'); recordHistory('edit'); recordHistory('edit');
 E('连续 edit 合并为 1 个历史项', hist.undo.length === 1);
 recordHistory('setting'); recordHistory('setting');
 E('连续 setting 合并为 1 个历史项（独立 kind）', hist.undo.length === 2);
+
+/* ===== P1：板块级 pageBreak（强制板块从新一页开始）===== */
+hist.undo.length = 0; hist.redo.length = 0; hist.last = { kind:'', t:0 };
+data.sections = [];
+const adv0 = blankSection('advantages');
+const car0 = blankSection('career');
+data.sections.push(adv0, car0);
+E('blankSection("advantages").pageBreak 默认 false', adv0.pageBreak === false);
+E('blankSection("career").pageBreak 默认 false', car0.pageBreak === false);
+
+/* section.pageBreak 缺字段时 migratePageBreaks 补 false */
+data.sections[0].pageBreak = undefined;
+migratePageBreaks(data);
+E('migratePageBreaks 把缺失的 section.pageBreak 补为 false', data.sections[0].pageBreak === false);
+
+/* 显式 true 不会被迁移改写 */
+data.sections[1].pageBreak = true;
+migratePageBreaks(data);
+E('migratePageBreaks 保留显式 pageBreak=true', data.sections[1].pageBreak === true);
+
+/* 板块级 pageBreak 影响渲染：在 .section 元素上挂 page-break-before */
+const secHtml = `<section class="section${car0.pageBreak ? ' page-break-before' : ''}">…</section>`;
+E('career 渲染时挂上 page-break-before class', secHtml.includes('page-break-before'));
+const advHtml = `<section class="section${adv0.pageBreak ? ' page-break-before' : ''}">…</section>`;
+E('advantages 默认不带 page-break-before', !advHtml.includes('page-break-before'));

@@ -11,7 +11,12 @@
       "某某大学 · 2020 统招全日制本科",
       "计算机科学与技术专业"
     ],
-    "pageMargins": { "top": 14, "right": 14, "bottom": 14, "left": 14 },
+    "pageMargins": {
+      "top": 14,
+      "right": 14,
+      "bottom": 14,
+      "left": 14
+    },
     "sections": [
       {
         "id": "s3",
@@ -63,6 +68,53 @@
             "label": "工程素养",
             "text": "注重代码规范与可维护性，理解测试、部署与监控在质量保障中的作用。",
             "labelBold": true
+          }
+        ]
+      },
+      {
+        "id": "s_highlights",
+        "type": "highlights",
+        "title": "关键印记",
+        "cards": [
+          {
+            "text": "6 年 Java 架构师 + 3 次单体→微服务升级 + 单体→Dubbo2→Dubbo3→K8s 全链路架构演进实战。"
+          },
+          {
+            "text": "4 年讯飞体系锤炼 Java 工程深度（年产**8000万文档/TB级数据/自研责任链框架**），加入 AI 赛道后主导架构升级和 Agent 系统工程基建。技术决策风格：不停机、可回滚、最小改动。工程经验从 Java 自然迁移到 Python/TypeScript/Rust 多语言生态，开源 AI 编程工具 CCode 作者。"
+          }
+        ],
+        "tags": [
+          "微服务架构",
+          "Dubbo 2→3",
+          "6年Java深耕",
+          "AI Agent 加持",
+          "分布式系统",
+          "K8s 生产迁移",
+          "开源作者"
+        ]
+      },
+      {
+        "id": "s2",
+        "type": "growth",
+        "title": "技术成长路径",
+        "phases": [
+          {
+            "label": "PHASE 1",
+            "date": "2021 - 2023",
+            "title": "后端基础 · 工程素养",
+            "desc": "示例：参与后台业务开发，熟悉 Spring Boot、MySQL、Redis、消息队列等基础组件，逐步形成工程化思维与代码规范意识。"
+          },
+          {
+            "label": "PHASE 2",
+            "date": "2023 - 2025",
+            "title": "全栈拓展 · AI 探索",
+            "desc": "示例：负责前后端完整链路开发，参与 AI 应用原型验证，接触 LangChain、RAG、Agent 等方向的早期落地与效果评估。"
+          },
+          {
+            "label": "PHASE 3",
+            "date": "2025 - 至今",
+            "title": "架构能力 · Agent 工程化",
+            "desc": "示例：主导 Agent 平台搭建与多 Agent 协作体系建设，开始关注评测、计费、Skill 治理等企业级能力闭环。"
           }
         ]
       },

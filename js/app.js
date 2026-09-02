@@ -8,6 +8,11 @@
 'use strict';
 /* ============ 工具 ============ */
 function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+/* 把 **xxx** 转为 <strong>xxx</strong>，其它字符转义 */
+function boldText(s){
+  const safe = esc(s);
+  return safe.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+}
 function getSection(id){ return data.sections.find(s=>s.id===id); }
 function getVarStr(){ return Object.keys(currentFonts).map(k=>`--font-${k}:${currentFonts[k].val}px`).join(';')+';'; }
 
@@ -39,7 +44,8 @@ function renderResumeInner(){
      +`<div class="header-right"><div class="meta" style="${spacingStyle('meta', data.metaSpacing)}"><${metaTag}>${esc(data.meta)}</${metaTag}></div>`
      + data.contact.map((c,i)=>`<div style="${spacingStyle('contact', ((data.contactSpacing||[])[i]||{}))}">${esc(T(c))}</div>`).join('') + `</div></header>`;
   data.sections.forEach(sec=>{
-    h+=`<section class="section" data-drag="section:${sec.id}" draggable="true" style="${spacingStyle('section', sec.spacing)}">`;
+    const secBreak = sec.pageBreak ? ' page-break-before' : '';
+    h+=`<section class="section${secBreak}" data-drag="section:${sec.id}" draggable="true" style="${spacingStyle('section', sec.spacing)}">`;
     h+=`<h2 class="section-title">${esc(sec.title)}</h2>`;
     if(sec.type==='advantages'){
       h+='<ul class="adv">';
@@ -121,6 +127,34 @@ function renderResumeInner(){
         });
         h+='</ul></div>';
       });
+    } else if(sec.type==='highlights'){
+      // 高亮卡（左侧灰竖条）+ 标签芯片。文本里 **xxx** 视为加粗。
+      h+='<div class="highlights">';
+      (sec.cards||[]).forEach(card=>{
+        const txt = T(card && card.text);
+        if(txt.trim()) h += '<div class="highlight-card">'+boldText(txt)+'</div>';
+      });
+      const tags = (sec.tags||[]).map(t=>String(T(t)).trim()).filter(Boolean);
+      if(tags.length){
+        h+='<div class="highlight-tags">';
+        tags.forEach(t=>{ h+='<span class="highlight-tag">'+esc(t)+'</span>'; });
+        h+='</div>';
+      }
+      h+='</div>';
+    } else if(sec.type==='growth'){
+      // 三栏时间轴：phase ▸ phase ▸ phase，中间用 ▶ 串接
+      const phases = sec.phases || [];
+      h+='<div class="growth">';
+      phases.forEach((ph,i)=>{
+        h+=`<div class="growth-phase">`;
+        h+=`<span class="phase-label">${esc(T(ph.label))}</span>`;
+        if(T(ph.date).trim()) h+=`<div class="phase-date" style="${spacingStyle('phaseDate', ph.dateSpacing)}">${esc(T(ph.date))}</div>`;
+        if(T(ph.title).trim()) h+=`<div class="phase-title" style="${spacingStyle('phaseTitle', ph.titleSpacing)}">${esc(T(ph.title))}</div>`;
+        if(T(ph.desc).trim()) h+=`<p class="phase-desc" style="${spacingStyle('phaseDesc', ph.descSpacing)}">${esc(T(ph.desc))}</p>`;
+        h+='</div>';
+        if(i < phases.length - 1){ h += '<div class="growth-arrow" aria-hidden="true">▶</div>'; }
+      });
+      h += '</div>';
     }
     h+='</section>';
   });
@@ -221,11 +255,16 @@ function blankProject(){ return {name:'',stack:'',desc:'',results:[], descQuote:
 /* 新建一个空板块（用于「添加板块」）。id 随机生成，避免与已有板块冲突 */
 function blankSection(type){
   const id = 's_' + Math.random().toString(36).slice(2, 9);
-  if(type==='advantages') return {id, type:'advantages', title:'个人优势', items:[ blankItem('advantages') ]};
-  if(type==='career')     return {id, type:'career', title:'职业履历', items:[ blankItem('career') ]};
-  if(type==='skills')     return {id, type:'skills', title:'核心技能', groups:[ {name:'', items:[], spacing:{mt:0,mb:0}, nameSpacing:{mt:0,mb:0}} ]};
-  if(type==='projects')   return {id, type:'projects', title:'项目经历', items:[ blankProject() ]};
-  return {id, type:'advantages', title:'个人优势', items:[ blankItem('advantages') ]};
+  if(type==='advantages') return {id, type:'advantages', title:'个人优势', pageBreak:false, items:[ blankItem('advantages') ]};
+  if(type==='career')     return {id, type:'career', title:'职业履历', pageBreak:false, items:[ blankItem('career') ]};
+  if(type==='skills')     return {id, type:'skills', title:'核心技能', pageBreak:false, groups:[ {name:'', items:[], spacing:{mt:0,mb:0}, nameSpacing:{mt:0,mb:0}} ]};
+  if(type==='projects')   return {id, type:'projects', title:'项目经历', pageBreak:false, items:[ blankProject() ]};
+  if(type==='highlights') return {id, type:'highlights', title:'关键印记', pageBreak:false, cards:[ {text:''}, {text:''} ], tags:['','','']};
+  if(type==='growth')     return {id, type:'growth', title:'技术成长路径', pageBreak:false, phases:[ blankPhase(), blankPhase(), blankPhase() ]};
+  return {id, type:'advantages', title:'个人优势', pageBreak:false, items:[ blankItem('advantages') ]};
+}
+function blankPhase(){
+  return {label:'PHASE', date:'', title:'', desc:'', spacing:{mt:0,mb:0}, dateSpacing:{mt:0,mb:0}, titleSpacing:{mt:0,mb:0}, descSpacing:{mt:0,mb:0}};
 }
 /* 列表行（联系方式 / 量化成果 / 技能点）转为 {text, spacing} 对象，兼容旧版纯字符串 */
 function objify(x, text){
@@ -267,7 +306,8 @@ function renderEditor(){
       +'<button class="mini-btn" data-action="move-sec" data-sec="'+sec.id+'" data-dir="up" title="上移板块">↑</button>'
       +'<button class="mini-btn" data-action="move-sec" data-sec="'+sec.id+'" data-dir="down" title="下移板块">↓</button>'
       +'<button class="mini-btn del" data-action="del-section" data-sec="'+sec.id+'" title="删除板块">×</button></div>'
-      +'<div class="card-body">'+ fl('板块标题', '<input data-sec="'+sec.id+'" data-field="title" value="'+esc(sec.title)+'">', 's:'+sec.id, sec.spacing);
+      +'<div class="card-body">'+ fl('板块标题', '<input data-sec="'+sec.id+'" data-field="title" value="'+esc(sec.title)+'">', 's:'+sec.id, sec.spacing)
+      +'<div class="field" style="display:flex;align-items:center;gap:10px;"><label class="check"><input type="checkbox" data-sec="'+sec.id+'" data-field="pageBreak" '+(sec.pageBreak?'checked':'')+'> 强制本板块从新一页开始</label></div>';
     if(sec.type==='advantages'){
       sec.items.forEach((it,i)=>{
         h+='<div class="item-row">'+itemHead('优势 '+(i+1),sec.id,'data-iidx',i)
@@ -339,6 +379,37 @@ function renderEditor(){
         h +='</div>';
       });
       h+='<button class="add-btn" data-action="add-item" data-sec="'+sec.id+'">＋ 添加项目</button>';
+    } else if(sec.type==='highlights'){
+      (sec.cards||[]).forEach((card,i)=>{
+        const ccode='h:'+sec.id+':c:'+i;
+        h+='<div class="item-row"><div class="item-head"><span class="tag">高亮卡 '+(i+1)+'</span>'
+          +'<button class="mini-btn" data-action="move-card" data-sec="'+sec.id+'" data-cidx="'+i+'" data-dir="up" title="上移">↑</button>'
+          +'<button class="mini-btn" data-action="move-card" data-sec="'+sec.id+'" data-cidx="'+i+'" data-dir="down" title="下移">↓</button>'
+          +'<button class="mini-btn del" data-action="del-card" data-sec="'+sec.id+'" data-cidx="'+i+'" title="删除">×</button></div>';
+        h += fl('高亮卡正文（**xxx** 标记加粗）', '<textarea data-sec="'+sec.id+'" data-cidx="'+i+'" data-field="hcard" rows="3">'+esc(T(card && card.text))+'</textarea>', ccode+':text');
+      });
+      h+='<button class="add-btn" data-action="add-card" data-sec="'+sec.id+'">＋ 添加高亮卡</button>';
+      h+='<div class="item-row"><div class="item-head"><span class="tag">标签芯片</span></div>';
+      (sec.tags||[]).forEach((t,i)=>{
+        h += fl('标签 '+(i+1), '<input data-sec="'+sec.id+'" data-tidx="'+i+'" data-field="htag" value="'+esc(T(t))+'">', 'h:'+sec.id+':t:'+i);
+      });
+      h+='<button class="add-btn" data-action="add-tag" data-sec="'+sec.id+'">＋ 添加标签</button>';
+      h+='</div>';
+    } else if(sec.type==='growth'){
+      (sec.phases||[]).forEach((ph,i)=>{
+        const pcode='g:'+sec.id+':'+i;
+        // phase 用 data-pidx，复用 itemHead 但 idxAttr 不同
+        h+='<div class="item-row"><div class="item-head"><span class="tag">阶段 '+(i+1)+'</span>'
+          +'<button class="mini-btn" data-action="move-phase" data-sec="'+sec.id+'" data-pidx="'+i+'" data-dir="up" title="上移">↑</button>'
+          +'<button class="mini-btn" data-action="move-phase" data-sec="'+sec.id+'" data-pidx="'+i+'" data-dir="down" title="下移">↓</button>'
+          +'<button class="mini-btn del" data-action="del-phase" data-sec="'+sec.id+'" data-pidx="'+i+'" title="删除">×</button></div>';
+        h += fl('阶段标签（如 PHASE 1）', '<input data-sec="'+sec.id+'" data-pidx="'+i+'" data-field="phaseLabel" value="'+esc(T(ph.label))+'">', pcode+':label');
+        h += fl('时间段', '<input data-sec="'+sec.id+'" data-pidx="'+i+'" data-field="phaseDate" value="'+esc(T(ph.date))+'">', pcode+':date', ph.dateSpacing);
+        h += fl('主题（如 Java 架构 · 工程基石）', '<input data-sec="'+sec.id+'" data-pidx="'+i+'" data-field="phaseTitle" value="'+esc(T(ph.title))+'">', pcode+':title', ph.titleSpacing);
+        h += fl('描述', '<textarea data-sec="'+sec.id+'" data-pidx="'+i+'" data-field="phaseDesc" rows="3">'+esc(T(ph.desc))+'</textarea>', pcode+':desc', ph.descSpacing);
+        h +='</div>';
+      });
+      h+='<button class="add-btn" data-action="add-phase" data-sec="'+sec.id+'">＋ 添加阶段</button>';
     }
     h+='</div></div>';
   });
@@ -348,6 +419,8 @@ function renderEditor(){
     +'<button class="add-btn" data-action="add-section" data-type="career">＋ 职业履历</button>'
     +'<button class="add-btn" data-action="add-section" data-type="skills">＋ 核心技能</button>'
     +'<button class="add-btn" data-action="add-section" data-type="projects">＋ 项目经历</button>'
+    +'<button class="add-btn" data-action="add-section" data-type="highlights">＋ 关键印记</button>'
+    +'<button class="add-btn" data-action="add-section" data-type="growth">＋ 技术成长路径</button>'
     +'</div></div>';
   editor.innerHTML = h;
 }
@@ -386,6 +459,7 @@ editor.addEventListener('input', e=>{
   if(f==='contact'){ const i=+t.dataset.ci; data.contact[i]=objify(data.contact[i], t.value); renderPreview(); return; }
   const sec=getSection(t.dataset.sec); if(!sec) return;
   if(f==='title'){ sec.title=t.value; renderPreview(); return; }
+  if(f==='pageBreak' && t.dataset.iidx==null && t.dataset.pidx==null && t.dataset.gidx==null && t.dataset.cidx==null && t.dataset.tidx==null){ sec.pageBreak = t.checked; renderPreview(); return; }
   if(sec.type==='advantages'){
     const i=+t.dataset.iidx; const it=sec.items[i];
     if(f==='label') it.label=t.value;
@@ -428,6 +502,17 @@ editor.addEventListener('input', e=>{
     else if(f==='pdesc') p.desc=t.value;
     else if(f==='presults'){ const ri=+t.dataset.ri; p.results[ri]=objify(p.results[ri], t.value); }
     renderPreview();
+  } else if(sec.type==='highlights'){
+    if(f==='hcard'){ const i=+t.dataset.cidx; sec.cards[i] = sec.cards[i] || {}; sec.cards[i].text = t.value; }
+    else if(f==='htag'){ const i=+t.dataset.tidx; sec.tags[i] = t.value; }
+    renderPreview();
+  } else if(sec.type==='growth'){
+    const i=+t.dataset.pidx; const ph=sec.phases[i]; if(!ph) return;
+    if(f==='phaseLabel') ph.label=t.value;
+    else if(f==='phaseDate') ph.date=t.value;
+    else if(f==='phaseTitle') ph.title=t.value;
+    else if(f==='phaseDesc') ph.desc=t.value;
+    renderPreview();
   }
 });
 
@@ -465,6 +550,14 @@ editor.addEventListener('click', e=>{
     const job=sec.items[+b.dataset.iidx]; const p=+b.dataset.pidx; const j=p+(b.dataset.dir==='up'?-1:1);
     if(job&&job.projects&&j>=0&&j<job.projects.length){ [job.projects[p],job.projects[j]]=[job.projects[j],job.projects[p]]; }
   }
+  else if(act==='add-phase'){ recordHistory('action'); sec.phases=sec.phases||[]; sec.phases.push(blankPhase()); }
+  else if(act==='del-phase'){ if(!sec.phases||sec.phases.length<=1){ alert('至少保留一个阶段，无法删除。'); return; } recordHistory('action'); sec.phases.splice(+b.dataset.pidx,1); }
+  else if(act==='move-phase'){ recordHistory('action'); const i=+b.dataset.pidx; const j=i+(b.dataset.dir==='up'?-1:1); if(sec.phases&&j>=0&&j<sec.phases.length){ [sec.phases[i],sec.phases[j]]=[sec.phases[j],sec.phases[i]]; } }
+  else if(act==='add-card'){ recordHistory('action'); sec.cards=sec.cards||[]; sec.cards.push({text:''}); }
+  else if(act==='del-card'){ recordHistory('action'); sec.cards=sec.cards||[]; if(sec.cards.length<=1){ alert('至少保留一张高亮卡。'); return; } sec.cards.splice(+b.dataset.cidx,1); }
+  else if(act==='move-card'){ recordHistory('action'); sec.cards=sec.cards||[]; const i=+b.dataset.cidx; const j=i+(b.dataset.dir==='up'?-1:1); if(j>=0&&j<sec.cards.length){ [sec.cards[i],sec.cards[j]]=[sec.cards[j],sec.cards[i]]; } }
+  else if(act==='add-tag'){ recordHistory('action'); sec.tags=sec.tags||[]; sec.tags.push(''); }
+  else if(act==='del-tag'){ recordHistory('action'); sec.tags=sec.tags||[]; sec.tags.splice(+b.dataset.tidx,1); }
   renderEditor(); renderPreview();
 });
 
@@ -888,7 +981,7 @@ document.addEventListener('keydown', e=>{
 /* ============ 自动保存（编辑即存入浏览器 localStorage，重新打开本文件时恢复） ============ */
 const SAVE_KEY = 'resume_builder_data_v1';
 const SAVE_KEY_LEGACY = 'resume_chenpeisheng_v1';
-const SAVE_VERSION = 7;
+const SAVE_VERSION = 8;
 const FILENAME_BASE_KEY = 'resume_filename_base_v1';
 let fileNameBase = '';
 let bootDone = false;
@@ -1016,6 +1109,8 @@ function migratePageBreaks(d){
         if(job.pageBreak === undefined) job.pageBreak = false;
       });
     }
+    // 板块级 pageBreak：缺失补 false（让「强制本板块从新一页开始」开关默认关闭）
+    if(typeof sec.pageBreak !== 'boolean') sec.pageBreak = false;
   });
 }
 function clearSaved(){
@@ -1067,6 +1162,8 @@ function applyDataPayload(obj){
   migrateQuoteColors(data);
   migrateSpacing(data);
   if(!data.sections) data.sections = [];
+  // 兼容旧数据：section 级别 pageBreak 字段缺失时补 false
+  data.sections.forEach(sec=>{ if(typeof sec.pageBreak !== 'boolean') sec.pageBreak = false; });
   saveState();
   renderSettings(); renderMarginSettings(); renderSpacingSettings(); renderEditor(); renderPreview(); applyPanelState();
   updateFileNameInput();
@@ -1184,6 +1281,7 @@ global.ResumeEditor = {
   applyImported: applyImported,
   renderResumeInner: renderResumeInner,
   migrateSpacing: migrateSpacing,
+  migratePageBreaks: migratePageBreaks,
   getFileName: getFileName,
   SAVE_KEY: SAVE_KEY,
   SAVE_KEY_LEGACY: SAVE_KEY_LEGACY
