@@ -222,6 +222,24 @@ PDF 还要过系统打印对话框。本任务补齐这三块，全部不依赖�
 - AC4 前端「静默导出 PDF」入口接在「导出」菜单与移动端「同步/工具 → 导出」分组。
 - AC5 `node --check` 通过；本机实测（找到 Chrome 时）产出 PDF 且文件头为 `%PDF-`。
 
+### 验收记录（T7 复验·逐条核对）
+
+| AC | 结果 | 证据 |
+|---|---|---|
+| 7a-AC1/2/3 体检模块与 UI | ✅ | `js/audit.js` 零依赖 IIFE，仅暴露 `ResumeAudit`；覆盖页数 / 必填 / 时间倒序 / 量化 / 长度 / 占位 / PII / ATS 图片与伪表格 / 板块标题等 10 类规则；工具栏「体检」+ 右栏 `#auditBody` + 移动端「投递准备」三个入口均已接线 |
+| 7a-AC4 只读 | ✅ | 模块内无任何写数据 / 存盘 / 历史栈调用；`app.js` 仅新增一个只读出口 `getData()`（`js/app.js:1687`） |
+| 7b-AC1/2/3/4 导出 | ✅ | `buildDocx()` 产出合法 zip（魔数 `PK\x03\x04`，5 个必需部件齐全，`unzip -t` CRC 通过，无残留 `**`，中文正常）；`document.xml` 无 `<w:tbl>`/`<w:drawing>`；txt / md 为线性文本，板块标题在 txt 中用「【】」框出 |
+| 7c-AC1/2 静默 PDF | ✅ | 见下方「实测记录」：`HTTP 200` + `%PDF-1.4` + 3 页 + 0 图片 XObject + 0 临时文件残留；服务仍只监听 `127.0.0.1` |
+| 7c-AC3 降级 | ✅ | 无可用浏览器时返回 `501 {error, hint}`；前端 `exportPdfSilent()` 捕获后自动调用 `window.print()`，并在提示位说明原因 |
+| 7c-AC4 入口 | ✅ | 桌面「导出」菜单 + 移动端「同步/工具 → 导出」均有入口 |
+| 7c-AC5 静态 | ✅ | `node --check` 全通过（`serve.js` / `audit.js` / `export-extra.js` / `build-single.js`）；项目测试 **117/117** 全绿（含 T7 接线断言） |
+
+**已知偏差与前提（如实登记）**
+- **静默 PDF 依赖本机已装 Chromium 系浏览器**（Chrome / Chromium / Edge / Brave），也可用环境变量 `CHROME_PATH` 指定路径；未安装则自动降级为打印对话框。
+- **页数估算分两种精度**：浏览器内用 `#preview .resume` 的真实 DOM 高度 ÷ A4 可用高度；Node 等无 DOM 环境下按 900 字/页粗估（同一份示范数据估算 2 页、真实 3 页），**仅供无浏览器场景使用**。
+- **页数是几何推算，不含浏览器分页时的 `break-inside:avoid` 推挤**：`css/style.css` 为避免「一条经历被拦腰截断」给 `.job/.project/.skill-group/.adv li/.card/.growth` 加了 `break-inside:avoid`，被整体推到下一页时会多出空白，于是**实际页数可能比推算多 1 页**。实测：`template.json` 推算 3 页 = PDF 实际 3 页（一致）；用户真实简历推算 3 页、PDF 实际 **4 页**（含 2 个公司 Logo 图片）。误差方向恒为「实际 ≥ 推算」，因此「超过 2 页」类提示**不会漏报**，只会略微保守。
+- 打印纸张尺寸与边距由 `css/style.css` 的 `@page{size:A4;margin:14mm}` 决定，**不随「页面边距」面板变化**（既有行为，非本次引入）；若需让它跟随 `data.pageMargins`，应另开任务。
+
 ---
 
 ## 验收记录汇总
@@ -237,6 +255,8 @@ PDF 还要过系统打印对话框。本任务补齐这三块，全部不依赖�
 | T7 投递链路（复查） | 2026-09-19 | ❌ 未通过（判为半成品，见「现状盘点」） | `js/audit.js`/`js/export-extra.js` **未被 index.html 以 `<script>` 引入**，`js/app.js` 仅有一行**注释**提及（无调用点）→ **运行时不可达**；`test/cases-audit.js` **从未被执行**（`test/run.js` 硬编码只读 `cases.js`，且缺 `ctx.assert`）；7c 静默 PDF **完全未开始**（`tools/serve.js` 无 `/api/pdf`） |
 | T7 投递链路（模块本体实测） | 2026-09-19 | ✅ 模块本体可用（但当时整体仍判未通过，见上） | Node `vm` 沙箱实跑：`ResumeAudit.run()` 返回 30 条 checks + stats；`buildDocx()` 产出合法 OOXML（PK 魔数 + `[Content_Types].xml`/`_rels/.rels`/`word/document.xml`/`word/_rels/document.xml.rels`/`word/styles.xml` 五部件齐全，含 `<w:b/>` 真加粗、无 `<w:tbl>`/`<w:drawing>`）；`readData()` ↔ `app.js:1687 getData` 契约已对齐 → **缺的只是接线** |
 | T7 投递链路（接线收尾·复验） | 2026-09-19 | ✅ 通过 | ① `index.html` 引入两模块（排在 `app.js` 之后）+ 补齐 UI 入口（导出菜单 4 项、同步面板「投递准备」、体检面板 `#auditBody`、工具栏「体检」按钮）；② `tools/serve.js` 补 `POST /api/pdf`（本机 Chrome/Edge headless 打印，失败回退 `window.print()`）；③ `test/cases-audit.js` **接入运行器**并逐条对齐实现契约（原断言用的是设想 id：`name`/`contact`/`no-quantify`/`pages`/`career-order`/`pii` → 实际为 `required-name`/`required-contact`/`quantify-missing`/`pages-over`·`pages-thin`/`date-order-N`/`pii-idcard`）；④ 两端产物复验：单文件版含两模块且「剩余外部引用 0 个」，`dist-desktop/` 亦含两模块（299/300 行）；⑤ 测试 49 → **117 条全绿** |
+| T7 投递链路（静默 PDF·端到端实测） | 2026-09-19 | ✅ 通过（并修掉 1 个致命缺陷） | 真实 `POST /api/pdf`（本机 Chrome headless）：`HTTP 200` / `application/pdf` / **511,143 B** / 文件头 `%PDF-1.4` / **3 页**（示范数据 `template.json`；换用真实简历为 797,963 B / 4 页）/ 字体已嵌入（`FontFile`）/ **0 个图片 XObject**（矢量文字，可选中可搜索）；`dist/` 临时文件 **0 残留**。<br>**过程中发现并修复真实缺陷**：macOS 下 Chrome 打印完成后**不退出**（stderr 反复刷 `CVDisplayLinkCreateWithCGDisplay failed`，`--dump-dom about:blank` 12s 后仍挂起），原先「等进程 `close` 再取结果」的写法会让该接口**永久挂起**（实测 4 分 2 秒无响应 + `dist/` 残留 6 个临时文件）→ 改为「**轮询产物文件体积稳定 + 主动 SIGKILL 收尾**」，并支持新旧 headless 标志回退。<br>附带修复：`tools/render-resume.js` 在 vm 沙箱里缺 `clearTimeout`（P0 之后静默失效）+ 缺 `ResumeStore` → 一并补齐并在产物落盘后 `process.exit(0)` |
+| T7 投递链路（浏览器冒烟） | 2026-09-19 | ✅ 通过 | 真实 Chromium 打开 `npm start` 页面：`window.ResumeAudit` / `window.ResumeExport` 均已暴露（导出 9 个 API）、**控制台零错误**；点工具栏「体检」→ 面板展开，在**真实简历数据**上输出「3 页 / 4715 字 / 4 板块」+ 1 条建议修改（超 2 页）+ 2 条可以更好（29 处缺量化、3 张图片）；配色随主题变量，夜间模式下仍为灰阶 |
 | T5 P4 冲突合并 | — | ⏳ 未开始 | 无 `baseVersion` 记录、无 3-way merge、无「打开即 pull」；**且本文件尚未为 T5 定义 AC 章节**（违反「先定 AC 再执行」流程，需先补） |
 | T6 P5 发布加固 | — | ⏳ 未开始 | 凭证仍**明文**存 `app_config_dir()/sync.config.json`（钥匙串未接）；**壳内文件落盘命令缺失**（导出全走 `<a download>`，macOS WKWebView / Android WebView 极可能静默失败且从未真机验证）；自动更新/签名/公证/引导页未做 |
 
@@ -337,7 +357,12 @@ PDF 还要过系统打印对话框。本任务补齐这三块，全部不依赖�
 
 - **`7260dc9`** on `main`：`feat: 跨平台改造 P0–P3（数据门面 / 响应式 / 桌面壳 / 安卓壳）+ CI 出包`，46 files，+11303 / −105。
 - **`bda7316`** on `main`：`docs: 补记 CI 就绪性验证与提交前 PII 修正`。
-- **状态：已推送至 `origin/main`，CI 触发中**（三端出包见 Actions Artifacts）。
+- **`b371306`** on `main`：`feat(T7): 投递链路接线收尾 + 测试基建修复 + 文档全面更新`，13 files，+557 / −117。
+- **已推送**：`e8bd10c..b371306 → origin/main`。CI 已触发 —— `CI #5` ✅ **Success**（9s）；
+  `Build Desktop #1`（dmg / msi+nsis / deb）与 `Build Android #1`（APK + AAB）进行中。
+- 备注：本机 `git push` 走 HTTPS 会报 `Error in the HTTP2 framing layer`，改用
+  `git -c http.version=HTTP/1.1 push origin main` 即成功（网络环境所致，非仓库问题）。
+- 出包产物位置：<https://github.com/shenge-work/resume-builder/actions> → 对应 run 的 **Artifacts**。
 
 ---
 
