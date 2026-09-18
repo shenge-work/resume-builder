@@ -1,16 +1,27 @@
 # 简历编辑器（Resume Builder）
 
-一个**纯前端、零后端依赖**的简历排版工具：左侧实时预览，右侧纯文本编辑，拖拽调序，支持板块增删、撤销/重做，并能导出「可选中文字」的 PDF。
+一个**数据可自持、可跨端使用**的简历排版工具：左侧实时预览，右侧纯文本编辑，拖拽调序，支持板块增删、撤销/重做，可做投递前体检，并导出「可选中文字」的 PDF / Word。
+
+三种使用形态（同一份代码库）：
+
+| 形态 | 打开方式 | 适合场景 |
+|---|---|---|
+| **浏览器版** | `npm start` → `http://127.0.0.1:8000` | 日常编辑；每次改动**实时写回** `data/resume.json` |
+| **单文件版** | `npm run build` → `dist/简历编辑器-单文件.html`，双击即开 | 离线使用、分享给他人 |
+| **桌面 / 安卓 App** | 见 [docs/DESKTOP-BUILD.md](./docs/DESKTOP-BUILD.md)、[docs/ANDROID-BUILD.md](./docs/ANDROID-BUILD.md) | 免装 Node；飞书凭证由原生层保管，不经浏览器 |
 
 > 本项目最初是一份单文件 HTML，后拆分为多文件便于 Git 协作；单文件版由 `npm run build` 自动生成到 `dist/`（`git` 忽略，断网可用）。
 
-[![CI](https://github.com/your-org/resume-builder/actions/workflows/ci.yml/badge.svg)](https://github.com/your-org/resume-builder/actions/workflows/ci.yml)
+[![CI](https://github.com/shenge-work/resume-builder/actions/workflows/ci.yml/badge.svg)](https://github.com/shenge-work/resume-builder/actions/workflows/ci.yml)
+[![Build Desktop](https://github.com/shenge-work/resume-builder/actions/workflows/build-desktop.yml/badge.svg)](https://github.com/shenge-work/resume-builder/actions/workflows/build-desktop.yml)
+[![Build Android](https://github.com/shenge-work/resume-builder/actions/workflows/build-android.yml/badge.svg)](https://github.com/shenge-work/resume-builder/actions/workflows/build-android.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Node](https://img.shields.io/badge/node-%3E%3D16-brightgreen.svg)](./package.json)
 
 ---
 
 ## ✨ 功能
+
+**编辑**
 
 | 功能 | 说明 |
 |---|---|
@@ -18,16 +29,35 @@
 | 拖拽排序 | 直接拖动板块 / 公司 / 项目 / 条目调整顺序 |
 | 板块增删 | 一键新增「个人优势 / 职业履历 / 核心技能 / 项目经历」，可删除（至少保留 1 个） |
 | 撤销 / 重做 | 文字、字号/间距、增删/移动、拖拽、重置、导入均可撤销（100 步）；`Ctrl/Cmd+Z`、`Ctrl+Y` |
-| 字号配置 | 按元素类别（姓名、章节标题、正文…）分别设置 |
-| 间距配置 | 全局默认值 + **每行**独立上下间距微调（仅叠加，不影响其他行） |
-| 公司 Logo | 每家公司可配 Logo 及高度 / 宽度 / 与名称间距 |
-| 引用样式 | 公司概述、项目描述可单独开关左侧引用线并选颜色 |
-| 强制换页 | 可让指定公司从新一页开始 |
-| 分页参考线 | 按 A4 比例显示分页位置，与导出结果一致 |
-| PDF 导出 | **推荐**：浏览器原生打印 → 矢量文字 PDF（可选中、体积小）；兼容：图片型截图导出 |
-| 数据导入 / 导出 | 全量内容导出为 JSON 备份，换设备/浏览器后导入恢复 |
+| 字号 / 间距 | 按元素类别（姓名、章节标题、正文…）配置字号；全局默认间距 + **每行**独立微调（仅叠加，不影响其他行） |
+| 公司 Logo / 引用线 | 每家公司可配 Logo 与尺寸；公司概述、项目描述可单独开关左侧引用线 |
+| 强制换页 / 分页参考线 | 指定公司从新一页开始；按 A4 比例显示分页位置，与导出结果一致 |
+
+**导出与投递**
+
+| 功能 | 说明 |
+|---|---|
+| 投递体检 | 规则化检查**页数 / 内容完整性 / 量化结果 / ATS 友好度 / 敏感信息**，分「必须处理 · 建议修改 · 可以更好」三级，点击条目可定位到对应板块 |
+| PDF（静默） | 经本地服务调用本机浏览器 headless 打印，产出**文字可选中**的矢量 PDF，**不弹**打印对话框（需 `npm start`；失败自动回退到系统打印） |
+| Word / 纯文本 / Markdown | `.docx`（真 OOXML，含真加粗，HR 与 ATS 通用）、`.txt`（投递表单粘贴用）、`.md`（放 GitHub / 在线简历） |
+| 图片版 PDF / 长图 / 单文件 HTML | html2canvas 截图拼合，版式与屏幕 100% 一致（代价：文字不可选、体积较大） |
+
+**数据**
+
+| 功能 | 说明 |
+|---|---|
+| 数据导入 / 导出 | 全量内容导出为 JSON 备份，换设备 / 浏览器后导入恢复 |
 | 自动保存 | 编辑即存浏览器 localStorage（离线兜底）；经 `npm start` 打开时还**实时写回 `data/resume.json`**（刷新不丢、可 git 管理） |
-| 面板折叠 | 字号 / 间距 / 内容编辑三块可展开收起 |
+| 飞书同步（可选） | 手动「上报到飞书」/「从飞书恢复」，借飞书文档与云盘文件的版本历史留存每次更改；应用凭证只存本机，**绝不进浏览器** |
+| 数据门面 | 存储实现可替换（本地服务 / 浏览器 / 原生层），业务代码不感知 —— 见 `js/store/resume-store.js` |
+
+**界面**
+
+| 功能 | 说明 |
+|---|---|
+| 响应式 | 手机 / 平板 / 桌面自适应：移动端底部 Tab、A4 等比缩放、安全区与软键盘适配、返回键优先级 |
+| 日间 / 夜间主题 | 严格黑白灰三色体系，一键切换 |
+| 面板折叠 | 字号 / 间距 / 投递体检 / 内容编辑可展开收起 |
 
 ---
 
@@ -61,43 +91,77 @@ npm run build
 # 产物：dist/简历编辑器-单文件.html  （离线可用、双击即开；git 忽略）
 ```
 
+**方式四：桌面 / 安卓 App（可选）**
+
+```bash
+npm run desktop:assets   # 前端产物复制并净化到 dist-desktop/（自动剥离注入属性、隔离隐私目录）
+npm run desktop:build    # 产出本机平台安装包：macOS .app/.dmg、Windows .msi/.exe、Linux .deb/.AppImage
+npm run mobile:android:build   # 产出 APK / AAB（需 JDK 17 + Android SDK/NDK）
+```
+
+依赖：Rust 工具链 + Node；安卓另需 JDK 17 与 Android SDK/NDK。
+
+> **不想装 Rust / SDK？直接用 CI 出包。** push 到 GitHub 后，`Build Desktop` 与 `Build Android`
+> 会在三平台矩阵上产出安装包，到 Actions 页对应 run 的 **Artifacts** 下载即可。
+> 细节与排错见 [docs/DESKTOP-BUILD.md](./docs/DESKTOP-BUILD.md)、[docs/ANDROID-BUILD.md](./docs/ANDROID-BUILD.md)。
+
 ---
 
 ## 📁 目录结构
 
 ```
 resume-builder/
-├── index.html                # 页面骨架（多文件版入口；内联事件统一走 ResumeEditor.xxx）
+├── index.html                # 页面骨架（多文件版入口；内联事件统一走 ResumeXxx 命名空间）
 ├── css/
-│   └── style.css            # 全部样式（含 @media print 打印样式）
+│   └── style.css            # 全部样式（响应式断点 + @media print 打印样式）
 ├── js/
 │   ├── data.js              # 默认/种子数据（构建时内联进单文件版）
-│   └── app.js              # 业务逻辑，封装为 IIFE，仅暴露 window.ResumeEditor
+│   ├── app.js              # 业务逻辑，封装为 IIFE，仅暴露 window.ResumeEditor
+│   ├── theme.js             # 日间 / 夜间主题（黑白灰）
+│   ├── audit.js             # 投递体检（纯规则、只读，暴露 window.ResumeAudit）
+│   ├── export-extra.js      # Word / 纯文本 / Markdown / 静默 PDF（暴露 window.ResumeExport）
+│   └── store/
+│       ├── resume-store.js  # 数据门面：Local / Browser / Feishu 三种实现
+│       └── native-bridge.js # 原生桥：仅在 Tauri 壳内注入 window.__RESUME_NATIVE__
+├── src-tauri/               # 桌面 / 移动原生壳（Rust）：7 个命令 + 凭证保管（app_secret 只在原生进程）
 ├── vendor/                  # 第三方库（本地存放，离线可用）
 │   ├── html2canvas.min.js   #   把简历渲染成图片（图片型 PDF 兼容导出用）
 │   └── jspdf.umd.min.js     #   把图片拼成 PDF
 ├── tools/
-│   ├── serve.js            # 本地写服务（零依赖）：托管静态文件 + POST /api/resume 实时写回 data/resume.json
+│   ├── serve.js            # 本地写服务（零依赖）：静态托管 + /api/resume 写回 + /api/pdf 静默打印
 │   ├── build-single.js      # 打包脚本：多文件 → 单文件 HTML（输出到 dist/）
+│   ├── build-desktop-frontend.js # 前端 → dist-desktop/（白名单复制 + 净化注入属性）
+│   ├── verify-frontend-assets.js # 资源完整性门禁：引用缺失 / 漏打包 / 隐私目录泄漏
+│   ├── gen-icons.js         # 生成安装包图标（RGBA PNG / icns / ico）
+│   ├── clean-html-injections.js # 剥离外部编辑器注入的 data-page-node-id
 │   ├── migrate-legacy.js    # 旧版单文件简历 HTML → 可导入 JSON（输出到 dist/）
 │   ├── save-data.js        # 把浏览器导出的 JSON 落盘为 data/resume.json（备用回写方式）
 │   └── render-resume.js     # JSON → 独立 A4 简历 HTML（用项目真实渲染管线，输出到 dist/）
 ├── test/                    # 纯 Node、零依赖测试
-│   ├── run.js               #   运行器（DOM/浏览器桩，vm 加载 data+app）
-│   └── cases.js             #   用例（38 条断言）
-├── .github/workflows/ci.yml # CI：push/PR 自动跑 npm test + npm run build
+│   ├── run.js               #   运行器（DOM/浏览器桩，vm 加载 data + store + app + audit）
+│   ├── cases.js             #   核心逻辑用例
+│   └── cases-audit.js       #   投递体检用例（CommonJS，经 ctx.assert 上报）
+├── docs/
+│   ├── CROSSPLATFORM-DESIGN.md  # 跨平台改造方案
+│   ├── DESKTOP-BUILD.md         # 桌面端构建与排错
+│   ├── ANDROID-BUILD.md         # 安卓端构建与排错
+│   ├── ACCEPTANCE.md            # 逐任务验收标准与验收记录
+│   └── DESIGN.md                # AI 辅助写简历（⏸ 暂不实施）
+├── .github/workflows/
+│   ├── ci.yml               # push/PR：测试 + 构建 + 资源完整性门禁
+│   ├── build-desktop.yml    # 三平台矩阵出包（dmg / msi+nsis / deb+AppImage）
+│   └── build-android.yml    # APK + AAB
+├── template.json            # ★ 公开示范数据（占位演示，随仓库分发）
 ├── data/                   # ★ 个人简历数据（已被 .gitignore 隔离，不进公开仓库）
 │   └── resume.json         #   版本化数据源（多文件版启动时自动读取 ./data/resume.json）
-├── dist/                    # 构建产物缓存（已被 .gitignore 忽略；含单文件版与迁移产物）
-├── README.md
-├── CHANGELOG.md             # 版本迭代记录（本次上线 / 历史）
-├── ROADMAP.md               # 后续优化规划
-├── CONTRIBUTING.md          # 贡献指南
-├── LICENSE                  # MIT
+├── dist/                    # 构建产物（.gitignore 忽略；含单文件版、安装包与迁移产物）
+├── README.md / CHANGELOG.md / ROADMAP.md / CONTRIBUTING.md / LICENSE
 └── package.json
 ```
 
-**加载顺序**：`data.js` 必须先于 `app.js`（`app.js` 依赖 `data.js` 里的 `data`、`defaultSpacing` 等）。
+**加载顺序**：`data.js` → `store/resume-store.js` → `store/native-bridge.js` → `app.js` → `export-extra.js` → `audit.js`。
+`app.js` 依赖前三个；`export-extra.js` / `audit.js` 依赖 `app.js` 暴露的 `ResumeEditor.getData()`，必须排在最后。
+（`npm run verify:assets` 会校验这个顺序与引用完整性。）
 
 ---
 
@@ -105,9 +169,15 @@ resume-builder/
 
 本项目**纯前端、无任何后端/数据库**，简历数据落在三个层面：
 
-### 1. 默认 / 种子数据 —— `js/data.js`（源码）
-- 第 9 行 `let data = {...}`，是打开编辑器时 **localStorage 为空**所用的初始内容（模板）。
-- 单文件版 `dist/简历编辑器-单文件.html` 在构建时会把这段数据**内联**进去，所以单文件版不依赖 `js/data.js` 也能独立运行。
+### 1. 初始化数据源（按优先级）
+
+打开编辑器时按顺序尝试，先成功者为准：
+
+1. **`data/resume.json`** —— 你的**私有实时数据**（被 `.gitignore` 隔离，不入库）；
+2. 否则 **`template.json`**（仓库根目录）—— **公开示范数据**，随仓库分发，供他人 clone 后直接体验；
+3. 都没有（`file://` 打开、或单文件版 fetch 失败）→ 回退 `js/data.js` 中的**极简空骨架**。
+
+单文件版在构建时会把 `template.json` 注入进内联的 `data.js`，因此双击打开依然是完整示范内容。
 
 ### 2. 运行时数据 —— 浏览器 `localStorage`（即时缓存 / 离线兜底）
 编辑即存，关键代码见 `js/app.js`：
@@ -148,36 +218,51 @@ node tools/render-resume.js                          # 用项目真实渲染管�
 
 ---
 
-## 🖨️ 关于 PDF 导出
+## 🖨️ 关于导出
 
 | 方式 | 入口 | 特点 |
 |---|---|---|
-| **原生打印（推荐）** | 「打印 / 另存为 PDF」 | 浏览器打印管线，矢量文字 PDF：**文字可选中、可搜索、体积小**；会弹出系统打印对话框 |
-| 图片型（兼容） | 「PDF 预览 / 导出（图片版）」 | html2canvas 截图拼合，**版式 100% 与屏幕一致**，但文字不可选、体积较大 |
+| **PDF（静默）** | 「PDF（文字可选中 · 静默）」 | 经本地服务调本机 Chrome/Edge 的 headless 打印，**不弹对话框**直出矢量文字 PDF；需用 `npm start` 打开，失败自动回退到系统打印 |
+| Word（`.docx`） | 「导出 Word（.docx）」 | 真 Office Open XML（`[Content_Types].xml` 等必需部件齐全），粗体是**真加粗**非伪样式，HR 与 ATS 通用 |
+| 纯文本 / Markdown | 「导出纯文本 / 导出 Markdown」 | `.txt` 用于投递表单粘贴；`.md` 用于 GitHub / 博客 / 在线简历 |
+| **原生打印** | 「打印 / 另存为 PDF」 | 浏览器打印管线，矢量文字 PDF：文字可选中、可搜索；会弹出系统打印对话框 |
+| 图片型（兼容） | 「PDF 预览 / 下载（图片版）」 | html2canvas 截图拼合，**版式 100% 与屏幕一致**，但文字不可选、体积较大 |
 
-> 纯客户端无法在不依赖打印对话框的前提下用现有库直接产出「可选中文字」的 `.pdf` blob（html2canvas 本质是截图；jsPDF 的 `.text()` 需手写整套排版）。若需要「一键静默下载可选中 PDF」，见 [ROADMAP.md](./ROADMAP.md)。
+> **「静默 PDF」为什么需要本地服务**：浏览器既无法直写磁盘，也无法在不弹打印对话框的前提下调用打印管线。
+> 因此由 `tools/serve.js` 的 `POST /api/pdf` 复刻页面打印样式、用本机浏览器 headless 渲染，再把 PDF 流回前端下载。
+> 这是本项目唯一依赖本地服务的导出方式，其余导出均在纯前端完成。
 
 ---
 
 ## 🧪 测试与构建
 
 ```bash
-npm test          # 纯 Node 零依赖，38 条断言（逻辑 + 打印样式 + 封装 + 入口接线）
-npm run build     # 重建单文件版，输出到 dist/简历编辑器-单文件.html（已做写入校验）
+npm test               # 纯 Node、零依赖：117 条断言
+npm run build          # 重建单文件版 → dist/简历编辑器-单文件.html
+npm run verify:assets  # 资源完整性门禁：引用缺失 / 漏打包 / 模块未接线 / 隐私目录泄漏
+npm run clean:html     # 剥离 index.html 中被外部编辑器注入的 data-page-node-id（提交前跑）
 ```
 
-CI（`.github/workflows/ci.yml`）在每次 push / PR 自动运行上述两项。
+`npm test` 覆盖四类：核心逻辑与入口接线、打印样式、IIFE 封装边界，以及**投递体检**
+（`test/cases-audit.js` —— 三份假数据 × 全部检查项 + 接口契约 + 只读性）。
+
+CI（`.github/workflows/ci.yml`）在每次 push / PR 自动运行前两项与资源门禁。
+
+> **为什么需要 `verify:assets`**：本项目**没有打包器**，新增一个 js 模块要同时做两件事 ——
+> 在 `index.html` 里加 `<script>`、在 `tools/build-single.js` 的白名单里登记。
+> 漏掉任何一件都不会报错，只会**静默缺功能**（要么模块跑不起来，要么单文件版里没有它）。该脚本把这类问题变成 CI 失败。
 
 ---
 
 ## 🗺️ 版本与规划
 
-- 本次上线内容（P0/P1/P2 全量）：见 [CHANGELOG.md](./CHANGELOG.md)。
+- 各版本变更记录：见 [CHANGELOG.md](./CHANGELOG.md)。
 - 后续优化方向：见 [ROADMAP.md](./ROADMAP.md)。
+- 跨平台改造的**逐任务验收标准与验收记录**：见 [docs/ACCEPTANCE.md](./docs/ACCEPTANCE.md)。
 
 > ⏸ **关于「AI 辅助写简历」**：仓库内 [docs/DESIGN.md](./docs/DESIGN.md) 存有一份完整的技术设计方案
 > （选型调研、功能设计、UI 设计、目录结构），但**那只是未来演进方向，当前尚未实施** ——
-> 本工具目前仍是纯前端、无 AI 能力，请以本文描述的功能为准。
+> 本工具目前不含 AI 能力，请以本文描述的功能为准。
 
 ---
 
@@ -193,4 +278,8 @@ CI（`.github/workflows/ci.yml`）在每次 push / PR 自动运行上述两项�
 
 ## ⚠️ 隐私提醒
 
-`js/data.js` 内置示例个人简历信息。若将本仓库设为公开，请替换为占位内容或确认无隐私风险。
+- `template.json`（仓库根目录）是**公开示范数据**，随仓库分发、用于无 `data/resume.json` 时的演示；`js/data.js` 只保留极简空骨架。
+- **真实简历内容**存放在 `data/resume.json`，已被 `.gitignore` **整体忽略**，不会进入公开仓库。
+- 飞书应用凭证存放在 `sync.config.json`（gitignored），由本地服务 / 原生层读取，**绝不下发到浏览器**；桌面与安卓版中它只存在于 Rust 进程内存与系统文件。
+- 安装包构建时只把 `index.html` / `css` / `js` / `vendor` / `template.json` 复制进 `dist-desktop/`，**不含 `data/`**；可用 `strings <二进制> | grep <姓名>` 复核。
+- 提交前建议自查：`npm run clean:html` 后再 `git add`，并用 `git grep` 扫描真实姓名 / 公司名等 PII。

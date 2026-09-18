@@ -55,7 +55,9 @@ const files = [
   ['js/theme.js', 'js/theme.js（日间 / 夜间主题）'],
   ['js/store/resume-store.js', 'js/store/resume-store.js（P0 数据门面）'],
   ['js/store/native-bridge.js', 'js/store/native-bridge.js（P2 原生桥）'],
-  ['js/app.js', 'js/app.js']
+  ['js/app.js', 'js/app.js'],
+  ['js/export-extra.js', 'js/export-extra.js（T7 DOCX / 纯文本 / Markdown / 静默 PDF 导出）'],
+  ['js/audit.js', 'js/audit.js（T7 投递体检）']
 ];
 for (const [file, name] of files) {
   const tag = '<script src="' + file + '"></script>';
@@ -87,4 +89,7 @@ const md5 = crypto.createHash('md5').update(fs.readFileSync(OUT_FILE)).digest('h
 const kb = (Buffer.byteLength(html, 'utf8') / 1024).toFixed(0);
 console.log('✓ 已生成单文件：dist/简历编辑器-单文件.html  (' + kb + ' KB)');
 console.log('  md5  :', md5);
-console.log('  剩余外部引用: ' + (html.match(/<script src=|<link rel="stylesheet"/g) || []).length + ' 个（应为 0）');
+/* 只统计「真实」的外部引用：路径里含引号或加号的是三方库内部的拼接字符串
+   （如 jsPDF 的 '<script src="' + o + '">'），不能算作产物残留，否则会长期误报 1 个。 */
+const extRefs = html.match(/<script\s+src="[^"'+]*"|<link\s+rel="stylesheet"\s+href="[^"'+]*"/gi) || [];
+console.log('  剩余外部引用: ' + extRefs.length + ' 个（应为 0）' + (extRefs.length ? ' → ' + extRefs.join(', ') : ''));

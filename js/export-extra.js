@@ -108,9 +108,13 @@
         (sec.groups || []).forEach(g => {
           if (!g) return;
           const name = trim(T(g.name));
-          const items = (g.items || []).map(x => trim(stripBold(T(x)))).filter(Boolean);
+          // 技能点多为整句，各自结尾常带句号；连接前去掉尾部标点，避免出现「。。、」这类粘连
+          const items = (g.items || []).map(x => trim(stripBold(T(x))).replace(/[。．.；;，,、\s]+$/, '')).filter(Boolean);
           if (!name && !items.length) return;
-          li(name ? '**' + name + '**：' + items.join('、') : items.join('、'));
+          // 短词用「、」，整句用「；」，读起来更像人写的
+          const avg = items.length ? items.reduce((n, s) => n + s.length, 0) / items.length : 0;
+          const joined = items.join(avg > 10 ? '；' : '、');
+          li(name ? '**' + name + '**：' + joined : joined);
         });
       } else if (type === 'projects') {
         if (!st) return;
@@ -163,7 +167,12 @@
     const lines = [];
     blocks.forEach(b => {
       if (b.kind === 'h1') lines.push(md ? '# ' + b.text : b.text);
-      else if (b.kind === 'h2') { lines.push(''); lines.push(md ? '## ' + b.text : b.text.toUpperCase() === b.text ? b.text : '【' + b.text + '】'); }
+      else if (b.kind === 'h2') {
+        lines.push('');
+        // 纯文本里用「【】」把板块标题框出来（纯英文标题则转大写），便于 ATS 与人眼切分段落
+        const isAscii = /^[\x20-\x7E]+$/.test(b.text);
+        lines.push(md ? '## ' + b.text : (isAscii ? b.text.toUpperCase() : '【' + b.text + '】'));
+      }
       else if (b.kind === 'h3') { lines.push(''); lines.push(md ? '### ' + b.text : b.text); }
       else if (b.kind === 'li') lines.push(md ? '- ' + b.text : '- ' + stripBold(b.text));
       else lines.push(md ? b.text : stripBold(b.text));
@@ -388,6 +397,52 @@
     notify('已导出 Markdown：' + r.filename);
     return r;
   }
+  /* =============================================================
+   * 静默 PDF：交给本地服务（tools/serve.js 的 /api/pdf）调本机浏览器
+   * headless 打印，产出「可选中文字」的矢量 PDF，全程不弹打印对话框。
+   * 失败（未用 npm start 打开 / 本机无 Chrome）自动回退到 window.print()。
+   * ============================================================= */
+  function errorFromResponse(res) {
+    return res.text().then(function (txt) {
+      let msg = 'HTTP ' + res.status;
+      try {
+        const j = JSON.parse(txt);
+        if (j && j.error) msg = j.error + (j.hint ? '（' + j.hint + '）' : '');
+      } catch (e) { /* 非 JSON 响应，保留 HTTP 状态码 */ }
+      throw new Error(msg);
+    });
+  }
+  function exportPdfSilent() {
+    const payload = currentPayload();
+    if (!payload) { notify('读取简历数据失败，无法导出'); return null; }
+    const btn = typeof document === 'undefined' ? null : document.getElementById('pdfSilentBtn');
+    const label = btn ? btn.textContent : '';
+    if (btn) { btn.disabled = true; btn.textContent = 'PDF 生成中…'; }
+    const finish = function () { if (btn) { btn.disabled = false; btn.textContent = label; } };
+    const fallback = function (msg) {
+      notify(msg + '，已回退到打印对话框');
+      try { if (global.print) global.print(); } catch (e) { }
+    };
+    if (typeof fetch !== 'function') { finish(); fallback('当前环境不支持静默导出'); return null; }
+    const name = fileNameFor('', 'pdf');
+    fetch('/api/pdf', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    }).then(function (res) {
+      if (!res.ok) return errorFromResponse(res);
+      return res.blob();
+    }).then(function (blob) {
+      if (!blob || !blob.size) throw new Error('服务端返回了空文件');
+      if (blob.type && blob.type.indexOf('pdf') < 0) throw new Error('服务端未返回 PDF');
+      saveBytes(blob, name);
+      notify('已导出 PDF（文字可选中）：' + name);
+    }).catch(function (err) {
+      fallback('静默导出失败：' + ((err && err.message) || err));
+    }).then(finish, finish);
+    return { filename: name };
+  }
+
   /* 轻提示：复用页面右上角的自动保存提示位；拿不到就静默 */
   function notify(msg) {
     try {
@@ -402,6 +457,7 @@
     exportDocx: exportDocx,
     exportTxt: exportTxt,
     exportMarkdown: exportMarkdown,
+    exportPdfSilent: exportPdfSilent,
     // —— 供测试 / 其它模块复用 ——
     buildDocx: buildDocx,
     buildPlain: buildPlain,

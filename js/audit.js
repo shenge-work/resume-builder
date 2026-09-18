@@ -193,7 +193,9 @@
       if (t.text.length >= 20 && !/[0-9]/.test(t.text)) {
         noNumber.push('「' + t.sec + '」' + t.text.slice(0, 18) + '…');
       }
-      if (t.text.length < 15) shortWarn.push('「' + t.sec + '」' + t.text);
+      // 成果点（results）本就是以短句呈现的量化结论（如「QPS 提升 40%」），
+      // 天然只有 8–12 字，套用「描述过短」的下限会稳定误报，故只对它做缺量化与超长检查。
+      if (t.field !== 'results' && t.text.length < 15) shortWarn.push('「' + t.sec + '」' + t.text);
       else if (t.text.length > 300) longWarn.push('「' + t.sec + '」' + t.text.slice(0, 20) + '…（' + t.text.length + ' 字）');
     });
     if (noNumber.length) {

@@ -117,7 +117,26 @@ async function renderA4Html(payload, baseName) {
   return htmlPath;
 }
 
-/* headless 打印 HTML → PDF；返回 PDF 文件路径 */
+/* 等待某个文件「写完」：连续两次 stat 到的体积一致且非空即认为完成 */
+function waitForFile(file, timeoutMs) {
+  return new Promise(resolve => {
+    const t0 = Date.now();
+    let last = -1;
+    const tick = () => {
+      let size = 0;
+      try { size = fs.statSync(file).size; } catch (e) { size = 0; }
+      if (size > 1000 && size === last) return resolve(true);   // 体积稳定 → 写完
+      last = size;
+      if (Date.now() - t0 > timeoutMs) return resolve(size > 1000);
+      setTimeout(tick, 250);
+    };
+    setTimeout(tick, 400);
+  });
+}
+
+/* headless 打印 HTML → PDF；返回 PDF 字节
+ * 注意：部分 macOS 环境下 Chrome 打印完成后**不会自行退出**（实测挂起，stderr 反复刷
+ * CVDisplayLink 错误）。所以这里不能等进程 close，而是「轮询等待产物 + 主动收尾」。 */
 async function printToPdf(htmlPath, pdfPath) {
   const browser = findBrowser();
   if (!browser) {
@@ -132,17 +151,29 @@ async function printToPdf(htmlPath, pdfPath) {
     '--no-pdf-header-footer',            // 去掉页眉页脚（日期 / URL / 页码）
     '--print-to-pdf-no-header',
     '--virtual-time-budget=8000',        // 等字体与图片就绪
-    '--run-all-compositor-stages-before-draw',
     'file://' + htmlPath.replace(/\\/g, '/')
   ];
-  // 新版 Chrome 用 --headless=new；个别版本对 --print-to-pdf 支持不同，失败后回退老 headless
-  let r = await runCmd(browser, ['--headless=new', '--print-to-pdf=' + pdfPath].concat(baseArgs), 90000);
-  if (r.code !== 0 || !fs.existsSync(pdfPath)) {
-    r = await runCmd(browser, ['--headless', '--print-to-pdf=' + pdfPath].concat(baseArgs), 90000);
-  }
+  let stderr = '';
+  const runOnce = async (headlessFlag, waitMs) => {
+    // 开始前先清掉上一轮可能的残留产物，避免把旧文件误判成本轮结果
+    try { fs.rmSync(pdfPath, { force: true }); } catch (e) { }
+    let child;
+    try { child = spawn(browser, [headlessFlag, '--print-to-pdf=' + pdfPath].concat(baseArgs), { stdio: ['ignore', 'pipe', 'pipe'] }); }
+    catch (e) { stderr += String(e && e.message || e); return false; }
+    child.stdout.on('data', () => { });
+    child.stderr.on('data', d => { if (stderr.length < 4000) stderr += d; });
+    const ok = await waitForFile(pdfPath, waitMs);
+    // 无论成功与否都收尾：Chrome 可能打印完不退出（见上方注释）
+    try { child.kill('SIGKILL'); } catch (e) { }
+    return ok;
+  };
+
+  let produced = await runOnce('--headless=new', 45000);
+  if (!produced) produced = await runOnce('--headless', 45000);
   try { fs.rmSync(userDir, { recursive: true, force: true }); } catch (e) { /* 清理失败不影响结果 */ }
-  if (!fs.existsSync(pdfPath)) {
-    throw new Error('PDF 生成失败：' + (r.err || r.out || '浏览器未产出文件').toString().slice(0, 300));
+
+  if (!produced || !fs.existsSync(pdfPath)) {
+    throw new Error('PDF 生成失败：' + (stderr || '浏览器未产出文件').toString().slice(0, 300));
   }
   const buf = fs.readFileSync(pdfPath);
   if (buf.slice(0, 5).toString('latin1') !== '%PDF-') throw new Error('产出的文件不是合法 PDF');

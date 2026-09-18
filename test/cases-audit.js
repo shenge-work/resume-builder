@@ -7,7 +7,11 @@
 'use strict';
 
 /* ===== 假数据 ===== */
-/* 一份「健康」的简历：预期 checks 为空 */
+/* 一份「健康」的简历：预期 checks 为空。
+   要点（缺一即会被体检命中，导致断言失败）：
+   - 总字数落在 900–1800（= 2 页），避开 pages-thin（1 页）与 pages-over（>2 页）；
+   - 每条正文（优势 text / 履历 summary / 项目 desc）≥ 20 字且含数字，避开 length-short 与 quantify-missing；
+   - 板块数 ≤ 6、标题 ≤ 12 字；无占位文案、无 PII、无伪表格；履历为倒序。 */
 function healthyData(){
   return {
     name: '张三',
@@ -17,32 +21,35 @@ function healthyData(){
     pageMargins: { top: 14, right: 14, bottom: 14, left: 14 },
     sections: [
       { id: 'h1', type: 'advantages', title: '个人优势', pageBreak: false, items: [
-        { label: '高并发治理', text: '主导订单核心链路重构，单机 QPS 从 1200 提升到 5200，接口 P99 延迟下降 40%。', labelBold: true },
-        { label: '稳定性建设', text: '搭建全链路压测与分级告警体系，线上故障率从 3% 降到 0.5%，年均节省 2 人日/周。', labelBold: true },
-        { label: '团队带教', text: '带 4 人小组完成 3 次大版本交付，需求平均交付周期由 12 天缩短到 7 天。', labelBold: true }
+        { label: '高并发治理', text: '主导订单核心链路重构，单机 QPS 从 1200 提升到 5200，接口 P99 延迟由 380ms 下降到 210ms，大促期间零超时，全年可用性保持 99.99%。', labelBold: true },
+        { label: '稳定性建设', text: '搭建全链路压测与分级告警体系，覆盖 6 条核心链路，线上故障率从 3% 降到 0.5%，年均节省排障工时约 2 人日每周，重大故障连续 18 个月为零。', labelBold: true },
+        { label: '团队带教', text: '带 4 人小组完成 3 次大版本交付，推动接口文档与代码评审规范落地，需求平均交付周期由 12 天缩短到 7 天，团队人均交付效率提升 40%。', labelBold: true },
+        { label: '架构演进', text: '推动核心服务从单体向领域拆分演进，沉淀 3 个共享中台组件，新业务接入成本平均降低 40%，跨团队复用率提升到 60%。', labelBold: true }
       ]},
       { id: 'h2', type: 'career', title: '职业履历', pageBreak: false, items: [
         { company: 'A 科技', role: '高级后端工程师', date: '2023.03 - 至今',
-          summary: '负责交易核心链路的设计与治理，日均处理订单 800 万笔，核心接口稳定性 99.99%。',
+          summary: '负责交易核心链路的设计与治理，日均处理订单 800 万笔，峰值 1.2 万 TPS，核心接口全年可用性 99.99%，主导过 2 次大促的全链路压测与容量规划。',
           projects: [
             { name: '订单中心重构', stack: 'Java / Redis / Kafka',
-              desc: '把单体订单拆分为 3 个独立服务，峰值吞吐提升 3 倍，发布回滚时间从 20 分钟降到 2 分钟。',
-              results: ['QPS 提升 40%', '故障率下降 70%'] },
+              desc: '把单体订单拆分为 3 个独立服务并按域收敛数据，峰值吞吐提升 3 倍，发布回滚时间从 20 分钟降到 2 分钟，联调周期由 5 天压缩到 1 天。',
+              results: ['单机 QPS 提升 40%', '故障恢复时间下降 70%', '支撑大促峰值 1.2 万 TPS', '发布回滚耗时降至 2 分钟'] },
             { name: '对账平台', stack: 'Java / MySQL / Flink',
-              desc: '建设准实时对账平台，覆盖 6 条业务线，每日自动核对 900 万笔流水。',
-              results: ['人工核对工时减少 85%'] }
+              desc: '建设准实时对账平台，覆盖 6 条业务线，每日自动核对 900 万笔流水，差异订单平均 15 分钟内定位到根因，资金差错连续 12 个月零投诉。',
+              results: ['人工核对工时减少 85%', '差异定位时效提升 4 倍', '覆盖 6 条业务线'] }
           ]},
         { company: 'B 网络', role: '后端工程师', date: '2020.06 - 2023.02',
-          summary: '参与会员与积分体系建设，累计服务注册用户 1200 万，接口平均响应时间 60ms。',
+          summary: '参与会员与积分体系建设，累计服务注册用户 1200 万，接口平均响应时间由 180ms 优化到 60ms，主导积分系统的分库分表改造与灰度上线。',
           projects: [
             { name: '会员积分系统', stack: 'Java / MySQL',
-              desc: '重构积分计算与结算逻辑，日终结算耗时从 30 分钟降到 4 分钟。',
-              results: ['结算耗时下降 87%'] }
+              desc: '重构积分计算与结算逻辑并引入分库分表，日终结算耗时从 30 分钟降到 4 分钟，月度账务差错率降至万分之三，支撑日均 1500 万次积分读写。',
+              results: ['结算耗时下降 87%', '账务差错率降至 0.03%', '支撑日均 1500 万次读写'] }
           ]}
       ]},
       { id: 'h3', type: 'skills', title: '核心技能', pageBreak: false, groups: [
-        { name: '后端', items: ['Java', 'Spring Boot', '分布式事务'] },
-        { name: '中间件', items: ['Redis', 'Kafka', 'MySQL 调优'] }
+        { name: '后端', items: ['Java', 'Spring Boot', 'MyBatis', '分布式事务'] },
+        { name: '中间件', items: ['Redis', 'Kafka', 'MySQL 调优', 'Elasticsearch'] },
+        { name: '工程', items: ['Docker', 'Kubernetes', 'Jenkins', '全链路压测'] },
+        { name: '数据', items: ['MySQL 索引优化', 'Flink 实时计算', '数据校验'] }
       ]}
     ]
   };
@@ -91,6 +98,10 @@ function ids(list, level){
 }
 function has(list, id, level){
   return list.some(c => c.id === id && (!level || c.level === level));
+}
+/* 实现里部分 id 带序号后缀（如 date-order-1 / title-long-0），按前缀匹配 */
+function prefixed(list, prefix, level){
+  return list.filter(c => c.id.indexOf(prefix) === 0 && (!level || c.level === level));
 }
 function longText(){
   let s = '';
@@ -148,52 +159,57 @@ module.exports = [
   }},
 
   /* ---- 空数据 ---- */
-  { name: '空数据：姓名缺失 error + 联系方式缺失 error', fn: function(ctx){
+  /* 注：实现的 id 为 required-name / required-contact（不是 name / contact）；
+     「零板块」与「头衔为空」当前并无对应检查项，故不在此断言 —— 那是功能缺口，不是测试职责。 */
+  { name: '空数据：必填两项以 error 命中', fn: function(ctx){
     const A = ctx.ResumeAudit;
     const r = A.run(emptyData());
-    ctx.assert(has(r.checks, 'name', 'error'), '姓名缺失 → error');
-    ctx.assert(has(r.checks, 'contact', 'error'), '联系方式全空 → error');
+    ctx.assert(has(r.checks, 'required-name', 'error'), '姓名缺失 → error');
+    ctx.assert(has(r.checks, 'required-contact', 'error'), '联系方式全空 → error');
+    ctx.assert(r.checks.filter(c => c.level === 'error').length === 2, '空数据恰好 2 条 error');
   }},
 
-  { name: '空数据：无任何板块 warn + 头衔为空 info', fn: function(ctx){
+  { name: '空数据：内容为空时提示页数过少', fn: function(ctx){
     const A = ctx.ResumeAudit;
     const r = A.run(emptyData());
-    ctx.assert(has(r.checks, 'no-section', 'warn'), '零板块 → warn');
-    ctx.assert(has(r.checks, 'subtitle', 'info'), '核心头衔为空 → info');
-    ctx.assert(r.checks.filter(c => c.level === 'warn').length === 1, '空数据只应有 1 条 warn');
+    ctx.assert(has(r.checks, 'pages-thin', 'info'), '内容为空 → pages-thin info');
+    ctx.assert(r.checks.filter(c => c.level === 'warn').length === 0, '空数据无 warn');
   }},
 
   /* ---- 问题简历 ---- */
   { name: '问题简历：必填与顺序类命中', fn: function(ctx){
     const A = ctx.ResumeAudit;
     const r = A.run(messyData());
-    ctx.assert(has(r.checks, 'name', 'error'), '姓名为空 → error');
-    ctx.assert(has(r.checks, 'contact', 'error'), '联系方式为空 → error');
-    ctx.assert(has(r.checks, 'career-order', 'warn'), '职业履历非倒序 → warn');
-    ctx.assert(has(r.checks, 'section-title', 'warn'), '板块标题为空 → warn');
+    ctx.assert(has(r.checks, 'required-name', 'error'), '姓名为空 → error');
+    ctx.assert(has(r.checks, 'required-contact', 'error'), '联系方式为空 → error');
+    ctx.assert(prefixed(r.checks, 'date-order-', 'warn').length > 0, '职业履历非倒序 → warn（date-order-N）');
+    ctx.assert(has(r.checks, 'required-empty-section', 'warn'), '空板块 → warn');
   }},
 
   { name: '问题简历：顺序检查细节带具体公司名', fn: function(ctx){
     const A = ctx.ResumeAudit;
-    const c = A.run(messyData()).checks.filter(x => x.id === 'career-order')[0];
+    const c = prefixed(A.run(messyData()).checks, 'date-order-')[0];
     ctx.assert(!!c && /乙公司/.test(c.detail) && /甲公司/.test(c.detail), 'detail 指出具体的两家公司');
     ctx.assert(!!c && c.hint.indexOf('倒序') !== -1, 'hint 给出修正建议');
   }},
 
-  { name: '问题简历：空字段 / 板块全空 → warn', fn: function(ctx){
+  { name: '问题简历：空板块合并为一条 warn 并点名', fn: function(ctx){
     const A = ctx.ResumeAudit;
     const r = A.run(messyData());
-    ctx.assert(has(r.checks, 'empty-field', 'warn'), '有标题但内容为空 → warn');
-    ctx.assert(has(r.checks, 'section-empty', 'warn'), '板块内容全空 → warn');
+    const c = r.checks.filter(x => x.id === 'required-empty-section')[0];
+    ctx.assert(!!c && c.level === 'warn', '空板块 → warn');
+    ctx.assert(!!c && /未命名板块/.test(c.detail), 'detail 点名「未命名板块」（有内容但无标题）');
+    ctx.assert(!!c && /核心技能/.test(c.detail), 'detail 点名「核心技能」（有标题但无内容）');
   }},
 
   { name: '问题简历：占位文案 → warn（含 {text} 对象形态）', fn: function(ctx){
     const A = ctx.ResumeAudit;
     const r = A.run(messyData());
     const ph = r.checks.filter(c => c.id === 'placeholder');
-    ctx.assert(ph.length >= 2, '占位文案命中至少 2 处（实际 ' + ph.length + '）');
+    ctx.assert(ph.length === 1, '占位文案归并为 1 条 check（实际 ' + ph.length + '）');
     ctx.assert(ph.every(c => c.level === 'warn'), '占位文案级别为 warn');
     ctx.assert(ph.some(c => /待补充/.test(c.detail)), 'detail 里带出「待补充」字样');
+    ctx.assert(ph.some(c => /发现 \d+ 处占位文案/.test(c.title)), '标题给出命中处数（label / {text} / results 三处）');
   }},
 
   { name: '问题简历：长度异常 / 缺量化 / 页数超限', fn: function(ctx){
@@ -201,8 +217,8 @@ module.exports = [
     const r = A.run(messyData());
     ctx.assert(has(r.checks, 'length-long', 'warn'), '超长描述 → warn');
     ctx.assert(has(r.checks, 'length-short', 'info'), '过短描述 → info');
-    ctx.assert(has(r.checks, 'no-quantify', 'info'), '缺量化结果 → info');
-    ctx.assert(has(r.checks, 'pages', 'warn'), '超过 2 页 → warn');
+    ctx.assert(has(r.checks, 'quantify-missing', 'info'), '缺量化结果 → info');
+    ctx.assert(has(r.checks, 'pages-over', 'warn'), '超过 2 页 → warn（pages-over）');
     ctx.assert(r.stats.pages > 2, '估算页数 > 2（实际 ' + r.stats.pages + '）');
   }},
 
@@ -210,15 +226,31 @@ module.exports = [
     const A = ctx.ResumeAudit;
     const r = A.run(messyData());
     ctx.assert(has(r.checks, 'ats-table', 'info'), '竖线伪表格 → info');
-    ctx.assert(has(r.checks, 'pii', 'info'), '身份证号 → PII info');
+    ctx.assert(has(r.checks, 'pii-idcard', 'info'), '身份证号 → info（pii-idcard）');
   }},
 
   { name: '健康简历不含占位 / PII / 伪表格误报', fn: function(ctx){
     const A = ctx.ResumeAudit;
     const li = ids(A.run(healthyData()).checks);
     ctx.assert(li.indexOf('placeholder') === -1, '无占位文案误报');
-    ctx.assert(li.indexOf('pii') === -1, '无 PII 误报');
+    ctx.assert(li.indexOf('pii-idcard') === -1 && li.indexOf('pii-sensitive') === -1, '无 PII 误报');
     ctx.assert(li.indexOf('ats-table') === -1, '无伪表格误报');
+  }},
+
+  /* 回归防护：项目成果点（results）本就是 8–12 字的短句（如「QPS 提升 40%」），
+     不能套用「描述过短（<15 字）」的下限 —— 否则任何写得正常的简历都会被误报。 */
+  { name: '成果点（results）不参与「描述过短」判定', fn: function(ctx){
+    const A = ctx.ResumeAudit;
+    const d = healthyData();
+    const short = d.sections[1].items[1].projects[0].results;
+    ctx.assert(short.length > 0 && short.every(s => s.length < 15), '前置：假数据里的成果点确实都是短句');
+    const idsAll = ids(A.run(d).checks);
+    ctx.assert(idsAll.indexOf('length-short') === -1, '短句成果点不触发 length-short（实际：' + idsAll.join(',') + '）');
+
+    // 反向确认：把「优势正文」改成短句，仍应照常命中
+    const d2 = healthyData();
+    d2.sections[0].items[0].text = '负责相关工作。';
+    ctx.assert(has(A.run(d2).checks, 'length-short', 'info'), '正文过短仍应命中 length-short');
   }},
 
   { name: '时间解析不出来不误报（无年份 / 缺字段）', fn: function(ctx){
@@ -227,7 +259,7 @@ module.exports = [
     d.sections[1].items[0].date = '至今';
     d.sections[1].items[1].date = '';
     const r = A.run(d);
-    ctx.assert(!has(r.checks, 'career-order'), '年份缺失时跳过顺序检查');
+    ctx.assert(prefixed(r.checks, 'date-order-').length === 0, '年份缺失时跳过顺序检查');
   }},
 
   /* ---- 只读性 ---- */
@@ -262,14 +294,15 @@ module.exports = [
     A.run(healthyData());
     A.render(box1);
     ctx.assert(box1.innerHTML.indexOf('未发现问题') !== -1, '健康简历渲染出空态文案');
-    ctx.assert(box1.innerHTML.indexOf('页数') !== -1, '渲染含顶部统计');
+    ctx.assert(box1.innerHTML.indexOf('页') !== -1 && box1.innerHTML.indexOf('字') !== -1, '渲染含顶部统计（页 / 字 / 板块）');
 
     const box2 = { innerHTML: '' };
     A.run(messyData());
     A.render(box2);
-    ctx.assert(box2.innerHTML.indexOf('必须修改') !== -1, '渲染含 error 分组标题');
-    ctx.assert(box2.innerHTML.indexOf('建议修改') !== -1, '渲染含 warn 分组标题');
-    ctx.assert(box2.innerHTML.indexOf('可选优化') !== -1, '渲染含 info 分组标题');
+    // 级别标签取自实现：error=必须处理 / warn=建议修改 / info=可以更好
+    ctx.assert(box2.innerHTML.indexOf('必须处理') !== -1, '渲染含 error 分组标题（必须处理）');
+    ctx.assert(box2.innerHTML.indexOf('建议修改') !== -1, '渲染含 warn 分组标题（建议修改）');
+    ctx.assert(box2.innerHTML.indexOf('可以更好') !== -1, '渲染含 info 分组标题（可以更好）');
     ctx.assert(box2.innerHTML.indexOf('未发现问题') === -1, '有问题时不再显示空态');
   }},
 
@@ -280,15 +313,20 @@ module.exports = [
     ctx.assert(!threw, 'toggle() 不抛错');
   }},
 
-  { name: '单条描述长度边界（14/16/301 字）', fn: function(ctx){
+  /* 前置：healthyData 自身不产生任何 length 类命中，因此下面的计数等价于「这一条是否命中」。
+     阈值取自实现：< 15 过短；> 300 过长。 */
+  { name: '单条描述长度边界（14/16/300/301 字）', fn: function(ctx){
     const A = ctx.ResumeAudit;
     function one(text){
       const d = healthyData();
       d.sections[0].items[0].text = text;
       return A.run(d).checks.filter(c => c.id === 'length-short' || c.id === 'length-long').length;
     }
+    const rep = (n) => new Array(n + 1).join('字');
     ctx.assert(one('一二三四五六七八九十一二三四') === 1, '14 字 → 命中过短');
     ctx.assert(one('一二三四五六七八九十一二三四五六') === 0, '16 字 → 不命中长度类');
+    ctx.assert(one(rep(300)) === 0, '300 字 → 不命中过长（边界内）');
+    ctx.assert(one(rep(301)) === 1, '301 字 → 命中过长');
     ctx.assert(one(longText()) === 1, '超长文本 → 命中过长');
   }}
 ];

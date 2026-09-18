@@ -59,7 +59,12 @@
       <div class="menu">
         <button class="menu-btn" onclick="ResumeEditor.toggleMenu(this)">导出 <span class="caret">▾</span></button>
         <div class="menu-list">
-          <button onclick="ResumeEditor.exportPDF()" title="html2canvas 截图拼合，生成图片版 PDF 预览">PDF 预览 / 下载</button>
+          <button onclick="ResumeExport.exportPdfSilent()" id="pdfSilentBtn" title="经本地服务调用本机浏览器静默生成「可选中文字」的 PDF，不弹打印对话框（需 npm start 打开）">PDF（文字可选中 · 静默）</button>
+          <button onclick="window.print()" title="走浏览器原生打印 / 另存为 PDF（快捷键 Ctrl/Cmd+P）">打印 / 另存为 PDF</button>
+          <button onclick="ResumeExport.exportDocx()" title="导出真正的 Word 文档（.docx），HR 与 ATS 通用">导出 Word（.docx）</button>
+          <button onclick="ResumeExport.exportTxt()" title="导出纯文本，投递表单 / ATS 粘贴用">导出纯文本（.txt）</button>
+          <button onclick="ResumeExport.exportMarkdown()" title="导出 Markdown，便于放到 GitHub / 博客 / 在线简历">导出 Markdown（.md）</button>
+          <button onclick="ResumeEditor.exportPDF()" title="html2canvas 截图拼合，生成图片版 PDF 预览">PDF 预览 / 下载（图片版）</button>
           <button onclick="ResumeEditor.exportLongImage()" title="导出页面完整长图，与预览完全一致">导出（图片版）</button>
           <button onclick="ResumeEditor.exportSingleFileHTML()" title="导出仅含简历本身的独立 HTML 文件，可直接双击打开">导出单文件 HTML</button>
         </div>
@@ -87,6 +92,7 @@
 
       <button onclick="ResumeEditor.undo()" id="undoBtn" title="撤销 (Ctrl/Cmd+Z)">撤销</button>
       <button onclick="ResumeEditor.redo()" id="redoBtn" title="重做 (Ctrl/Cmd+Shift+Z / Ctrl+Y)">重做</button>
+      <button onclick="ResumeAudit.toggle()" id="auditBtn" title="投递体检：页数 / 完整性 / 量化 / ATS 检查">体检</button>
       <button onclick="ResumeEditor.toggleTheme()" id="themeBtn" title="切换夜间模式（工具栏）"><span id="themeBtnLabel">夜间模式</span></button>
       <span class="autosave" id="feishuStatus"></span>
       <span class="autosave" id="autosave"></span>
@@ -124,6 +130,15 @@
       <div class="panel-body"><div class="font-settings" id="spacingSettings"></div></div>
     </div>
 
+    <!-- 投递体检：纯规则检查（页数 / 完整性 / 量化 / ATS），点击标题展开并重新检查 -->
+    <div class="panel collapsed" id="panel-audit">
+      <div class="panel-header" onclick="ResumeAudit.toggle()">
+        <span style="flex:1;">投递体检（页数 / 内容 / ATS）</span>
+        <span class="chevron">▾</span>
+      </div>
+      <div class="panel-body"><div id="auditBody"></div></div>
+    </div>
+
     <div class="panel panel-grow" id="panel-editor">
       <div class="panel-header collapsible" data-panel="panel-editor">内容编辑（仅改文字，代码自动生成）<span class="chevron">▾</span></div>
       <div class="panel-body">
@@ -151,7 +166,14 @@
       <button onclick="ResumeEditor.openFeishuRestore()">从飞书恢复</button>
       <button onclick="ResumeEditor.openFeishuConfig()">同步配置…</button>
 
+      <div class="sync-group">投递准备</div>
+      <button onclick="ResumeAudit.toggle()">投递体检（页数 / 内容 / ATS）</button>
+
       <div class="sync-group">导出</div>
+      <button onclick="ResumeExport.exportPdfSilent()">PDF（文字可选中）</button>
+      <button onclick="ResumeExport.exportDocx()">导出 Word（.docx）</button>
+      <button onclick="ResumeExport.exportTxt()">导出纯文本</button>
+      <button onclick="ResumeExport.exportMarkdown()">导出 Markdown</button>
       <button onclick="ResumeEditor.exportPDF()">导出 PDF 预览</button>
       <button onclick="ResumeEditor.exportLongImage()">导出图片版</button>
       <button onclick="ResumeEditor.exportSingleFileHTML()">导出单文件 HTML</button>
@@ -273,5 +295,8 @@
 <!-- P2 原生桥：仅在 Tauri 壳内注入 window.__RESUME_NATIVE__，浏览器下不做任何事 -->
 <script src="js/store/native-bridge.js"></script>
 <script src="js/app.js"></script>
+<!-- T7 投递链路：两者均只读消费 ResumeEditor.getData()，必须在 app.js 之后加载 -->
+<script src="js/export-extra.js"></script>
+<script src="js/audit.js"></script>
 </body>
 </html>

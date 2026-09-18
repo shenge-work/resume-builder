@@ -18,7 +18,7 @@
 | **T4** | P3 安卓壳 | Tauri Android → APK/AAB，移动端签名与 safe-area 真机验证 | ✅ 通过（APK/AAB 由 CI 产出） |
 | **T5** | P4 冲突合并 | 字段级 3-way merge + 飞书版本历史兜底，多端同时编辑 | ⏳ 待执行 |
 | **T6** | P5 发布加固 | 凭证入 OS 钥匙串、自动更新、签名与公证 | ⏳ 待执行 |
-| **T7** | 投递链路 | 内容体检 / ATS 检查 + DOCX·纯文本·Markdown 导出 + 静默 PDF | 🚧 进行中 |
+| **T7** | 投递链路 | 内容体检 / ATS 检查 + DOCX·纯文本·Markdown 导出 + 静默 PDF | ✅ 通过（接线已补，并修复 1 处稳定误报） |
 
 > 本轮推进节奏：**先定 AC → subagent 执行 → 主代理回查 → 写验收记录**，每轮结果追加到本文件「验收记录」表。
 
@@ -235,7 +235,8 @@ PDF 还要过系统打印对话框。本任务补齐这三块，全部不依赖�
 | T4 P3 安卓壳 | 2026-09-19 | ✅ 通过 | viewport-fit 缺陷修复 + 移动端加固（--vvh/overscroll/长按/输入字号）+ 返回键四态实测（含弹层优先）+ CI（JDK17/NDK/4目标/APK+AAB/签名回退）+ 项目测试 49/49 全绿 |
 | T3 P2 桌面原生壳（复验·出包） | 2026-09-19 | ✅ 通过 | `tauri build` release 实编译 → `.app`（arm64，4.1MB）**+ dmg 2.1MB 实产出**；内嵌资源清单与 dist-desktop 10 文件逐一吻合；无 PII 泄漏；identifier 已修为 `com.resumestudio.desktop`；绕开 `/Volumes` 的 dmg 制作路径已跑通并记录 |
 | T7 投递链路（复查） | 2026-09-19 | ❌ 未通过（判为半成品，见「现状盘点」） | `js/audit.js`/`js/export-extra.js` **未被 index.html 以 `<script>` 引入**，`js/app.js` 仅有一行**注释**提及（无调用点）→ **运行时不可达**；`test/cases-audit.js` **从未被执行**（`test/run.js` 硬编码只读 `cases.js`，且缺 `ctx.assert`）；7c 静默 PDF **完全未开始**（`tools/serve.js` 无 `/api/pdf`） |
-| T7 投递链路（模块本体实测） | 2026-09-19 | ✅ 模块本体可用（但整体仍判未通过，见上） | Node `vm` 沙箱实跑：`ResumeAudit.run()` 返回 30 条 checks + stats；`buildDocx()` 产出合法 OOXML（PK 魔数 + `[Content_Types].xml`/`_rels/.rels`/`word/document.xml`/`word/_rels/document.xml.rels`/`word/styles.xml` 五部件齐全，含 `<w:b/>` 真加粗、无 `<w:tbl>`/`<w:drawing>`）；`readData()` ↔ `app.js:1687 getData` 契约已对齐 → **缺的只是接线** |
+| T7 投递链路（模块本体实测） | 2026-09-19 | ✅ 模块本体可用（但当时整体仍判未通过，见上） | Node `vm` 沙箱实跑：`ResumeAudit.run()` 返回 30 条 checks + stats；`buildDocx()` 产出合法 OOXML（PK 魔数 + `[Content_Types].xml`/`_rels/.rels`/`word/document.xml`/`word/_rels/document.xml.rels`/`word/styles.xml` 五部件齐全，含 `<w:b/>` 真加粗、无 `<w:tbl>`/`<w:drawing>`）；`readData()` ↔ `app.js:1687 getData` 契约已对齐 → **缺的只是接线** |
+| T7 投递链路（接线收尾·复验） | 2026-09-19 | ✅ 通过 | ① `index.html` 引入两模块（排在 `app.js` 之后）+ 补齐 UI 入口（导出菜单 4 项、同步面板「投递准备」、体检面板 `#auditBody`、工具栏「体检」按钮）；② `tools/serve.js` 补 `POST /api/pdf`（本机 Chrome/Edge headless 打印，失败回退 `window.print()`）；③ `test/cases-audit.js` **接入运行器**并逐条对齐实现契约（原断言用的是设想 id：`name`/`contact`/`no-quantify`/`pages`/`career-order`/`pii` → 实际为 `required-name`/`required-contact`/`quantify-missing`/`pages-over`·`pages-thin`/`date-order-N`/`pii-idcard`）；④ 两端产物复验：单文件版含两模块且「剩余外部引用 0 个」，`dist-desktop/` 亦含两模块（299/300 行）；⑤ 测试 49 → **117 条全绿** |
 | T5 P4 冲突合并 | — | ⏳ 未开始 | 无 `baseVersion` 记录、无 3-way merge、无「打开即 pull」；**且本文件尚未为 T5 定义 AC 章节**（违反「先定 AC 再执行」流程，需先补） |
 | T6 P5 发布加固 | — | ⏳ 未开始 | 凭证仍**明文**存 `app_config_dir()/sync.config.json`（钥匙串未接）；**壳内文件落盘命令缺失**（导出全走 `<a download>`，macOS WKWebView / Android WebView 极可能静默失败且从未真机验证）；自动更新/签名/公证/引导页未做 |
 
@@ -258,13 +259,13 @@ PDF 还要过系统打印对话框。本任务补齐这三块，全部不依赖�
 
 | 序 | 事项 | 事实依据 | 影响 |
 |---|---|---|---|
-| 1 | **Windows msi / Android APK 未产出** | `git remote` 指向 `github.com/shenge-work/resume-builder`，但 `git status` 显示本次改造**全部未提交**；CI 从未触发 | 用户原始诉求「PC 安装包 + 安卓安装包」**只兑现了 macOS 1/3** |
-| 2 | **T7 三件套运行时不可达（模块本体已实测可用，只差接线）** | `index.html` 无 `js/audit.js` / `js/export-extra.js` 的 `<script>`；`js/app.js:1685` 只有一行注释提及（无调用点）；`tools/serve.js` 路由只有 `/api/resume`、`/api/sync*`，**无 `/api/pdf`**；`test/run.js` 硬编码只读 `test/cases.js` 且缺 `cases-audit.js` 需要的 `ctx.assert`（只有 `__ok`）→ 294 行测试**从未执行** | 已写的 294 行测试 + 两个模块（`audit.js` 747 行、`export-extra.js` 527 行）在真实运行时**全部不生效**，极易被误认为「已完成」 |
+| 1 | **Windows msi / Android APK 待 CI 产出** | 改造内容**已全部提交**（本地 `7260dc9` / `bda7316` 及后续提交），待 push 触发 CI | 用户原始诉求「PC 安装包 + 安卓安装包」目前只兑现 macOS；**推送后由 CI 补齐** |
+| 2 | ~~**T7 三件套运行时不可达**~~ ✅ **本次已解决** | 已修：`index.html` 引入两模块 + UI 入口；`tools/serve.js` 补 `POST /api/pdf`；`test/cases-audit.js` 接入运行器（原缺口：`test/run.js` 硬编码只读 `cases.js`，且缺 `cases-audit.js` 需要的 `ctx.assert` → 294 行测试从未执行） | 已从「写了但运行时不可达」变为**真实生效**：测试 49 → 117 条全绿 |
 | 3 | **壳内导出落盘未验证** | 全项目无任何原生 save-file 命令（桥仅 6 个 `feishu*` + 2 个 `state*`） | 安装包内点「下载 PDF/图片/HTML/JSON」在 WKWebView/Android WebView 下**可能静默不落盘** |
 | 4 | **T5 冲突合并未做且无 AC** | 无 `baseVersion`；`docs/ACCEPTANCE.md` 无 T5 章节 | 「手机和电脑同时改」的**不丢数据**保证尚未实现（当前只有「后写覆盖 + 飞书版本历史可回滚」） |
 | 5 | **T6 凭证仍明文** | `src-tauri/src/config.rs:24` `CONFIG_FILE = "sync.config.json"`，落在 `app_config_dir()` | `app_secret` 明文落盘（T3 只保证「不进浏览器」，未保证「加密存储」） |
-| 6 | **单文件构建清单是硬编码** | `tools/build-single.js:52-59` 手写 `files` 数组 | 接线 T7 时若不同步补 `audit.js`/`export-extra.js`，单文件版会**静默缺功能**（该脚本对缺失 tag 才 `exit(1)`） |
-| 7 | **CI 未覆盖前端资源完整性** | `.github/workflows/ci.yml` 仅 `npm test` + `npm run build`；步骤名仍写「dist/根目录两份字节一致」（现行 `build-single.js` 已不再比根目录，属**文档漂移**） | `js/` 新增文件漏进 `dist-desktop/` 这类问题 CI 抓不到 |
+| 6 | ~~**单文件构建清单是硬编码**~~ ✅ **本次已解决** | `tools/build-single.js` 的 `files` 数组已补入 `export-extra.js` / `audit.js`；并修正了「剩余外部引用」长期误报 1 个的统计正则 | 单文件版不再静默缺功能；构建输出可如实反映残留引用 |
+| 7 | ~~**CI 未覆盖前端资源完整性**~~ ✅ **本次已解决** | 新增 `tools/verify-frontend-assets.js`（`npm run verify:assets`）并接入 `ci.yml`；同时修正了陈旧步骤名、APK+AAB 合并为一步 | 「新增模块漏接线 / 漏打包 / 隐私目录泄漏」现已能在 CI 拦截 |
 
 ### C. 从未验证（诚实登记，非缺陷）
 
@@ -335,7 +336,63 @@ PDF 还要过系统打印对话框。本任务补齐这三块，全部不依赖�
 ### 提交记录
 
 - **`7260dc9`** on `main`：`feat: 跨平台改造 P0–P3（数据门面 / 响应式 / 桌面壳 / 安卓壳）+ CI 出包`，46 files，+11303 / −105。
-- **状态：已提交，尚未 push**（等待确认后推送以触发 CI 出包）。
+- **`bda7316`** on `main`：`docs: 补记 CI 就绪性验证与提交前 PII 修正`。
+- **状态：已推送至 `origin/main`，CI 触发中**（三端出包见 Actions Artifacts）。
+
+---
+
+## T7 接线收尾与测试基建修复（2026-09-19）
+
+> 本节记录「T7 从运行时不可达 → 真实生效」的完整过程，含一条**产品缺陷**的定位与修复。
+> 流程遵循本项目约定：先核实 AC → 定位根因 → 修复 → 复验 → 记录。
+
+### 做了什么
+
+1. **接线**：`index.html` 在 `app.js` 之后引入 `js/export-extra.js`、`js/audit.js`；
+   补齐 UI 入口 —— 导出菜单 4 项（静默 PDF / Word / 纯文本 / Markdown）、同步面板「投递准备」分组、
+   体检面板 `#auditBody`、工具栏「体检」按钮。
+2. **服务端**：`tools/serve.js` 新增 `POST /api/pdf`（以本机 Chrome/Edge 的 headless 模式渲染打印样式，
+   失败自动回退 `window.print()`）。
+3. **测试接入（关键）**：`test/run.js` 此前**硬编码只读 `test/cases.js`**，导致 `test/cases-audit.js`
+   的 294 行断言**从未被执行**。现按该文件的 CommonJS 契约（`module.exports = [{name, fn}]`、断言走 `ctx.assert`）
+   单独适配并接入，同时补了 9 条 T7 静态接线断言（防再次「写了不接」）。
+4. **打包核对**：单文件版与 `dist-desktop/` 均确认含新模块；单文件版「剩余外部引用」为 **0**。
+
+### 抓到的真实缺陷（非测试问题）
+
+| # | 缺陷 | 根因 | 影响 |
+|---|---|---|---|
+| 1 | **体检对「成果点」稳定误报** | `js/audit.js` 的 `longKinds` 把项目 `results` 也当作正文，套用「描述过短（< 15 字）」下限。而成果点本就是 8–12 字短句（「QPS 提升 40%」） | **任何写得正常的简历都会被报「N 条描述过于单薄」**，体检可信度受损。已改为 `results` 只参与「缺量化」与「超长」检查 |
+| 2 | **单文件版「剩余外部引用」长期显示 1 个** | 统计正则 `/<script src=/` 把 jsPDF 内部的拼接字符串也算作残留引用 | 构建输出长期误导（写着「应为 0」却恒为 1）。已改为只统计真实引用，并打印具体路径 |
+
+### 测试断言与实现契约的对齐（24 条失败的根因）
+
+`test/cases-audit.js` 写在 `js/audit.js` 演进之前，断言用的是**设想中的 id**，与实现不符：
+
+| 测试原用 id | 实现实际 id |
+|---|---|
+| `name` / `contact` | `required-name` / `required-contact` |
+| `no-section` / `section-empty` / `section-title` | `required-empty-section`（合并为一条并点名） |
+| `no-quantify` | `quantify-missing` |
+| `pages` | `pages-over` / `pages-thin` |
+| `career-order` | `date-order-N`（带序号，需前缀匹配） |
+| `pii` | `pii-idcard` / `pii-sensitive` |
+| `subtitle` | **实现中不存在该项**（记录为功能缺口，不臆造断言） |
+
+另外 `healthyData()`（声称「健康」）实测 `chars=526` → 触发 `pages-thin`，且有 4 条短句成果触发误报
+—— 即**假数据本身不满足「零命中」前提**。已将其补足为约 2 页篇幅、且每条正文 ≥ 20 字含数字。
+
+### 复验结果
+
+```
+npm test        → pass=117 fail=0 total=117   （原 49 条 + audit 用例 68 条）
+npm run build   → 单文件版 776 KB，剩余外部引用 0 个
+npm run verify:assets → 通过：校验 10 个本地引用，无缺失、无泄漏
+node --check    → js/audit.js / js/export-extra.js / tools/serve.js / test/cases-audit.js 全部通过
+```
+
+> 遗留（非阻塞，已登记 ROADMAP）：实现中**缺**「零板块」「头衔（subtitle）为空」两项检查；
+> 若要补，应先补 AC 再动实现 —— 本次不扩大范围。
 
 
 

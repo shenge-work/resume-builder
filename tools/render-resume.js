@@ -43,7 +43,10 @@ try {
   const els = {}; // 按 id 持久化，便于事后读取 preview.innerHTML
   const ctx = {
     console, JSON, Date, Math, Object, Array, String, Number, Boolean,
-    isNaN, parseInt, parseFloat, RegExp, Error, Promise, setTimeout, process,
+    // 定时器必须成套提供：app.js 的数据写回防抖用了 clearTimeout（缺了会直接抛错，
+    // 曾导致本脚本在 P0 数据门面之后静默失效）
+    isNaN, parseInt, parseFloat, RegExp, Error, Promise,
+    setTimeout, clearTimeout, setInterval, clearInterval, process,
     localStorage: {
       getItem(k) { return store.has(k) ? store.get(k) : null; },
       setItem(k, v) { store.set(k, String(v)); },
@@ -69,9 +72,11 @@ try {
   const dataCode = fs.readFileSync(path.join(ROOT, 'js', 'data.js'), 'utf8');
   const appCode = fs.readFileSync(path.join(ROOT, 'js', 'app.js'), 'utf8');
   const cssCode = fs.readFileSync(path.join(ROOT, 'css', 'style.css'), 'utf8');
+  // P0 数据门面：app.js 的防抖写回会调用 window.ResumeStore，必须一并加载（顺序同 index.html）
+  const storeCode = fs.readFileSync(path.join(ROOT, 'js', 'store', 'resume-store.js'), 'utf8');
 
   vm.createContext(ctx);
-  vm.runInContext(dataCode + '\n' + appCode, ctx, { filename: 'resume-bundle.js' });
+  vm.runInContext(storeCode + '\n' + dataCode + '\n' + appCode, ctx, { filename: 'resume-bundle.js' });
   if (!ctx.ResumeEditor || typeof ctx.ResumeEditor.applyImported !== 'function') {
     throw new Error('未能从 app.js 暴露 ResumeEditor.applyImported（封装接口异常）');
   }
@@ -127,6 +132,9 @@ ${resumeHtml}
   console.log('  姓名  :', payload.data.name);
   console.log('  体积  :', size + ' KB');
   console.log('  提示  : 浏览器打开即可查看；Ctrl/Cmd+P 可「另存为 PDF」（文字可选中）。');
+  // app.js 的写回防抖挂着定时器，产物已落盘后即可直接退出（否则定时器触发时
+  // 可能访问浏览器专属对象而抛错，导致本脚本以非 0 退出、被上游误判为渲染失败）
+  process.exit(0);
 } catch (e) {
   console.error('✗ 渲染失败:', e.message);
   process.exit(1);

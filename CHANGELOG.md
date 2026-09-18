@@ -9,6 +9,47 @@
 
 ## [Unreleased]
 
+### 新增
+
+- **跨平台（桌面 / 安卓）**：引入 Tauri 2 原生壳（`src-tauri/`），同一份前端产物可打包为
+  Windows `.msi`/`.exe`、macOS `.app`/`.dmg`、Linux `.deb`/`.AppImage`，以及 Android `APK`/`AAB`。
+  通过 `withGlobalTauri` 保持**零前端依赖、无打包器**的既有风格。
+- **原生层只做脏活**：飞书 HTTP 传输、凭证保管（`app_secret` 只存在于 Rust 进程）、token 缓存、
+  multipart 上传、二进制流下载下沉到 Rust；业务编排仍留在 JS（`js/store/native-bridge.js` 复刻 `tools/feishu-sync.js` 的语义）。
+- **数据门面（`js/store/resume-store.js`）**：把原先散落的 `fetch('/api/*')` 收敛为
+  Local / Browser / Feishu 三种可替换实现，业务代码不再感知存储方式。
+- **投递体检（`js/audit.js`）**：纯规则、只读的数据检查 —— 页数、内容完整性、量化结果、ATS 友好度、
+  敏感信息（身份证号等），分「必须处理 / 建议修改 / 可以更好」三级，点击条目可定位到对应板块。
+- **多格式导出（`js/export-extra.js`）**：Word（`.docx`，真 OOXML、真加粗）、纯文本（`.txt`）、
+  Markdown（`.md`），以及**静默 PDF**（经本地服务调用本机浏览器 headless 打印，产出文字可选的矢量 PDF，不弹打印对话框）。
+- **响应式布局**：移动优先断点、移动端底部 Tab、A4 等比缩放（`transform: scale`，避免 `zoom` 引发的重排）、
+  安全区与软键盘适配（`--vvh` / `--kb`）、返回键优先级语义（弹层 > 视图 > 真后退）。
+- **主题（`js/theme.js`）**：日间 / 夜间切换，仍严格限定黑白灰。
+- **飞书同步**：手动「上报到飞书」/「从飞书恢复」，数据双写飞书文档与云盘文件，借其版本历史留存每次更改。
+- **CI 出包**：`.github/workflows/build-desktop.yml`（三平台矩阵）、`build-android.yml`（APK + AAB）。
+
+### 修复
+
+- **投递体检对「成果点」稳定误报（产品缺陷）**：项目成果点（`results`，如「QPS 提升 40%」）本就是 8–12 字短句，
+  却被套用「描述过短（< 15 字）」的下限，导致**任何写得正常的简历都会被报「N 条描述过于单薄」**。
+  现让 `results` 只参与「缺量化」与「超长」检查。
+- **`tools/render-resume.js` 静默失效**：vm 沙箱未提供 `clearTimeout`，而 `app.js` 的数据写回防抖依赖它，
+  缺失后脚本直接抛错（表现为「渲染失败」，但根因不在渲染）。已补齐定时器，并在产物落盘后显式退出。
+- **单文件版「剩余外部引用」长期误报**：统计正则把 jsPDF 内部的拼接字符串算成了残留引用，于是恒定显示 1 个。
+  现只统计真实引用，并打印出具体路径。
+
+### 变更
+
+- **`tools/serve.js` 仅监听回环地址**：`listen(PORT, '127.0.0.1')`，同网段他人无法再读取本地简历数据。
+- **`index.html` viewport 补 `viewport-fit=cover`**：此前 `env(safe-area-inset-*)` 恒为 0，安全区适配实际是死代码。
+- **`@media print` 补隐藏清单**：`.mobile-tabbar` / `.sync-pane` 此前未隐藏，手机打印会把底部 Tab 打进 PDF。
+- **测试运行器修复**：`test/run.js` 原先硬编码只读 `test/cases.js`，导致 `test/cases-audit.js`（294 行）
+  **从未被执行过**；且沙箱缺 `clearTimeout` 会让套件提前终止。两者均已修复，断言总数 49 → **117**。
+
+### 安全
+
+- 新增前端资源完整性门禁（`npm run verify:assets`）与注入属性清理（`npm run clean:html`），并接入 CI。
+
 后续规划见 [ROADMAP.md](./ROADMAP.md)。
 
 ---

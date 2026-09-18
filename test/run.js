@@ -105,6 +105,27 @@ try {
   fileResults.push({ name: '运行期异常: ' + (e && e.message ? e.message : e), pass: false });
 }
 
+/* ---------- 第三步：js/audit.js 的内容体检用例 ----------
+   注意：test/cases-audit.js 此前**从未被执行过**——本运行器原先硬编码只读 cases.js。
+   它是 CommonJS（module.exports = [{name, fn}]），由 Node 侧 require 后逐条跑，
+   断言走 ctx.assert(cond, msg)，与上面的 __ok 通道不同名，故在此单独适配。 */
+try {
+  const auditCode = fs.readFileSync(path.join(ROOT, 'js', 'audit.js'), 'utf8');
+  vm.runInContext(auditCode, ctx, { filename: 'audit.js' });
+} catch (e) {
+  fileResults.push({ name: '加载期异常（js/audit.js）: ' + (e && e.message ? e.message : e), pass: false });
+}
+
+const auditCases = require(path.join(ROOT, 'test', 'cases-audit.js'));
+const auditCtx = {
+  ResumeAudit: ctx.ResumeAudit,
+  assert(cond, msg) { fileResults.push({ name: 'audit › ' + msg, pass: !!cond }); },
+};
+for (const c of auditCases) {
+  try { c.fn(auditCtx); }
+  catch (e) { fileResults.push({ name: 'audit › ' + c.name + '（抛错: ' + (e && e.message ? e.message : e) + '）', pass: false }); }
+}
+
 /* ---------- 文件级冒烟断言（打印样式 / 入口接线，不依赖浏览器）---------- */
 F('打印样式存在 @media print', /@media\s+print/.test(cssCode));
 F('打印时隐藏编辑区与工具栏', /@media\s+print[\s\S]*?\.toolbar,\.editor-pane[^;]*display\s*:\s*none/.test(cssCode));
@@ -119,6 +140,21 @@ F('导出预览弹层含下载按钮 closeExportModal', /ResumeEditor\.closeExpo
 F('图片版导出按钮标注为「导出（图片版）"', /导出（图片版）/.test(htmlCode));
 F('入口已接入 ResumeEditor 命名空间（toggleGuides）', /onclick="ResumeEditor\.toggleGuides\(\)"/.test(htmlCode));
 F('入口已接入 ResumeEditor 命名空间（exportPDF）', /onclick="ResumeEditor\.exportPDF\(\)"/.test(htmlCode));
+
+/* ---------- 文件级冒烟断言：T7 投递链路的接线（防「写了但没接」）----------
+   源 index.html 常被外部编辑器注入 data-page-node-id，断言前先剥离，避免误判。 */
+const htmlClean = htmlCode.replace(/\s+data-page-node-id="[^"]*"/g, '');
+F('index.html 引入 js/export-extra.js', /<script src="js\/export-extra\.js"><\/script>/.test(htmlClean));
+F('index.html 引入 js/audit.js', /<script src="js\/audit\.js"><\/script>/.test(htmlClean));
+F('T7 模块排在 app.js 之后（依赖其暴露的 getData）',
+  htmlClean.indexOf('js/app.js') < htmlClean.indexOf('js/export-extra.js') &&
+  htmlClean.indexOf('js/app.js') < htmlClean.indexOf('js/audit.js'));
+F('工具栏含投递体检入口', /ResumeAudit\.toggle\(\)/.test(htmlClean));
+F('导出菜单含 Word（.docx）', /ResumeExport\.exportDocx\(\)/.test(htmlClean));
+F('导出菜单含纯文本', /ResumeExport\.exportTxt\(\)/.test(htmlClean));
+F('导出菜单含 Markdown', /ResumeExport\.exportMarkdown\(\)/.test(htmlClean));
+F('导出菜单含静默 PDF', /ResumeExport\.exportPdfSilent\(\)/.test(htmlClean));
+F('体检面板容器存在（#auditBody）', /id="auditBody"/.test(htmlClean));
 
 /* ---------- 报告 ---------- */
 const all = ctx.__results.concat(fileResults);

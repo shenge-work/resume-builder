@@ -1,6 +1,7 @@
 # 路线图（Roadmap）
 
-记录 resume-builder 后续优化方向。已上线内容见 [CHANGELOG.md](./CHANGELOG.md)。
+记录 resume-builder 后续优化方向。已上线内容见 [CHANGELOG.md](./CHANGELOG.md)；
+跨平台改造的**逐任务验收标准与验收记录**见 [docs/ACCEPTANCE.md](./docs/ACCEPTANCE.md)。
 
 状态图例：📋 规划中 · 🚧 进行中 · ✅ 已完成 · ⏸ 暂不实施
 
@@ -26,20 +27,30 @@
 
 ---
 
+## 已完成（近期）
+
+- ✅ **本地服务只监听回环地址** —— `tools/serve.js` 改为 `listen(PORT, '127.0.0.1')`，同网段他人无法再读取 `data/resume.json`。
+- ✅ **一键静默下载「可选中文字」PDF** —— `tools/serve.js` 新增 `POST /api/pdf`（复刻页面打印样式 + 本机浏览器
+  headless 渲染），前端 `ResumeExport.exportPdfSilent()` 直接下载矢量文字 PDF，不弹打印对话框（失败自动回退系统打印）。
+- ✅ **跨平台桌面 / 安卓应用** —— 引入 Tauri 2 原生壳，一份前端产物产出 Windows / macOS / Linux 安装包与 Android APK；
+  原生层负责凭证保管与网络传输。方案见 [docs/CROSSPLATFORM-DESIGN.md](./docs/CROSSPLATFORM-DESIGN.md)，
+  构建见 [docs/DESKTOP-BUILD.md](./docs/DESKTOP-BUILD.md) / [docs/ANDROID-BUILD.md](./docs/ANDROID-BUILD.md)。
+- ✅ **投递链路三件套** —— 内容体检（`js/audit.js`）、多格式导出（Word / 纯文本 / Markdown）、静默 PDF。
+- ✅ **前端资源完整性门禁** —— `npm run verify:assets`，已接入 CI，专防「新增模块漏接线 / 漏打包」这类静默失效。
+
+---
+
 ## 高优先级（直接影响「敢放心用 / 真开源可用」）
 
-- 📋 **本地服务只监听回环地址（安全加固，建议顺手做）**
-  现状：`tools/serve.js` 的 `server.listen(PORT)` 未指定 host，实际监听 `0.0.0.0`，
-  **同网段他人可访问并读取 `data/resume.json`**（内含真实简历信息）。
-  目标：改为 `server.listen(PORT, '127.0.0.1')`。
-  成本：一行改动，不影响 `npm start` 的任何既有用法。
-  来源：AI 方案调研时附带发现，已记入 [docs/DESIGN.md](./docs/DESIGN.md) 第九节。
+- 📋 **跨端编辑冲突合并**
+  现状：手机与电脑可同时编辑同一份简历（经飞书或 `data/resume.json` 交换），但后写入者会**整体覆盖**先写入者。
+  目标：字段级 3-way merge —— 记录 `baseVersion`，冲突时保留双方内容并按字段提示选择；飞书的版本历史作最终兜底。
+  出处：跨平台设计的 P4 阶段，见 [docs/CROSSPLATFORM-DESIGN.md](./docs/CROSSPLATFORM-DESIGN.md)。**尚未实施。**
 
-- 📋 **一键静默下载「可选中文字」PDF**
-  现状：原生打印导出依赖系统打印对话框，且视觉效果依赖浏览器打印引擎（可能与屏幕预览有细微差异）。
-  目标：不弹对话框、直接下载矢量文字 PDF。
-  方案：手写 jsPDF `.text()` 排版（客户端、成本高）或服务端 `puppeteer` 渲染（质量最高、需后端/CI）。
-  关联：[1.0.0] 已知限制。
+- 📋 **凭证存入系统钥匙串**
+  现状：桌面 / 安卓版的飞书 `app_secret` 保存在应用数据目录的 `sync.config.json`（已在 `.gitignore` 内，但仍是明文）。
+  目标：改用系统钥匙串（macOS Keychain / Windows Credential Manager / Android Keystore）。
+  出处：跨平台设计的 P5 阶段。**尚未实施。**
 
 - 📋 **撤销范围细化**
   现状：应用级撤销会覆盖输入框原生逐字符撤销（`Ctrl/Cmd+Z` 在输入框内也是整段撤销）。
