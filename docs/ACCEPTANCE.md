@@ -291,6 +291,7 @@ PDF 还要过系统打印对话框。本任务补齐这三块，全部不依赖�
 | T7 导出测试补齐（7f） | 2026-09-19 | ✅ 通过 | 新增 `test/cases-export.js`（自带独立 zip 解析器，不复用被测实现的 CRC/解压逻辑）+ 接入运行器 → 测试 125 → **203/203** 全绿；`verify:assets` 通过 10 引用、`npm run build` 单文件版 md5 `f9f855a4605051d02b83012c1f2e868a`（与改动前一致，证明测试改动未触碰产物）。**变异测试 14/15 抓住**（唯一漏网为等价变异），并据此修掉 2 个真实测试盲区（本地头压缩标记未校验、skills 分隔符用例只有一条长句） |
 | T5 P4 冲突合并 | — | ⏳ 未开始 | 无 `baseVersion` 记录、无 3-way merge、无「打开即 pull」；**且本文件尚未为 T5 定义 AC 章节**（违反「先定 AC 再执行」流程，需先补） |
 | CI 运维加固 + Android 签名凭据 | 2026-09-19 | ✅ 通过（AC1–AC8；**最后一步「填 Secret」需人工**） | action 升到最新稳定（`checkout@v7` / `setup-node@v7` / `setup-java@v6` / `upload-artifact@v7`，并纠正上轮「升到 v5 即可」的过期建议）；本机装 Temurin 17.0.20.1 生成 **PKCS12** 上传密钥库（RSA 4096 / SHA256withRSA / 10000 天 / alias `resume-studio`）；base64 `openssl -A` 单行 5.8 KB，**解码后字节一致且可被 keytool 打开**；CI 侧补 `storeType=PKCS12`（消除 JKS/PKCS12 歧义）；**无 Android SDK 也复刻跑通了签名步骤**（解码 → `keystore.properties` → Gradle 补丁，大括号平衡、证书可导出）；修掉 3 处 identifier 文档漂移（`ANDROID-BUILD.md` ×2、`DESKTOP-BUILD.md` ×3）并补 5 条签名排错 |
+| Android 构建根因修复（`tauri` script） | 2026-09-19 | ✅ 通过（CI 闭环，run 35388942760） | `Build Android` 此前必在 `Execution failed for task ':app:rustBuildArm64Debug'` 失败；根因是 **`package.json` 缺 `"tauri": "tauri"`**（`tauri android init` 按启动方式把 `npm run -- tauri android android-studio-script` 烘焙进 `BuildTask.kt`）。A/B 对照坐实（有 script → `tauri-cli 2.11.4`；删掉 → 与 CI 日志逐字相同）。修复后 **15 个步骤全绿、9 分 7 秒**，产出 `android-apk` **145.97 MB** + `android-aab` **143.13 MB**；同推 `Build Desktop` / `CI` 亦 success，三端五包齐全（win 4.04 / mac 2.14 / linux 75.71 MB）。当前为 **debug 签名**（secret 未配） |
 | T6 P5 发布加固 | — | ⏳ 未开始 | 凭证仍**明文**存 `app_config_dir()/sync.config.json`（钥匙串未接）；**壳内文件落盘命令缺失**（导出全走 `<a download>`，macOS WKWebView / Android WebView 极可能静默失败且从未真机验证）；自动更新/签名/公证/引导页未做 |
 
 ---
@@ -600,6 +601,32 @@ BUILD FAILED in 1m 59s
 > 这条坑的价值超出了本项目：**任何手工给静态 Web 应用包 Tauri 壳的仓库都会踩到**，
 > 已同步写入 `~/.workbuddy/skills/tauri-wrap-static-webapp/SKILL.md`。
 
+#### CI 闭环实测（修复后）
+
+修复提交 `0cbb617` 推送后触发的 `Build Android`（run **35388942760**，`19:59:08Z → 20:08:15Z`，**约 9 分 7 秒**）
+**全步骤 success**，包括此前必然失败的「构建 APK + AAB」：
+
+```
+13. 构建 APK + AAB      completed  success
+14. 上传 APK artifact   completed  success
+15. 上传 AAB artifact   completed  success
+```
+
+同一次推送的 `Build Desktop`（run 35388942757）与 `CI`（run 35388942808）也都 **success**。
+**三端五包全部产出**（artifact `expires_at` 均为 2026-10-02，即保留 14 天）：
+
+| workflow | artifact | 体积 |
+|---|---|---|
+| Build Android | `resume-studio-android-apk` | **145.97 MB** |
+| Build Android | `resume-studio-android-aab` | **143.13 MB** |
+| Build Desktop | `resume-studio-windows` | 4.04 MB（msi + nsis） |
+| Build Desktop | `resume-studio-macos` | 2.14 MB（dmg） |
+| Build Desktop | `resume-studio-linux` | 75.71 MB（AppImage + deb） |
+
+> **这些包走的是 debug 签名**（4 个 secret 尚未写入，日志里对应那条 `::notice::`），
+> 可直接装真机验证，但**不能上架**。体积偏大（145 MB）也是 debug 通用包的正常表现：
+> 未做 ABI 拆分，4 个架构的 Rust 产物全打在一起。将来配好 release 签名后可考虑 `--split-per-abi`。
+
 ### 需要人工完成的一步（API 路径被权限挡住）
 
 **把 4 个值填进仓库 Secrets**：`Settings → Secrets and variables → Actions → New repository secret`。
@@ -615,12 +642,28 @@ BUILD FAILED in 1m 59s
 Secret 一旦创建就**不可再读回**，所以务必先在密码管理器里留一份。
 4 个缺任一个都会静默回退 debug 签名（日志里只有一条 `::notice::`）。
 
-> **为什么是手工**：本机钥匙串里的 GitHub 凭据是**细粒度 PAT**，
-> 对 Actions Secrets 只授了 **Read**、没有 Write。实测 `PUT /actions/secrets/{name}` 返回
-> `403 Resource not accessible by personal access token`（4 个 secret 全部 403，未写入任何内容）。
-> 值得记一笔的教训：**`GET /actions/secrets` 返回 200 并不代表有写权限** ——
-> 读写是两项独立授权，不能用「能读」推断「能写」。留待后续的替代路径：
-> 在 token 设置里把 `Secrets` 权限改为 **Read and write**，即可由脚本一次写入。
+> **为什么是手工**：GitHub 的 Actions Secrets **写入**要求细粒度 PAT 具备
+> `Secrets` 仓库权限的 **write** 级别（见
+> [REST /actions/secrets 文档](https://docs.github.com/en/rest/actions/secrets)：
+> *"Create or update a repository secret — `Secrets` repository permissions (write)"*），
+> 而 `List repository secrets` 只要求 **read**。
+>
+> 实测两只 token 都只授了 **read**（`GET /actions/secrets` 与 `GET .../public-key` 均 200，
+> 但 `PUT /actions/secrets/{name}` 全部返回
+> `403 Resource not accessible by personal access token`，4 个 secret **一个都没写入**）。
+> 换第二只 token 重试仍是同样的 403 —— 说明不是 token 失效，而是**权限级别不够**。
+>
+> **值得记一笔的教训**：**`GET` 返回 200 不代表有写权限**。
+> Secrets 的 read 与 write 是**两项独立授权**，不能用「列得出来」推断「写得进去」。
+> 本项目先后两次据此误判（第一次脚本一路 200 直到 `PUT` 才翻车，第二次换 token 仍误以为会通）。
+>
+> **两条推进路径**（任选其一）：
+> 1. **改权限后由脚本写入**：到 https://github.com/settings/personal-access-tokens → 点开该 token →
+>    `Repository permissions` 里找到 **Secrets** → 由 `Read-only` 改为 **`Read and write`** → Save。
+>    之后把加密写入脚本跑一遍即可（脚本逻辑已验证可用，只卡在权限）。
+> 2. **手工填**：`Settings → Secrets and variables → Actions → New repository secret`。
+>    值如上表；Secret 一旦创建就**不可再读回**，所以务必先在密码管理器里留一份。
+>    4 个缺任一个都会静默回退 debug 签名（日志里只有一条 `::notice::`，很不起眼）。
 
 **降低手工出错概率的两个小技巧**（5940 字符手工选中很容易多带空格/换行）：
 
@@ -629,6 +672,10 @@ cd android-signing
 pbcopy < resume-studio-upload.keystore.base64   # 然后直接 Cmd+V 填 ANDROID_KEY_BASE64
 pbcopy < ANDROID-SIGNING-CREDENTIALS.txt        # 口令与别名在这份里
 ```
+
+> ⚠️ **凭据卫生提醒**：GitHub 的 PAT 一旦出现在聊天记录 / 日志里就应当视为已泄露，
+> 建议配完 secret 后回到 token 设置页 **Regenerate** 一次。仓库侧的 4 个 secret 不受影响
+> （它们存的是 Android 密钥库，与 token 无关）。
 
 CI 侧消费方式是 `echo "$ANDROID_KEY_BASE64" | base64 -d`，**对尾部换行不敏感**，
 所以只要中间没有多余空白即可。
@@ -640,7 +687,8 @@ CI 侧消费方式是 `echo "$ANDROID_KEY_BASE64" | base64 -d`，**对尾部换�
   本次**刻意不加**——`Build Desktop #1` 已跑 25 分钟以上，取消会白扔这一轮的 Windows msi。
 - `dtolnay/rust-toolchain@stable` 用浮动 `@stable` 是官方推荐（rust-cache 需要它）；若要完全可复现可钉到具体版本。
 - **仓库可见性（已决策，暂不处理）**：仓库现为 **public**（`shenge-work/resume-builder`）。
-  Release 签名的 APK/AAB 会作为 artifact 挂在公开仓库的 Actions 上，**构建成功后 7 天内**
+  Release 签名的 APK/AAB 会作为 artifact 挂在公开仓库的 Actions 上，**构建成功后 14 天内**
+  （实测 `expires_at` = 2026-10-02，由 2026-09-19 起算）
   任何登录 GitHub 的账号都能下载。当前产出的是调试期包、不含个人数据，故**本轮决定保持 public**。
   ⚠️ **将来出正式可上架包之前必须重新评估这一点**：那时 artifact 里会带上真实签名产物，
   若要走 Play 上架，建议先转 private（私有仓库的 Actions 分钟数会计费，公开仓库免费）。
