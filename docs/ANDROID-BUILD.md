@@ -107,6 +107,11 @@ src-tauri/gen/android/app/build/outputs/
 > APK 与 AAB 用**同一条命令**产出：`--apk --aab` 在同一个进程内做两次打包、共享 Rust 产物。
 > 拆成两条命令会让 4 个 ABI 的 Rust 编译被完整跑两遍（首轮构建多花十几分钟）。
 >
+> ⚠️ **`package.json` 里必须有 `"tauri": "tauri"` 这个 script**（见第 8 节最后一条）。
+> 少了它，`tauri android init` 会把 `npm run -- tauri android android-studio-script`
+> 烘焙进生成的 Gradle 工程，之后 Gradle 执行 `rustBuild*` 任务时必然
+> `npm error Missing script: "tauri"` 而整条构建失败。
+>
 > action 主版本一律取**当前最新稳定**（checkout / setup-node 已到 v7，setup-java 到 v6）。
 > v4 系列运行在 Node 20 上，GitHub 已弃用并会在日志里刷 deprecation 警告。
 
@@ -283,6 +288,7 @@ adb uninstall com.resumestudio.desktop            # 卸载（包名 = tauri.conf
 | `Unable to locate a Java Runtime` / `JAVA_HOME is not set` | 未装 JDK 17。装 Temurin 17 并导出 `JAVA_HOME`（装法见第 5 节文末）；CI 由 `setup-java@v6` 处理 |
 | `ANDROID_HOME not set` / `SDK location not found` | 未设 `ANDROID_HOME`（CI 由 `android-actions/setup-android@v4` 设置；本地写入 shell 配置） |
 | `设置 Android SDK` 步骤 **20 秒即失败**、日志里出现 `Failed to find package 'tools'` | `android-actions/setup-android` 用了 **v3**。v3.2.2 的默认 `packages` 含 `tools`，而 **Google 已把 `tools` 包从 `repository2-3.xml` 移除** → `sdkmanager tools` 报错并把整个 action 拖垮。**升到 `@v4`**（v4.0.2 起只装 `platform-tools`）。这是本项目实测踩到的坑，见 `docs/ACCEPTANCE.md` |
+| `Execution failed for task ':app:rustBuildArm64Debug'`，且构建日志里有 `npm error Missing script: "tauri"` | **`package.json` 缺 `"tauri": "tauri"` script**。`tauri android init` 会按「当前是怎么启动 CLI 的」来推断，在 npm 脚本里启动时推断结果是 `npm run -- tauri android android-studio-script`，并把这条命令**烘焙进 `buildSrc/src/main/kotlin/BuildTask.kt`**（`val executable = "npm"; val args = listOf("run","--","tauri",...)`）。之后 Gradle 的 `rustBuild*` 任务执行它 → npm 找不到 `tauri` script → 失败。**修法：在 `package.json` 的 scripts 里加 `"tauri": "tauri"`**（`create-tauri-app` 官方模板本来就带这一条，本项目是手工包壳所以漏了）。自检：`npm run -- tauri --version` 应打印 `tauri-cli x.y.z` |
 | `NDK not configured` / `NDK_HOME` 未生效 / `No toolchains found` | 用 `sdkmanager --install "ndk;27.0.12077973"` 安装并导出 `NDK_HOME=$ANDROID_HOME/ndk/27.0.12077973`（同时设 `ANDROID_NDK_HOME` 兼容旧脚本） |
 | `error: target ... may not be enabled` / 链接器报 `arm-linux-androideabi` 缺失 | rust target 未装全：`rustup target add aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android` |
 | Gradle 下载超时 / `Could not resolve com.android.tools.build:gradle` | 网络问题或代理未配；重跑一次；自建环境可配 `~/.gradle/gradle.properties` 的代理；CI 上通常是偶发，重试 workflow |
