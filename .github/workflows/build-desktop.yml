@@ -2,7 +2,7 @@ name: Build Desktop
 
 # 三平台矩阵构建 Tauri 安装包：macOS → dmg，Windows → msi + nsis，Linux → AppImage + deb
 # 说明：macOS 上无法交叉产出 Windows msi/nsis，Windows 包必须由 windows-latest 或本机 Windows 产出，
-#       因此本 workflow 是「三端安装包」的主路径（详见 docs/DESKTOP-BUILD.md）。
+#       因此本 workflow 是「三端安装包」的主路径（详见 docs/桌面版构建说明.md）。
 on:
   push:
     branches:
@@ -94,4 +94,7 @@ jobs:
           name: ${{ matrix.artifact }}
           path: ${{ matrix.paths }}
           if-no-files-found: error
+          # artifact 不可变，且 overwrite 默认 false：重跑时上次 attempt 的同名 artifact 仍在，
+          # 上传会直接失败。理由详见 release.yml 里 release-meta 那段注释。
+          overwrite: true
           retention-days: 14

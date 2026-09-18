@@ -1,7 +1,7 @@
 name: Build Android
 
 # 产出 Android 安装包（APK / AAB）。CI 是唯一可行路径：绝大多数开发机（含本项目本机）
-# 没有 JDK / Android SDK / NDK，无法本地构建（详见 docs/ANDROID-BUILD.md）。
+# 没有 JDK / Android SDK / NDK，无法本地构建（详见 docs/Android版构建说明.md）。
 #
 # Android 工程由 `tauri android init` 现场生成到 src-tauri/gen/android：
 # 该目录是生成物、已在 .gitignore 中，仓库不提交任何手写的 Gradle / Kotlin / Manifest。
@@ -233,7 +233,7 @@ jobs:
       #
       # 失败时主动把关键行转成 `::error::` annotation：annotation 能通过 API 读到，
       # 是排查 CI 失败的兜底通道（作业日志虽有 /actions/jobs/{id}/logs，但需要带
-      # Actions:read 的 token，见 docs/ANDROID-BUILD.md 第 8.1 节）。没有这段，
+      # Actions:read 的 token，见 docs/Android版构建说明.md 第 8.1 节）。没有这段，
       # 失败信息就只能靠人肉打开网页看。
       - name: 构建 APK + AAB
         run: |
@@ -332,6 +332,9 @@ jobs:
           name: resume-studio-android-apk
           path: src-tauri/gen/android/app/build/outputs/apk/**/*.apk
           if-no-files-found: error
+          # artifact 不可变，且 overwrite 默认 false：重跑时上次 attempt 的同名 artifact 仍在，
+          # 上传会直接失败。理由详见 release.yml 里 release-meta 那段注释。
+          overwrite: true
           retention-days: 14
 
       - name: 上传 AAB artifact
@@ -340,4 +343,5 @@ jobs:
           name: resume-studio-android-aab
           path: src-tauri/gen/android/app/build/outputs/bundle/**/*.aab
           if-no-files-found: error
+          overwrite: true
           retention-days: 14

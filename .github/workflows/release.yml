@@ -196,7 +196,13 @@ jobs:
         with:
           name: release-meta
           path: ${{ runner.temp }}/release-meta
-          retention-days: 1
+          # ⚠️ artifact 一旦创建即不可变，而 `overwrite` 默认是 false —— 同名时上传直接失败。
+          # 「重跑」（Re-run all jobs）会新建一次 attempt，但**上一次 attempt 的 artifact 仍然在**，
+          # 于是每个上传步骤都会撞名。偏偏「重跑」正是构建偶发失败时最自然的操作。
+          overwrite: true
+          # 保留期要覆盖「publish 被单独重跑」的时间窗。原先设成 1 天：次日重跑 publish 时
+          # release-meta 已过期，download-artifact 拿不到 notes.md，发版会失败在「缺更新说明」。
+          retention-days: 14
 
   # ─────────────────────────────────────────────────────────────
   # 2. 复用既有构建 workflow（不复制构建逻辑）
