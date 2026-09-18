@@ -1447,6 +1447,43 @@ function toggleEditorPane(){
   const app = document.querySelector('.app');
   setPaneCollapsed(!(app && app.classList.contains('pane-collapsed')));
 }
+
+/* ============ 右缘侧边标签 + 浮动面板（可扩展多个；同一时间只展开一个） ============
+   规划：每个 .pane-tab[data-panel] 配一个 .side-panel#<data-panel>；
+   rail 自上而下堆叠、面板一律从右缘向左浮出，互不遮挡；
+   展开状态记 localStorage（键 SIDE_PANEL_KEY，值为面板 id 或空）。 */
+const SIDE_PANEL_KEY = 'resume_side_panel_open_v1';
+function syncSideRail(){
+  document.querySelectorAll('.side-rail .pane-tab[data-panel]').forEach(btn => {
+    const p = document.getElementById(btn.getAttribute('data-panel'));
+    if (!p) return;
+    const open = p.classList.contains('open');
+    btn.classList.toggle('active', open);
+    const arrow = btn.querySelector('.pane-tab-arrow');
+    if (arrow) arrow.textContent = open ? '\u203a' : '\u2039'; // › 展开中(点收起) / ‹ 已收起(点展开)
+    const label = btn.querySelector('.pane-tab-label');
+    btn.title = (open ? '收起' : '展开') + (label ? label.textContent : '');
+  });
+}
+function setSidePanelOpen(panelId, open, persist){
+  const panel = document.getElementById(panelId);
+  if (!panel) return;
+  if (open) {
+    document.querySelectorAll('.side-panel.open').forEach(p => { if (p.id !== panelId) p.classList.remove('open'); });
+  }
+  panel.classList.toggle('open', open);
+  syncSideRail();
+  if (persist !== false) { try{ localStorage.setItem(SIDE_PANEL_KEY, open ? panelId : ''); }catch(e){} }
+}
+function toggleSidePanel(panelId){
+  const panel = document.getElementById(panelId);
+  setSidePanelOpen(panelId, !(panel && panel.classList.contains('open')));
+}
+/* 点击面板与标签栏以外的空白处收起（点面板内按钮不受影响） */
+document.addEventListener('click', (e) => {
+  if (e.target.closest('.side-panel') || e.target.closest('.side-rail')) return;
+  document.querySelectorAll('.side-panel.open').forEach(p => setSidePanelOpen(p.id, false));
+});
 /* 手机视图切换：preview / edit / sync（仅新增，不影响桌面布局与渲染逻辑） */
 function setMobileView(view){
   const app = document.querySelector('.app');
@@ -1632,6 +1669,7 @@ function setupKeyboardFocusGuard(){
 }
 /* 启动时恢复上次的面板状态（不回写存储） */
 try{ setPaneCollapsed(localStorage.getItem(PANE_COLLAPSED_KEY) === '1', false); }catch(e){}
+try{ setSidePanelOpen('toolsPanel', localStorage.getItem(SIDE_PANEL_KEY) === 'toolsPanel', false); }catch(e){}
 
 /* ============ 初始化 ============ */
 /* 主题：js/theme.js 加载时已自行初始化并写好 <html> 属性；
@@ -1698,6 +1736,8 @@ global.ResumeEditor = {
   closeFeishuConfig: closeFeishuConfig,
   saveFeishuConfig: saveFeishuConfig,
   toggleEditorPane: toggleEditorPane,
+  toggleSidePanel: toggleSidePanel,
+  setSidePanelOpen: setSidePanelOpen,
   toggleTheme: toggleTheme,
   setThemeMode: setThemeMode,
   togglePaperTheme: togglePaperTheme,

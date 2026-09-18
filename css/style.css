@@ -203,41 +203,56 @@
 
   /* 左侧预览区 */
   .preview-pane{flex:1;display:flex;flex-direction:column;min-width:0;background:var(--ui-bg);position:relative;}
-  /* ===== 右侧编辑面板 收起/展开（把手贴预览区右缘；收起后简历占满居中） ===== */
+  /* ===== 右缘侧边标签栏（side-rail）：多个竖排把手自上而下堆叠，垂直居中 ===== */
   .editor-pane{transition:width .25s ease;}
   .editor-pane .panel{min-width:460px;} /* 收起动画期间内容不被压缩，仅被 overflow 裁剪 */
   .app.pane-collapsed .editor-pane{width:0;border-left-color:transparent;overflow:hidden;}
-  .pane-tab{position:absolute;right:0;top:50%;transform:translateY(-50%);z-index:60;width:24px;padding:14px 0;background:var(--ui-tab-bg);color:var(--ui-tab-text);border:1px solid var(--ui-tab-border);border-right:none;border-radius:6px 0 0 6px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:8px;box-shadow:-2px 0 10px var(--ui-tab-shadow);}
-  .pane-tab:hover{background:var(--ui-tab-hover);}
+  .side-rail{position:absolute;right:0;top:50%;transform:translateY(-50%);z-index:60;display:flex;flex-direction:column;gap:10px;max-height:calc(100% - 24px);overflow-y:auto;}
+  .pane-tab{position:relative;width:24px;padding:14px 0;background:var(--ui-tab-bg);color:var(--ui-tab-text);border:1px solid var(--ui-tab-border);border-right:none;border-radius:6px 0 0 6px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:8px;box-shadow:-2px 0 10px var(--ui-tab-shadow);}
+  .pane-tab:hover,.pane-tab.active{background:var(--ui-tab-hover);}
   .pane-tab .pane-tab-arrow{font-size:13px;line-height:1;font-family:monospace;}
   .pane-tab .pane-tab-label{writing-mode:vertical-rl;font-size:11px;letter-spacing:3px;color:var(--ui-tab-label);}
-  .toolbar{min-height:46px;height:auto;background:var(--ui-tool);color:var(--ui-tool-text);display:flex;align-items:center;flex-wrap:wrap;gap:8px 12px;padding:8px 14px;flex-shrink:0;}
-  .toolbar h1{font-size:14px;font-weight:700;margin:0;flex:1;white-space:nowrap;min-width:90px;}
-  .toolbar .tip{font-size:11.5px;color:var(--ui-tool-muted);font-weight:400;white-space:nowrap;}
-  .toolbar button{height:30px;padding:0 14px;font-size:12.5px;font-weight:600;background:var(--ui-btn-bg);color:var(--ui-btn-text);border:none;border-radius:4px;cursor:pointer;white-space:nowrap;flex-shrink:0;}
-  .toolbar button:hover{background:var(--ui-btn-hover);}
-  .toolbar .autosave{font-size:11.5px;color:var(--ui-tool-note);font-weight:400;white-space:nowrap;}
-  .toolbar .link-btn{height:30px;padding:0 12px;font-size:12px;font-weight:400;background:transparent;color:var(--ui-tool-text);border:1px solid var(--ui-tool-link-border);border-radius:4px;cursor:pointer;}
-  .toolbar .link-btn:hover{background:var(--ui-tool-link-hover);}
-  .toolbar .filename-wrap{display:flex;align-items:center;gap:6px;margin-right:4px;}
-  .toolbar .filename-wrap label{font-size:11.5px;color:var(--ui-tool-muted);font-weight:400;white-space:nowrap;}
-  .toolbar .filename-wrap input{height:28px;width:120px;padding:0 8px;font-size:12px;border:1px solid var(--ui-tool-input-border);border-radius:4px;background:var(--ui-tool-input-bg);color:var(--ui-tool-text);outline:none;}
-  .toolbar .filename-wrap input::placeholder{color:var(--ui-placeholder);}
-  .toolbar .filename-wrap input:focus{border-color:var(--ui-tool-input-border-focus);background:var(--ui-tool-input-bg-focus);}
 
-  /* ===== 工具栏下拉菜单（悬停展开，也可点击固定） ===== */
-  .toolbar .menu{position:relative;flex-shrink:0;}
-  .toolbar .menu-btn{display:flex;align-items:center;gap:4px;}
-  .toolbar .menu-btn .caret{font-size:10px;color:var(--ui-menu-caret);transition:transform .15s ease;}
-  .toolbar .menu:hover .menu-btn,.toolbar .menu.open .menu-btn{background:var(--ui-btn-hover);}
-  .toolbar .menu:hover .menu-btn .caret,.toolbar .menu.open .menu-btn .caret{transform:rotate(180deg);}
-  .toolbar .menu-list{display:none;position:absolute;top:100%;left:0;min-width:196px;background:var(--ui-menu-bg);border:1px solid var(--ui-menu-border);border-radius:5px;padding:5px;z-index:300;flex-direction:column;gap:2px;box-shadow:0 8px 24px var(--ui-menu-shadow);}
-  .toolbar .menu:hover .menu-list,.toolbar .menu.open .menu-list{display:flex;}
-  .toolbar .menu-list button{display:block;width:100%;height:32px;padding:0 12px;text-align:left;font-size:12.5px;font-weight:400;background:transparent;color:var(--ui-menu-text);border:none;border-radius:4px;cursor:pointer;white-space:nowrap;}
-  .toolbar .menu-list button:hover{background:var(--ui-menu-hover);}
-  .toolbar .menu-list button:disabled{opacity:.55;cursor:default;}
-  /* 菜单内的勾选态（夜间模式相关）：统一宽度，避免文字跳动；只用无彩字形，不引入新配色 */
-  .toolbar .menu-list button .check{display:inline-block;width:16px;color:inherit;}
+  /* ===== 浮动面板（side-panel）：从右缘向左浮出，同一时间只开一个 ===== */
+  .side-panel{
+    position:absolute;right:34px;top:50%;z-index:59;width:252px;
+    max-height:calc(100% - 24px);
+    background:var(--ui-panel);border:1px solid var(--ui-border);border-radius:8px;
+    box-shadow:0 8px 28px var(--ui-menu-shadow);
+    display:none;flex-direction:column;overflow:hidden;
+    transform:translateY(-50%) translateX(8px);opacity:0;
+    transition:transform .15s ease,opacity .15s ease;
+  }
+  .side-panel.open{display:flex;transform:translateY(-50%) translateX(0);opacity:1;}
+  .side-panel-head{
+    display:flex;align-items:center;gap:8px;padding:10px 12px;flex-shrink:0;
+    background:var(--ui-panel-head);border-bottom:1px solid var(--ui-border-soft);
+  }
+  .side-panel-title{font-size:12.5px;font-weight:700;color:var(--ui-text);white-space:nowrap;}
+  .side-panel-head .autosave{font-size:11px;color:var(--ui-faint);font-weight:400;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .side-panel-body{overflow-y:auto;padding:8px 8px 10px;display:flex;flex-direction:column;gap:2px;}
+  /* 内容超高时由 body 滚动，行高本身不许被 flex 压扁（否则按钮被压成 12px 高的碎条） */
+  .side-panel-body > *{flex-shrink:0;}
+  .side-group{
+    font-size:11px;font-weight:700;color:var(--ui-muted);
+    padding:10px 6px 4px;margin-top:6px;border-top:1px solid var(--ui-border-soft);
+  }
+  .side-panel-body .side-group:first-child{border-top:none;margin-top:0;padding-top:4px;}
+  .side-panel-body button{
+    display:block;width:100%;height:32px;padding:0 10px;text-align:left;
+    font-size:12.5px;font-weight:400;background:transparent;color:var(--ui-text);
+    border:none;border-radius:5px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  }
+  .side-panel-body button:hover{background:var(--ui-btn-hover);}
+  .side-panel-body button:disabled{opacity:.55;cursor:default;}
+  .side-panel-body button .check{display:inline-block;width:16px;color:inherit;}
+  .side-panel .filename-wrap{display:flex;align-items:center;gap:6px;padding:2px 6px 6px;}
+  .side-panel .filename-wrap label{font-size:11.5px;color:var(--ui-muted);font-weight:400;white-space:nowrap;}
+  .side-panel .filename-wrap input{
+    flex:1;min-width:0;height:28px;padding:0 8px;font-size:12px;outline:none;
+    border:1px solid var(--ui-input-border);border-radius:4px;background:var(--ui-input-bg);color:var(--ui-text);
+  }
+  .side-panel .filename-wrap input::placeholder{color:var(--ui-placeholder);}
 
   /* ===== 表单保存按钮（配置弹层用） ===== */
   .form-btn{height:34px;padding:0 20px;font-size:13px;font-weight:600;background:var(--ui-solid-bg);color:var(--ui-solid-text);border:none;border-radius:4px;cursor:pointer;}
@@ -396,7 +411,7 @@
     @page{ size:A4; margin:14mm 14mm; }
     html,body{height:auto;overflow:visible;background:#fff;}
     /* 隐藏全部编辑/工具 UI，只输出简历本身（文字可选中、体积小） */
-    .toolbar,.editor-pane,.pdf-modal,.page-guide,.autosave,.pane-tab,
+    .side-rail,.side-panel,.editor-pane,.pdf-modal,.page-guide,.autosave,.pane-tab,
     .mobile-tabbar,.sync-pane{display:none !important;}
     .app{display:block;height:auto;}
     .preview-pane{display:block;background:#fff;}
@@ -434,9 +449,8 @@
   /* —— 手机：单栏 + 底部 Tab 切换 —— */
   @media (max-width:640px){
     .app{display:block;height:100vh;overflow:hidden;}
-    /* 隐藏桌面下拉菜单与侧边把手（手机用底部 Tab 与 sync-pane 替代） */
-    .toolbar .menu{display:none;}
-    .pane-tab{display:none;}
+    /* 隐藏桌面右缘标签栏与浮动面板（手机用底部 Tab 与 sync-pane 替代） */
+    .side-rail,.side-panel{display:none;}
     /* 收起态在手机上失效：编辑面板始终占满宽度 */
     .app.pane-collapsed .editor-pane{width:100%;border-left:none;overflow:visible;}
 
@@ -469,9 +483,6 @@
     /* 简历预览在手机宽度内完整可见：A4 宽度由 renderPreview 内联写成 210mm（max-width:none），
        无法用 max-width 收窄，改由 js/app.js 的 applyPreviewScale() 等比缩放（见上方 .is-scaled 规则） */
 
-    /* 工具栏在手机上允许换行，避免挤压 */
-    .toolbar{flex-wrap:wrap;}
-
     /* 同步 / 工具聚合页 */
     .sync-pane{
       width:100%;background:var(--ui-panel);overflow:auto;flex-direction:column;
@@ -500,7 +511,7 @@
 
   /* —— 触控指针（手机/平板）：放大触控目标，避免过小 —— */
   @media (pointer:coarse){
-    .toolbar button,
+    .side-panel button,
     .mobile-tabbar button,
     .sync-pane button,
     input,

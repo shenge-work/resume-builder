@@ -38,71 +38,76 @@
 
 <div class="app mv-preview">
   <div class="preview-pane">
-    <div class="toolbar">
-      <h1>简历实时预览</h1>
-      <span class="tip">拖拽左侧板块/条目可重排顺序</span>
-      <span class="filename-wrap" title="导出文件的默认文件名前缀">
-        <label for="filenameBase">文件名</label>
-        <input type="text" id="filenameBase" placeholder="姓名_简历" onchange="ResumeEditor.setFileNameBase(this.value)">
-      </span>
-
-      <div class="menu">
-        <button class="menu-btn" onclick="ResumeEditor.toggleMenu(this)">文件 <span class="caret">▾</span></button>
-        <div class="menu-list">
-          <button onclick="document.getElementById('importFile').click()" title="导入此前导出的 JSON 数据">导入数据</button>
-          <button onclick="ResumeEditor.exportJSON()" title="把当前简历数据导出为 JSON 文件">导出数据</button>
-          <button onclick="ResumeEditor.loadRepoData()" title="从仓库根目录 data/resume.json 重新加载（需通过本地服务器打开）">从仓库重载</button>
-          <button onclick="ResumeEditor.clearSaved()" title="清空本地保存，回到内置初始数据">重置为初始数据</button>
-        </div>
-      </div>
-
-      <div class="menu">
-        <button class="menu-btn" onclick="ResumeEditor.toggleMenu(this)">导出 <span class="caret">▾</span></button>
-        <div class="menu-list">
-          <button onclick="ResumeExport.exportPdfSilent()" id="pdfSilentBtn" title="经本地服务调用本机浏览器静默生成「可选中文字」的 PDF，不弹打印对话框（需 npm start 打开）">PDF（文字可选中 · 静默）</button>
-          <button onclick="window.print()" title="走浏览器原生打印 / 另存为 PDF（快捷键 Ctrl/Cmd+P）">打印 / 另存为 PDF</button>
-          <button onclick="ResumeExport.exportDocx()" title="导出真正的 Word 文档（.docx），HR 与 ATS 通用">导出 Word（.docx）</button>
-          <button onclick="ResumeExport.exportTxt()" title="导出纯文本，投递表单 / ATS 粘贴用">导出纯文本（.txt）</button>
-          <button onclick="ResumeExport.exportMarkdown()" title="导出 Markdown，便于放到 GitHub / 博客 / 在线简历">导出 Markdown（.md）</button>
-          <button onclick="ResumeEditor.exportPDF()" title="html2canvas 截图拼合，生成图片版 PDF 预览">PDF 预览 / 下载（图片版）</button>
-          <button onclick="ResumeEditor.exportLongImage()" title="导出页面完整长图，与预览完全一致">导出（图片版）</button>
-          <button onclick="ResumeEditor.exportSingleFileHTML()" title="导出仅含简历本身的独立 HTML 文件，可直接双击打开">导出单文件 HTML</button>
-        </div>
-      </div>
-
-      <div class="menu">
-        <button class="menu-btn" onclick="ResumeEditor.toggleMenu(this)">飞书同步 <span class="caret">▾</span></button>
-        <div class="menu-list">
-          <button onclick="ResumeEditor.reportToFeishu()" id="feishuReportBtn" title="经本地服务把当前数据双写到飞书（文档 + 云盘文件，均带版本历史）">上报到飞书</button>
-          <button onclick="ResumeEditor.openFeishuRestore()" title="列出飞书中的历史版本并恢复">从飞书恢复</button>
-          <button onclick="ResumeEditor.openFeishuConfig()" title="配置飞书自建应用凭证（App ID / Secret 等）">同步配置…</button>
-        </div>
-      </div>
-
-      <div class="menu">
-        <button class="menu-btn" onclick="ResumeEditor.toggleMenu(this)">视图 <span class="caret">▾</span></button>
-        <div class="menu-list">
-          <button onclick="ResumeEditor.toggleGuides()" id="guideBtn">显示分页线</button>
-          <button onclick="ResumeEditor.toggleEditorPane()" id="paneToggleBtn" title="收起/展开右侧编辑面板 (Ctrl/Cmd+B)">收起编辑面板</button>
-          <button onclick="ResumeEditor.toggleTheme()" id="themeDarkItem" title="切换编辑器界面的夜间模式（导出的纸张始终是白纸）"><span class="check"> </span>夜间模式</button>
-          <button onclick="ResumeEditor.setThemeMode('auto')" id="themeAutoItem" title="跟随操作系统的深色 / 浅色设置"><span class="check"> </span>主题跟随系统</button>
-          <button onclick="ResumeEditor.togglePaperTheme()" id="themePaperItem" title="让预览里的简历纸张也变暗（导出 / 打印仍是白纸）"><span class="check"> </span>简历纸张也变暗</button>
-        </div>
-      </div>
-
-      <button onclick="ResumeEditor.undo()" id="undoBtn" title="撤销 (Ctrl/Cmd+Z)">撤销</button>
-      <button onclick="ResumeEditor.redo()" id="redoBtn" title="重做 (Ctrl/Cmd+Shift+Z / Ctrl+Y)">重做</button>
-      <button onclick="ResumeAudit.toggle()" id="auditBtn" title="投递体检：页数 / 完整性 / 量化 / ATS 检查">体检</button>
-      <button onclick="ResumeEditor.toggleTheme()" id="themeBtn" title="切换夜间模式（工具栏）"><span id="themeBtnLabel">夜间模式</span></button>
-      <span class="autosave" id="feishuStatus"></span>
-      <span class="autosave" id="autosave"></span>
-      <input type="file" id="importFile" accept=".json,application/json" style="display:none" onchange="ResumeEditor.importJSON(this)">
+        <!-- ============================================================
+         右缘侧边标签栏（side-rail）+ 浮动面板（side-panel）
+         原顶部菜单栏已收纳进「工具菜单」浮动面板，把手与「编辑面板」同款竖排样式。
+         —— 以后新增同类标签的规划 ——
+           1) 往 .side-rail 里加一个 .pane-tab 按钮，data-panel 指向面板 id；
+           2) 在 .preview-pane 里加一个 .side-panel（id 与 data-panel 对应），
+              内容用 .side-group 分组、扁平按钮；
+           3) 点击用 ResumeEditor.toggleSidePanel('面板id')，展开/收起自动持久化。
+         多标签放置规则：rail 垂直居中、自上而下堆叠（gap 10px，超出可滚动）；
+         同一时间只展开一个 .side-panel，面板一律从右缘向左浮出，互不遮挡。
+         ============================================================ -->
+    <div class="side-rail" id="sideRail">
+      <button class="pane-tab" data-panel="toolsPanel" onclick="ResumeEditor.toggleSidePanel('toolsPanel')" title="展开工具菜单">
+        <span class="pane-tab-arrow">&lsaquo;</span>
+        <span class="pane-tab-label">工具菜单</span>
+      </button>
+      <button class="pane-tab" id="paneTab" onclick="ResumeEditor.toggleEditorPane()" title="收起编辑面板 (Ctrl/Cmd+B)">
+        <span class="pane-tab-arrow" id="paneTabArrow">&rsaquo;</span>
+        <span class="pane-tab-label">编辑面板</span>
+      </button>
     </div>
-    <!-- 编辑面板收起/展开把手：贴预览区右缘，点击切换；收起后简历预览占满居中 -->
-    <button class="pane-tab" id="paneTab" onclick="ResumeEditor.toggleEditorPane()" title="收起编辑面板 (Ctrl/Cmd+B)">
-      <span class="pane-tab-arrow" id="paneTabArrow">›</span>
-      <span class="pane-tab-label">编辑面板</span>
-    </button>
+
+    <!-- 工具菜单浮动面板：原顶部菜单栏全部功能，扁平分组（不再嵌套下拉） -->
+    <aside class="side-panel" id="toolsPanel">
+      <div class="side-panel-head">
+        <span class="side-panel-title">工具菜单</span>
+        <span class="autosave" id="feishuStatus"></span>
+        <span class="autosave" id="autosave"></span>
+      </div>
+      <div class="side-panel-body">
+        <div class="side-group">快速操作</div>
+        <span class="filename-wrap" title="导出文件的默认文件名前缀">
+          <label for="filenameBase">文件名</label>
+          <input type="text" id="filenameBase" placeholder="姓名_简历" onchange="ResumeEditor.setFileNameBase(this.value)">
+        </span>
+        <button onclick="ResumeEditor.undo()" id="undoBtn" title="撤销 (Ctrl/Cmd+Z)">撤销</button>
+        <button onclick="ResumeEditor.redo()" id="redoBtn" title="重做 (Ctrl/Cmd+Shift+Z / Ctrl+Y)">重做</button>
+        <button onclick="ResumeAudit.toggle()" id="auditBtn" title="投递体检：页数 / 完整性 / 量化 / ATS 检查">投递体检</button>
+        <button onclick="ResumeEditor.toggleTheme()" id="themeBtn" title="切换夜间模式"><span id="themeBtnLabel">夜间模式</span></button>
+
+        <div class="side-group">文件</div>
+        <button onclick="document.getElementById('importFile').click()" title="导入此前导出的 JSON 数据">导入数据</button>
+        <button onclick="ResumeEditor.exportJSON()" title="把当前简历数据导出为 JSON 文件">导出数据</button>
+        <button onclick="ResumeEditor.loadRepoData()" title="从仓库根目录 data/resume.json 重新加载（需通过本地服务器打开）">从仓库重载</button>
+        <button onclick="ResumeEditor.clearSaved()" title="清空本地保存，回到内置初始数据">重置为初始数据</button>
+
+        <div class="side-group">导出</div>
+        <button onclick="ResumeExport.exportPdfSilent()" id="pdfSilentBtn" title="经本地服务调用本机浏览器静默生成「可选中文字」的 PDF，不弹打印对话框（需 npm start 打开）">PDF（文字可选中 · 静默）</button>
+        <button onclick="window.print()" title="走浏览器原生打印 / 另存为 PDF（快捷键 Ctrl/Cmd+P）">打印 / 另存为 PDF</button>
+        <button onclick="ResumeExport.exportDocx()" title="导出真正的 Word 文档（.docx），HR 与 ATS 通用">导出 Word（.docx）</button>
+        <button onclick="ResumeExport.exportTxt()" title="导出纯文本，投递表单 / ATS 粘贴用">导出纯文本（.txt）</button>
+        <button onclick="ResumeExport.exportMarkdown()" title="导出 Markdown，便于放到 GitHub / 博客 / 在线简历">导出 Markdown（.md）</button>
+        <button onclick="ResumeEditor.exportPDF()" title="html2canvas 截图拼合，生成图片版 PDF 预览">PDF 预览 / 下载（图片版）</button>
+        <button onclick="ResumeEditor.exportLongImage()" title="导出页面完整长图，与预览完全一致">导出（图片版）</button>
+        <button onclick="ResumeEditor.exportSingleFileHTML()" title="导出仅含简历本身的独立 HTML 文件，可直接双击打开">导出单文件 HTML</button>
+
+        <div class="side-group">飞书同步</div>
+        <button onclick="ResumeEditor.reportToFeishu()" id="feishuReportBtn" title="经本地服务把当前数据双写到飞书（文档 + 云盘文件，均带版本历史）">上报到飞书</button>
+        <button onclick="ResumeEditor.openFeishuRestore()" title="列出飞书中的历史版本并恢复">从飞书恢复</button>
+        <button onclick="ResumeEditor.openFeishuConfig()" title="配置飞书自建应用凭证（App ID / Secret 等）">同步配置&hellip;</button>
+
+        <div class="side-group">视图</div>
+        <button onclick="ResumeEditor.toggleGuides()" id="guideBtn">显示分页线</button>
+        <button onclick="ResumeEditor.toggleEditorPane()" id="paneToggleBtn" title="收起/展开右侧编辑面板 (Ctrl/Cmd+B)">收起编辑面板</button>
+        <button onclick="ResumeEditor.toggleTheme()" id="themeDarkItem" title="切换编辑器界面的夜间模式（导出的纸张始终是白纸）"><span class="check"> </span>夜间模式</button>
+        <button onclick="ResumeEditor.setThemeMode('auto')" id="themeAutoItem" title="跟随操作系统的深色 / 浅色设置"><span class="check"> </span>主题跟随系统</button>
+        <button onclick="ResumeEditor.togglePaperTheme()" id="themePaperItem" title="让预览里的简历纸张也变暗（导出 / 打印仍是白纸）"><span class="check"> </span>简历纸张也变暗</button>
+      </div>
+    </aside>
+    <input type="file" id="importFile" accept=".json,application/json" style="display:none" onchange="ResumeEditor.importJSON(this)">
     <div class="preview-frame" id="preview"></div>
   </div>
 
