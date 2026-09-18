@@ -3,7 +3,7 @@ name: Release
 # 一键出包并发版：三平台桌面（msi / nsis / dmg / AppImage / deb）+ Android（APK / AAB），
 # 聚合成一个 GitHub Release，并附带版本号与更新说明。
 #
-# 触发方式（两种任选，见 docs/RELEASE.md）：
+# 触发方式（两种任选，见 docs/发版说明.md）：
 #   1) 推标签（推荐，最标准）：git tag v1.1.0 && git push origin v1.1.0
 #   2) Actions 页面手动 Run workflow，填版本号；gh 会基于当前 commit 自动创建标签
 #
@@ -123,7 +123,7 @@ jobs:
             ok=0
           fi
           if [ "$ok" != "1" ]; then
-            echo "::error title=怎么改::先把上面两个文件的 version 改成 ${VERSION} 并提交到 main，再用同一个版本号发版。详见 docs/RELEASE.md"
+            echo "::error title=怎么改::先把上面两个文件的 version 改成 ${VERSION} 并提交到 main，再用同一个版本号发版。详见 docs/发版说明.md"
             exit 1
           fi
           echo "::notice::版本号一致（${VERSION}），继续出包"
@@ -164,7 +164,7 @@ jobs:
               sys.stderr.write(
                   f'::error title=缺少版本更新说明::CHANGELOG.md 里既没有 [{version}] 章节，'
                   f'也没有可用的 [Unreleased] 内容。请先在 CHANGELOG.md 写明本次更新，'
-                  f'再重新发版（这是刻意设计的门槛，见 docs/RELEASE.md）\n')
+                  f'再重新发版（这是刻意设计的门槛，见 docs/发版说明.md）\n')
               sys.exit(1)
 
           out = []
@@ -296,10 +296,19 @@ jobs:
           take '*.aab' "Resume-Studio-${VERSION}-android.aab" || true
 
           # ---- 离线单文件版 ----
-          HTML=$(find dist -maxdepth 1 -type f -name '*.html' -print -quit)
-          if [ -n "$HTML" ]; then
-            mv "$HTML" "out/Resume-Studio-${VERSION}-单文件版.html"
-            echo "  $HTML  ->  Resume-Studio-${VERSION}-单文件版.html"
+          # ⚠️ 资产名必须用 ASCII：实测本地上传的 `Resume-Studio-1.1.0-单文件版.html`
+          # 到了 Release 上会变成 `Resume-Studio-1.1.0-.html`（CJK 被剥掉）——
+          # 于是「更新说明里写的文件名」与「用户实际看到的文件名」对不上，
+          # `sha256sum -c` 也会在这一行报「没有那个文件」。中文说明放在表格的用途列里。
+          # 取值上先认构建脚本约定的产物名（tools/build-single.js 的 OUT_FILE），
+          # 只有它不存在时才退回通配 —— 避免 dist/ 里混有其它 html 时被「任取」。
+          HTML="dist/简历编辑器-单文件.html"
+          if [ ! -f "$HTML" ]; then
+            HTML=$(find dist -maxdepth 1 -type f -name '*.html' -print -quit)
+          fi
+          if [ -n "$HTML" ] && [ -f "$HTML" ]; then
+            mv "$HTML" "out/Resume-Studio-${VERSION}-standalone.html"
+            echo "  $HTML  ->  Resume-Studio-${VERSION}-standalone.html（离线单文件版编辑器）"
           fi
 
           echo "=== 归一化后的发布资产 ==="
@@ -410,8 +419,17 @@ jobs:
           gh release view "$TAG" --json url,name,tagName,isPrerelease,isDraft \
             --template '{{.name}} ({{.tagName}}) prerelease={{.isPrerelease}} draft={{.isDraft}}{{"\n"}}{{.url}}{{"\n"}}'
           echo "=== 资产清单 ==="
-          gh release view "$TAG" --json assets \
-            --template '{{range .assets}}{{printf "%-52s %8.2f MB\n" .name (divf .size 1048576.0)}}{{end}}'
+          # ⚠️ gh 的 --template 用的是 **Go 模板**，只有 printf / len / index 这类内置函数，
+          # **没有 divf 这类 Sprig 函数**（那是 Helm 的）。写了会报
+          #   template: :1: function "divf" not defined
+          # 而这行只是「打印清单」，却会让整个 job 以 exit 1 收场（Release 其实已经建好了）。
+          # 所以：用 --jq 取原始字节数，再交给 awk 换算 MB —— 不依赖任何模板算术。
+          gh release view "$TAG" --json assets --jq '.assets[] | "\(.name)\t\(.size)"' \
+            | while IFS=$'\t' read -r name size; do
+                [ -z "$name" ] && continue
+                printf '  %-52s %8s MB\n' "$name" \
+                  "$(awk -v b="$size" 'BEGIN{printf "%.2f", b/1048576}')"
+              done
 
           URL=$(gh release view "$TAG" --json url -q .url)
           {
