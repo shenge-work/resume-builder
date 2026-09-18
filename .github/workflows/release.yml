@@ -321,6 +321,13 @@ jobs:
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           set -euo pipefail
+          # release-meta 是 prepare 上传的，merge-multiple 后落在 rel/ 根下。
+          # 缺了它说明上游产物没传成功，这里给出明确报错而不是让 cat 抛 "No such file"。
+          if [ ! -s rel/notes.md ]; then
+            echo "::error title=缺 release-meta::没找到 rel/notes.md（prepare 的更新说明产物），无法生成 Release 描述"
+            find rel -maxdepth 2 -type f | head -20
+            exit 1
+          fi
           {
             cat rel/notes.md
             echo
