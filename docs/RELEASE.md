@@ -223,10 +223,19 @@ print('未发现风险写法' if not bad else f'{bad} 处需改成 ${{VAR}}')
 PY
 ```
 
-> ③ 想更彻底一些，还可以把关键 `run` 块的 Python heredoc 抽出来、在临时目录用
-> mock 文件实跑（`release.yml` 的「改名 / 校验和 / 生成说明」与 `build-android.yml` 的
-> Gradle 补丁都可以这样测）。**但记住结构级自检抓不出类型错误**，
-> Kotlin / Rust / Gradle 的问题只能靠真 CI。
+> ③ 想更彻底一些，可以把关键 `run` 块的脚本原样抽出来、在临时目录实跑
+> （`release.yml` 的「改名 / 校验和 / 生成说明」与 `build-android.yml` 的 Gradle 补丁都可以这样测）。
+> `release.yml` 这一套共 **42 项**；`build-android.yml` 的签名补丁另有 **40 项**（见下）。
+>
+> ⚠️ **关键区别：一定要用「真输入」，不要用手写的 mock。**
+> 签名补丁连炸两轮，就是因为我第一轮用手写的假模板做自检 —— 于是漏掉了
+> 「真模板第一行本来就是 `import java.util.Properties`」这个决定性事实。
+> 换成从 `@tauri-apps/cli` 二进制里抠出来的真模板后，一次 40/40 通过。
+> 方法见 `docs/ANDROID-BUILD.md` 第 5.8 节。
+>
+> **但记住结构级自检抓不出类型错误**，Kotlin / Rust / Gradle 的问题只能靠真 CI ——
+> 所以还要配一道「补丁脚本自带断言」（计数 + 锚点），让坏文件在 0 秒内自曝，
+> 而不是让 Gradle 白跑 3 分钟再抛一句 `Script compilation errors`。
 
 ---
 
