@@ -192,6 +192,51 @@ jobs:
           echo "::error title=Android 构建失败｜日志尾部::$TAIL"
           exit 1
 
+      # 断言「产物真的用我们的上传密钥签了名」。
+      #
+      # 为什么必须有这一步：签名配置失败是**静默**的 —— Gradle 不会因为 secrets 为空而报错，
+      # 只会悄悄退回 debug 签名，日志里只有一条不起眼的 notice。等到上架被 Play 拒绝时才发现，
+      # 代价已经很大。这里把「证书指纹必须等于我们的上传密钥」变成硬断言。
+      #
+      # 换密钥时需同步更新下面的 EXPECTED_SHA256（值见 android-signing/ 里的凭据记录）。
+      - name: 校验 APK 签名证书
+        env:
+          EXPECTED_SHA256: "8db64d11fa4a2c23730d9e7cd43d94c2c975168438e62a957361196c32135230"
+        run: |
+          set -o pipefail
+          APK=$(find src-tauri/gen/android/app/build/outputs/apk -name '*release*.apk' 2>/dev/null | head -1 || true)
+          if [ -z "$APK" ]; then APK=$(find src-tauri/gen/android/app/build/outputs/apk -name '*.apk' 2>/dev/null | head -1 || true); fi
+          if [ -z "$APK" ]; then
+            echo "::error title=签名校验::未在 apk 输出目录找到任何 .apk"
+            exit 1
+          fi
+          echo "待校验 APK: $APK ($(du -h "$APK" | cut -f1))"
+
+          # apksigner 优先（能验 v2/v3 签名方案）；不在就退回 keytool（只认 v1）
+          APKSIGNER=$(ls -d "$ANDROID_HOME"/build-tools/*/apksigner 2>/dev/null | sort -V | tail -1 || true)
+          if [ -n "$APKSIGNER" ]; then
+            echo "使用 $APKSIGNER"
+            OUT=$("$APKSIGNER" verify --print-certs "$APK" 2>&1 || true)
+          else
+            echo "未找到 apksigner，退回 keytool -printcert -jarfile"
+            OUT=$(keytool -printcert -jarfile "$APK" 2>&1 || true)
+          fi
+          echo "$OUT" | head -20
+
+          # 两种工具的指纹格式不同（apksigner 无冒号小写 / keytool 带冒号大写），统一归一化后再比
+          GOT=$(echo "$OUT" | grep -iE 'SHA-?256' | head -1 | tr -d ':' | tr 'A-F' 'a-f' | grep -oE '[0-9a-f]{64}' | head -1 || true)
+
+          if [ "${{ steps.signing.outputs.signed }}" = "true" ]; then
+            if [ "$GOT" = "$EXPECTED_SHA256" ]; then
+              echo "::notice title=签名校验通过 ✅::APK 由上传密钥签名，SHA-256=$GOT"
+            else
+              echo "::error title=签名校验失败 ❌::期望 $EXPECTED_SHA256，实际 ${GOT:-<未取到>}。说明 secrets 虽已配置但签名未生效，产物不可上架"
+              exit 1
+            fi
+          else
+            echo "::warning title=签名校验跳过::本次走 debug 签名（secrets 未配置齐全），实际指纹 ${GOT:-<未取到>}。产物可装真机、不可上架"
+          fi
+
       - name: 上传 APK artifact
         uses: actions/upload-artifact@v7
         with:
