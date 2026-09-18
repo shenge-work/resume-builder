@@ -102,7 +102,10 @@ src-tauri/gen/android/app/build/outputs/
 `dtolnay/rust-toolchain@stable` → `rustup target add` 4 个 Android 目标 → `swatinem/rust-cache@v2` →
 `npm install` → **`npm run mobile:android:init`（现场生成 Android 工程）** →
 `配置 Android 签名`（见第 5 节）→ **`tauri android build --apk --aab`（一步同时出两种包）** →
-`actions/upload-artifact@v7`（`if-no-files-found: error`）。
+**`校验 APK 签名证书`**（见 5.7）→ `actions/upload-artifact@v7`（`if-no-files-found: error`）。
+
+> **想看失败原因**：job 日志需要权限够的 token 才能通过 API 下载（否则 403），
+> 详见第 8.1 节的三种通道。
 
 > APK 与 AAB 用**同一条命令**产出：`--apk --aab` 在同一个进程内做两次打包、共享 Rust 产物。
 > 拆成两条命令会让 4 个 ABI 的 Rust 编译被完整跑两遍（首轮构建多花十几分钟）。
@@ -210,6 +213,24 @@ cmp android-signing/resume-studio-upload.keystore /tmp/rt.keystore && echo "字�
    `signingConfigs { create("release") { ... } }` 与 `buildTypes.release.signingConfig`。
    补丁是幂等的（已含 `keystore.properties` 引用就跳过）——因为 `gen/android` 每次 CI 都重新生成。
 
+   ⚠️ **追加段落必须遵守两条 Kotlin DSL 规则**（本项目实测踩过，见第 8 节）：
+
+   - **不能用 `java.util.Properties` 这类全限定名**。Gradle Kotlin DSL 的脚本隐式接收者是
+     `Project`，而 `Project` 上挂着一个 **`java` 扩展（`JavaPluginExtension`）**，它会把这个
+     `java` 标识符**遮蔽**成扩展属性，于是 `java.util.Properties` 被解析为「`java` 扩展的
+     `util` 成员」→ 编译报 `Unresolved reference: util` / `Unresolved reference: io`。
+     必须写成文件顶层的 `import java.util.Properties` + `import java.io.FileInputStream`。
+   - **`import` 要插在 `@file:` 注解之后、任何声明之前**，且追加前要保证原文件以换行结尾，
+     否则拼接处会出现 `}val ...` 这种语法错误。
+
+   > 这两点是**回归风险点**：本地几乎没有可编译 Kotlin 的环境（需要 Gradle + Android SDK），
+   > 所以改动后请务必跑一次 CI。仓库里 `docs/RELEASE.md` 记了本机如何用 mock 文件做**结构级**
+   > 自检（能在推送前抓出「import 没插到顶」「`}val` 粘连」这类问题，但抓不出 Kotlin 类型错误）。
+
+5. 构建完成后跑**「校验 APK 签名证书」**步骤：读产物证书的 SHA-256，与硬编码的
+   `EXPECTED_SHA256` 比对，不符则直接失败。目的是把「签名配置是否真的生效」从**静默行为**
+   变成硬断言（原因见 5.7）。
+
 ### 5.5 本地签名（想在本机出 release 包时）
 
 把 `keystore.properties` 放到 `src-tauri/gen/android/`（生成目录，不入库），
@@ -234,6 +255,24 @@ keyPassword=***
 - **核对指纹**：`keytool -list -v` 会打印 SHA-256。Android 与 Play 后台都按指纹校验，
   轮换密钥时用它确认换对了。
 - **轮换**：重新生成 → 重算 base64 → 更新 4 个 secret 即可，代码与 workflow 都不用动。
+  ⚠️ 轮换后要**同步更新 `build-android.yml` 里的 `EXPECTED_SHA256`**，否则签名断言会误报失败。
+
+### 5.7 为什么 CI 要自己断言签名（不能只看「配置成功」）
+
+**签名配置失败是静默的**：Gradle 不会因为 secrets 为空或补丁没生效而报错，它只会悄悄退回
+debug 签名，日志里仅有一条不起眼的 `::notice::`。等到上架被 Play 拒绝时才发现，代价已经很大。
+
+因此 `build-android.yml` 在构建之后、上传之前加了一步**「校验 APK 签名证书」**：
+
+1. 找到 release APK（找不到就退而取任一 `.apk`，找不到则直接失败）；
+2. 用 `apksigner verify --print-certs` 读证书（它能验 v2/v3 签名方案）；`apksigner` 不在时
+   退回 `keytool -printcert -jarfile`（只认 v1）；
+3. 两种工具的指纹格式不同（`apksigner` 无冒号小写 / `keytool` 带冒号大写），统一归一化后再比；
+4. `signed=true` 且指纹不符 → **`exit 1`，构建失败**；`signed=false`（fork 或未配 secrets）→
+   只发 `warning`，不阻断。
+
+> 这条断言的价值在于**把「我以为配好了」变成「CI 说配好了」**。没有它，你只能靠人工下载 APK、
+> 手动 `apksigner verify` 去核对。
 
 <details>
 <summary>本机 JDK 是怎么装上的（如需重装）</summary>
@@ -295,6 +334,9 @@ adb uninstall com.resumestudio.desktop            # 卸载（包名 = tauri.conf
 | `Could not resolve all files` / 依赖下载卡在 `services.gradle.org` | 同上；也可在公司网络下改用内网 Gradle 镜像 |
 | 安装时 `INSTALL_FAILED_UPDATE_INCOMPATIBLE` / 签名不匹配 | 旧包是另一 keystore 签的。先 `adb uninstall com.resumestudio.desktop` 再装 |
 | release 包未签名（`app-universal-release-unsigned.apk`） | `keystore.properties` 缺失或 `build.gradle.kts` 没有 release signingConfig。检查第 5 节；CI 未配 secrets 时会有 `::notice::` 提示并自动改走 debug 签名 |
+| **`e: app/build.gradle.kts:NN:CC: Unresolved reference: util`（或 `: io`）** | Gradle Kotlin DSL 的 `Project` 上挂着 **`java` 扩展（`JavaPluginExtension`）**，它把 `java` 这个标识符遮蔽了，于是 `java.util.Properties` / `java.io.FileInputStream` 这种**全限定名会被当成「`java` 扩展的成员访问」**而解析失败。**修法：改成文件顶层的 `import java.util.Properties` / `import java.io.FileInputStream`**，正文里只用简单名。注意 `import` 必须写在 `@file:` 注解之后、所有声明之前。⚠️ 这个错误**只会在「secrets 配齐、补丁真的执行」时才暴露** —— 未配 secrets 时步骤会提前 `exit 0`，补丁根本不跑，缺陷会一直潜伏 |
+| 签名步骤日志显示「配置成功」，但构建在 `:app:compileDebugKotlin` 或 Kotlin 编译阶段失败 | 同上一条。判断依据：日志里出现 `w: file:///.../app/build.gradle.kts` 或 `e: app/build.gradle.kts:<行号>`。**注意 Gradle 配置阶段的 Kotlin 脚本编译错误不会被「配置成功」的 notice 拦住** —— 那个 notice 只说明文件写进去了，不代表它能编译 |
+| 想知道 CI 到底错在哪，但 `job 日志` 打不开 / 只有弃用警告 | 见第 8.1 节：先确认用**有 `Actions: read` 的 token** 下载 job 日志；读不到时再看 `::error::` annotation（workflow 在构建失败分支主动把关键行打成 annotation） |
 | `Keystore was tampered with, or password was incorrect` | 口令不对。**注意 PKCS12 下 `keyPassword` 必须与 `storePassword` 相同**（JKS 才允许不同）；也可能是 secret 里复制进了多余空格/换行 |
 | `Invalid keystore format` / `toDerInputStream rejects tag type` / `Unsupported keystore format` | `storeType` 与文件实际格式不匹配（JKS ↔ PKCS12 混淆）。本项目统一用 PKCS12，并已在 CI 显式写入 `storeType=PKCS12`；若你换成 JKS，务必同步改 `keystore.properties` 与 Gradle 里的 `storeType` |
 | `Key with alias '...' was not found` / `Cannot recover key` | `ANDROID_KEY_ALIAS` 写错。用 `keytool -list -keystore <file> -storepass <pw>` 打出真实别名核对 |
@@ -303,6 +345,47 @@ adb uninstall com.resumestudio.desktop            # 卸载（包名 = tauri.conf
 | `tauri android init` 报 identifier 不合法 / 改过 identifier | `tauri.conf.json` 的 `identifier` 改动后要 **重新 init**（删掉 `src-tauri/gen/android` 再生成），否则包名与配置不一致 |
 | 打出来的包白屏 / 资源 404 | `dist-desktop/` 是旧的或缺失。`mobile:android:*` 脚本会先跑 `npm run desktop:assets`；手动跑 `tauri` 命令前请补跑一次 |
 | `frontendDist ../dist-desktop not found` | 同上，先 `npm run desktop:assets` |
+
+### 8.1 怎么读到 CI 的失败日志
+
+这是本项目反复花时间的地方，值得单独记一笔。三条通道，优先级从高到低：
+
+**① 直接下载 job 日志（首选）**
+
+```bash
+TOKEN=<一个有 Actions:read 与 Contents:read 的 PAT>
+curl -sL -o joblog.txt \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Accept: application/vnd.github+json" \
+  "https://api.github.com/repos/<owner>/<repo>/actions/jobs/<job_id>/logs"
+```
+
+> ⚠️ **需要一个权限够的 token**。用权限不足的凭据时，这个接口（**即便在 public 仓库上**）会返回
+> `403 Must have admin rights`。本项目一开始就是被这个 403 挡住的，于是绕道去读 annotation
+> —— 而 annotation 只够看个大概。**换成有写权限的 PAT 后，同一个接口立刻返回 200 与完整日志。**
+> 所以「读不到日志」时，第一件事是怀疑 token 权限，而不是放弃。
+
+**② 看 `::error::` annotation（读不到日志时的兜底）**
+
+workflow 的构建失败分支会主动把「环境事实 / 关键词命中行 / 日志尾部」打成三条 `::error::`
+annotation，可通过 API 读到：
+
+```bash
+curl -s -H "Authorization: Bearer $TOKEN" \
+  "https://api.github.com/repos/<owner>/<repo>/commits/<sha>/check-runs" \
+  | python3 -c "import sys,json; [print(c['id'], c['name']) for c in json.load(sys.stdin)['check_runs']]"
+curl -s -H "Authorization: Bearer $TOKEN" \
+  "https://api.github.com/repos/<owner>/<repo>/check-runs/<check_run_id>/annotations"
+```
+
+注意：**`/actions/runs/{id}/jobs/{job_id}/annotations` 这个路径不存在（404）**，
+annotation 要从 `check-runs` 端点取。
+
+写 annotation 时 `%` → `%25`、去掉 `\r`、`::` → ` : : `，否则 workflow command 会被截断；
+并且 `run` 默认是 `bash -e`，`[ -n "$X" ] && echo ...` 在 `$X` 为空时会**中止步骤**把后面的
+annotation 吃掉，要用 `if`。
+
+**③ 人肉打开 Actions 网页** —— 最慢但永远可用。
 
 ---
 

@@ -21,6 +21,9 @@ on:
       - '.github/workflows/build-android.yml'
   pull_request:
   workflow_dispatch:
+  # 供 .github/workflows/release.yml 复用（发版时调用，并用 `secrets: inherit`
+  # 把 4 个签名 secret 传进来 —— 不传会静默退回 debug 签名）。
+  workflow_call:
 
 jobs:
   build-android:
@@ -108,22 +111,40 @@ jobs:
           echo "::notice::已写入 src-tauri/gen/android/keystore.properties（生成物，不入库）"
           # 生成模板的 app/build.gradle.kts 默认不含 release signingConfig（官方要求自行补一段）：
           # 仅在尚未配置时追加，保证幂等；已含 keystore.properties 引用则跳过。
+          #
+          # ⚠️ 两个必须遵守的写法（都踩过）：
+          # 1) 绝不能在 android {} 里写 `java.util.Properties()` 这种全限定名 —— Gradle Kotlin DSL 的
+          #    Project 上挂了 `java` 扩展（JavaPluginExtension），会把 `java` 这个包名**遮蔽**掉，
+          #    报 `Unresolved reference: util` / `Unresolved reference: io`，整条构建失败。
+          #    必须用文件顶层的 `import java.util.Properties`。
+          # 2) import 要插在 `@file:` 注解之后、所有声明之前（Kotlin 语法要求）。
           python3 - <<'PY'
-          import io, sys
+          import io, re, sys
           p = 'app/build.gradle.kts'
           s = io.open(p, encoding='utf-8').read()
           if 'keystore.properties' in s:
               print('::notice::release 签名配置已存在，跳过补丁')
               sys.exit(0)
-          patch = '''
+
+          IMPORTS = 'import java.io.FileInputStream\nimport java.util.Properties\n'
+          # Kotlin 要求 import 位于 @file: 注解与 package 之后、所有顶层声明之前
+          m = re.match(r'((?:@file:[^\n]*\n)+)', s)
+          s = (m.group(1) + IMPORTS + s[m.end():]) if m else (IMPORTS + s)
+
+          # 原文件若不以换行结尾，直接拼接会把 `}` 和 `val` 粘成 `}val` → Kotlin 语法错误
+          if not s.endswith('\n'):
+              s += '\n'
+
+          PATCH = '''
+          val keystoreProperties = Properties()
+          val keystorePropertiesFile = rootProject.file("keystore.properties")
+          if (keystorePropertiesFile.exists()) {
+              keystoreProperties.load(FileInputStream(keystorePropertiesFile))
+          }
+
           android {
               signingConfigs {
                   create("release") {
-                      val keystorePropertiesFile = rootProject.file("keystore.properties")
-                      val keystoreProperties = java.util.Properties()
-                      if (keystorePropertiesFile.exists()) {
-                          keystoreProperties.load(java.io.FileInputStream(keystorePropertiesFile))
-                      }
                       storeFile = file(keystoreProperties["storeFile"] as String)
                       storeType = keystoreProperties.getProperty("storeType", "PKCS12")
                       storePassword = keystoreProperties["storePassword"] as String
@@ -138,9 +159,15 @@ jobs:
               }
           }
           '''
-          with io.open(p, 'a', encoding='utf-8') as f:
-              f.write(patch)
+          io.open(p, 'w', encoding='utf-8').write(s + PATCH)
           print('::notice::已为 app/build.gradle.kts 追加 release 签名配置（生成物，不入库）')
+          # 把结果打进日志：本步骤一旦出问题，光看「配置成功」无法定位，必须能看到实际写入的内容
+          print('---- 补丁后 build.gradle.kts 前 12 行 ----')
+          for i, line in enumerate(io.open(p, encoding='utf-8').read().splitlines()[:12], 1):
+              print(f'{i:>3}| {line}')
+          print('---- 尾部 30 行 ----')
+          for line in io.open(p, encoding='utf-8').read().splitlines()[-30:]:
+              print(f'   | {line}')
           PY
 
       # 一次构建同时产出 APK + AAB：`--apk --aab` 是同一进程内的两次打包，
@@ -226,11 +253,14 @@ jobs:
           # 两种工具的指纹格式不同（apksigner 无冒号小写 / keytool 带冒号大写），统一归一化后再比
           GOT=$(echo "$OUT" | grep -iE 'SHA-?256' | head -1 | tr -d ':' | tr 'A-F' 'a-f' | grep -oE '[0-9a-f]{64}' | head -1 || true)
 
+          # ⚠️ 变量一律写成 ${VAR} 而不是 $VAR：bash 在 UTF-8 locale（CI 上是 C.UTF-8）下会把
+          # 紧跟其后的多字节字符吃进变量名 —— `$EXPECTED_SHA256，` 会被解析成变量 `EXPECTED_SHA256，`
+          # 而报 unbound variable。本地 `LC_ALL=C` 反而正常，所以很容易漏掉。
           if [ "${{ steps.signing.outputs.signed }}" = "true" ]; then
             if [ "$GOT" = "$EXPECTED_SHA256" ]; then
               echo "::notice title=签名校验通过 ✅::APK 由上传密钥签名，SHA-256=$GOT"
             else
-              echo "::error title=签名校验失败 ❌::期望 $EXPECTED_SHA256，实际 ${GOT:-<未取到>}。说明 secrets 虽已配置但签名未生效，产物不可上架"
+              echo "::error title=签名校验失败 ❌::期望 ${EXPECTED_SHA256}，实际 ${GOT:-<未取到>}。说明 secrets 虽已配置但签名未生效，产物不可上架"
               exit 1
             fi
           else
