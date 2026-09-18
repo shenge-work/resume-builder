@@ -209,23 +209,40 @@ cmp android-signing/resume-studio-upload.keystore /tmp/rt.keystore && echo "字�
    password=***
    ```
 
-4. 官方模板的 `app/build.gradle.kts` **不含 release 签名配置**，CI 在文件末尾追加
-   `signingConfigs { create("release") { ... } }` 与 `buildTypes.release.signingConfig`。
-   补丁是幂等的（已含 `keystore.properties` 引用就跳过）——因为 `gen/android` 每次 CI 都重新生成。
+4. 官方模板的 `app/build.gradle.kts` **不含 release 签名配置**，CI 按
+   [Tauri 官方文档](https://v2.tauri.app/distribute/sign/android/)补**三段**：
 
-   ⚠️ **追加段落必须遵守两条 Kotlin DSL 规则**（本项目实测踩过，见第 8 节）：
+   | # | 插入位置 | 内容 |
+   |---|---|---|
+   | ① | 文件开头（最后一条 `import` 之后） | `import java.io.FileInputStream` |
+   | ② | `android {}` 内、`buildTypes` **之前** | `signingConfigs { create("release") { … } }` |
+   | ③ | 模板已有的 release buildType 内 | `signingConfig = signingConfigs.getByName("release")` |
 
-   - **不能用 `java.util.Properties` 这类全限定名**。Gradle Kotlin DSL 的脚本隐式接收者是
-     `Project`，而 `Project` 上挂着一个 **`java` 扩展（`JavaPluginExtension`）**，它会把这个
-     `java` 标识符**遮蔽**成扩展属性，于是 `java.util.Properties` 被解析为「`java` 扩展的
-     `util` 成员」→ 编译报 `Unresolved reference: util` / `Unresolved reference: io`。
-     必须写成文件顶层的 `import java.util.Properties` + `import java.io.FileInputStream`。
-   - **`import` 要插在 `@file:` 注解之后、任何声明之前**，且追加前要保证原文件以换行结尾，
-     否则拼接处会出现 `}val ...` 这种语法错误。
+   补丁是幂等的（已含 `keystore.properties` 或 `signingConfigs` 就整段跳过）——
+   因为 `gen/android` 每次 CI 都重新生成。
 
-   > 这两点是**回归风险点**：本地几乎没有可编译 Kotlin 的环境（需要 Gradle + Android SDK），
-   > 所以改动后请务必跑一次 CI。仓库里 `docs/RELEASE.md` 记了本机如何用 mock 文件做**结构级**
-   > 自检（能在推送前抓出「import 没插到顶」「`}val` 粘连」这类问题，但抓不出 Kotlin 类型错误）。
+   ⚠️ **三条 Gradle / Kotlin DSL 规则**（本项目**实测踩过两轮**，见第 8 节）：
+
+   1. **不能用 `java.util.Properties` 这类全限定名**。Gradle Kotlin DSL 的脚本隐式接收者是
+      `Project`，而 `Project` 上挂着一个 **`java` 扩展（`JavaPluginExtension`）**，它会把
+      `java` 这个标识符**遮蔽**成扩展属性，于是 `java.util.Properties` 被解析为「`java` 扩展的
+      `util` 成员」→ 报 `Unresolved reference: util` / `Unresolved reference: io`。
+      解法是文件顶层 import + **简单名**（`Properties()`）——而不是「去补 import」。
+   2. **import 必须先查再插，绝不能无条件插一整块**。模板**第一行本来就是**
+      `import java.util.Properties`（模板自己的 `val tauriProperties = Properties().apply { … }`
+      就在用它）。无条件再插一遍 → 两行同名 import → Kotlin 报
+      `Conflicting import, imported name 'Properties' is ambiguous`，整条构建失败。
+      2026-09-19 就是这么炸的：第 12 步「配置 Android 签名」**绿**、第 13 步「构建 APK + AAB」
+      跑满 **213 秒后红**。注意报错出现在 **Gradle 配置阶段的 Kotlin 脚本编译**里，
+      跟签名逻辑本身无关，所以「日志里看不出签名相关字样」是正常的。
+   3. **`import` 要插在 `@file:` 注解之后、任何声明之前**，且写入前要保证文件以换行结尾，
+      否则拼接处会出现 `}val …` 这种语法错误（模板渲染结果**末尾没有换行**，这条是真会触发的）。
+
+   补丁脚本自带**五条计数自检**（两个 `import` 各恰好 1 次、`signingConfigs {` 1 次、
+   `buildTypes {` 1 次、`signingConfig = …` 1 次）与**锚点断言**（找不到 `buildTypes {`
+   或 `getByName("release") {` 就立刻 `::error::` 退出）。设计意图很明确：
+   **宁可 0 秒失败，也不要让 Gradle 白跑 3 分钟再抛一句 `Script compilation errors`。**
+   补丁后会把**全文打进日志** —— 定位上面那个重复 import，靠的正是这段日志。
 
 5. 构建完成后跑**「校验 APK 签名证书」**步骤：读产物证书的 SHA-256，与硬编码的
    `EXPECTED_SHA256` 比对，不符则直接失败。目的是把「签名配置是否真的生效」从**静默行为**
@@ -294,6 +311,61 @@ mv jdk-17*+1/Contents/Home "$HOME/.workbuddy/binaries/java/temurin-17"
 
 ---
 
+### 5.8 本机没有 JDK / Android SDK 时怎么验证这段补丁
+
+本机（macOS）既没有 JDK 也没有 Android SDK，跑不了 `gradlew` —— 但这不代表只能靠 CI 试错
+（2026-09-19 连炸两次，就是因为没在推送前做下面这件事）。
+
+**关键一：真模板可以直接从 CLI 二进制里抽出来。** Tauri 把 Android 工程模板内嵌在
+`@tauri-apps/cli-<平台>` 的 `.node` 二进制里，是明文：
+
+```bash
+python3 - <<'PY'
+data = open('node_modules/@tauri-apps/cli-darwin-arm64/cli.darwin-arm64.node','rb').read()
+i = data.find(b'import java.util.Properties')
+s = data.rfind(b'app/build.gradle.kts', 0, i) + len(b'app/build.gradle.kts')
+e = data.find(b'app/proguard-rules.pro', i)
+open('/tmp/tpl.kts','wb').write(data[s:e])   # 再把 {{...}} 占位符替换成实际值，即得真模板
+PY
+```
+
+**关键二：把该步骤的 `run` 脚本原样抽出来、在临时目录里用真模板实跑。**
+
+```python
+doc = yaml.safe_load(open('.github/workflows/build-android.yml', encoding='utf-8'))
+run = [s for s in doc['jobs']['build-android']['steps'] if s.get('id') == 'signing'][0]['run']
+# 在临时目录造 app/build.gradle.kts（真模板），设好 RUNNER_TEMP / GITHUB_OUTPUT / 4 个
+# ANDROID_* 环境变量，然后 /bin/bash -e -o pipefail -c run
+```
+
+- **为什么是「原样抽出实跑」而不是「照着逻辑另写一份测试」**：后者只验证我的理解，
+  前者才验证得了环境差异（缩进、模板末尾无换行、`@file:` 注解、模板升级导致锚点失效）。
+- 覆盖用例：真模板 / 幂等二次运行 / 模板缺 `import java.util.Properties` / 带 `@file:` 注解 /
+  缺 `buildTypes {` 锚点 / 缺 `getByName("release")` 锚点 / 模板自带 `signingConfigs` /
+  已含 `keystore.properties`。
+- 2026-09-19 这套方法 **40/40 通过**，并在推送前抓出了「重复 import」这个真缺陷。
+
+**关键三：keystore 本身也能在无 JDK 时用 `openssl` 核对**（下面三项此前**从未被跑过**，
+属于典型的「配了但没验证」）：
+
+```bash
+# 1) 格式：决定 storeType 该写什么
+xxd -l 8 android-signing/resume-studio-upload.keystore   # 30 82 … 02 01 03 = PKCS12；FE ED FE ED = JKS
+# 2) 私钥 bag 的 friendlyName：JDK 拿它当 alias，缺了会自造 "1"，与 ANDROID_KEY_ALIAS 对不上
+openssl pkcs12 -in "<keystore>" -nocerts -nodes -passin pass:"$PW" </dev/null | head -8
+# 3) 证书指纹：必须等于 build-android.yml 里的 EXPECTED_SHA256
+openssl pkcs12 -in "<keystore>" -nokeys -passin pass:"$PW" | openssl x509 -noout -fingerprint -sha256
+```
+
+> ⚠️ 两个环境坑：macOS 自带的是 LibreSSL，**没有 `timeout` 命令**（会 `command not found`，
+> 表现为「输出为空」而不是报错，极易误判）；`openssl pkcs12 -info` 会**交互式索要 PEM 口令**
+> 把命令挂住 → 必须配 `-nodes` 且把 stdin 接到 `/dev/null`。
+
+本项目 2026-09-19 的核对结果：keystore = **PKCS12**（所以 `storeType=PKCS12` 是对的，
+尽管文件名是 `.jks`）；私钥 bag `friendlyName: resume-studio`（与 `ANDROID_KEY_ALIAS` 一致）；
+证书 `CN=Resume Studio`，有效期 2026-09-18 → 2054-02-03；
+SHA-256 = `8db64d11…5230`，**与 CI 里写死的 `EXPECTED_SHA256` 完全一致**。
+
 ## 6. 真机安装与调试
 
 ```bash
@@ -334,7 +406,8 @@ adb uninstall com.resumestudio.desktop            # 卸载（包名 = tauri.conf
 | `Could not resolve all files` / 依赖下载卡在 `services.gradle.org` | 同上；也可在公司网络下改用内网 Gradle 镜像 |
 | 安装时 `INSTALL_FAILED_UPDATE_INCOMPATIBLE` / 签名不匹配 | 旧包是另一 keystore 签的。先 `adb uninstall com.resumestudio.desktop` 再装 |
 | release 包未签名（`app-universal-release-unsigned.apk`） | `keystore.properties` 缺失或 `build.gradle.kts` 没有 release signingConfig。检查第 5 节；CI 未配 secrets 时会有 `::notice::` 提示并自动改走 debug 签名 |
-| **`e: app/build.gradle.kts:NN:CC: Unresolved reference: util`（或 `: io`）** | Gradle Kotlin DSL 的 `Project` 上挂着 **`java` 扩展（`JavaPluginExtension`）**，它把 `java` 这个标识符遮蔽了，于是 `java.util.Properties` / `java.io.FileInputStream` 这种**全限定名会被当成「`java` 扩展的成员访问」**而解析失败。**修法：改成文件顶层的 `import java.util.Properties` / `import java.io.FileInputStream`**，正文里只用简单名。注意 `import` 必须写在 `@file:` 注解之后、所有声明之前。⚠️ 这个错误**只会在「secrets 配齐、补丁真的执行」时才暴露** —— 未配 secrets 时步骤会提前 `exit 0`，补丁根本不跑，缺陷会一直潜伏 |
+| **`e: app/build.gradle.kts:NN:CC: Unresolved reference: util`（或 `: io`）** | Gradle Kotlin DSL 的 `Project` 上挂着 **`java` 扩展（`JavaPluginExtension`）**，它把 `java` 这个标识符遮蔽了，于是 `java.util.Properties` / `java.io.FileInputStream` 这种**全限定名会被当成「`java` 扩展的成员访问」**而解析失败。**修法：别写全限定名，改用文件顶层 import + 简单名**（`Properties()` / `FileInputStream(f)`）。⚠️ 这是「写多了」而不是「写少了」—— 2026-09-19 曾把它误判成「缺 import」，去补 import 反而引出下面那条重复 import 的缺陷。⚠️ 它也**只会在「secrets 配齐、补丁真的执行」时才暴露** —— 未配 secrets 时步骤会提前 `exit 0`，补丁根本不跑，缺陷会一直潜伏 |
+| **`e: app/build.gradle.kts:2:18: Conflicting import, imported name 'Properties' is ambiguous`**（连着两条，行号相邻） | **同一个 import 被插了两遍**。Tauri 模板 `app/build.gradle.kts` 的**第一行本来就是** `import java.util.Properties`（模板自身的 `val tauriProperties = Properties().apply { … }` 就在用它），补丁若无条件再插一遍就会重复。**修法：import 一律「先查再插」**（`re.search(r'^\s*import\s+java\.util\.Properties\s*$', s, re.M)` 命中就跳过）。典型现象：第 12 步「配置 Android 签名」**绿**、第 13 步「构建 APK + AAB」跑满 **3 分钟才红**、且报错与签名毫无关系 —— 因为它在 **Gradle 配置阶段的 Kotlin 脚本编译**里。定位靠「补丁后把全文打进日志」（见 5.4） |
 | 签名步骤日志显示「配置成功」，但构建在 `:app:compileDebugKotlin` 或 Kotlin 编译阶段失败 | 同上一条。判断依据：日志里出现 `w: file:///.../app/build.gradle.kts` 或 `e: app/build.gradle.kts:<行号>`。**注意 Gradle 配置阶段的 Kotlin 脚本编译错误不会被「配置成功」的 notice 拦住** —— 那个 notice 只说明文件写进去了，不代表它能编译 |
 | 想知道 CI 到底错在哪，但 `job 日志` 打不开 / 只有弃用警告 | 见第 8.1 节：先确认用**有 `Actions: read` 的 token** 下载 job 日志；读不到时再看 `::error::` annotation（workflow 在构建失败分支主动把关键行打成 annotation） |
 | `Keystore was tampered with, or password was incorrect` | 口令不对。**注意 PKCS12 下 `keyPassword` 必须与 `storePassword` 相同**（JKS 才允许不同）；也可能是 secret 里复制进了多余空格/换行 |

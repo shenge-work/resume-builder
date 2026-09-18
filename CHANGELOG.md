@@ -72,13 +72,18 @@
   时全部断言仍通过 —— 但流式解压器只读本地头，会解出损坏文件（现两处都校验，含 UTF-8 文件名标志 `0x0800`）；
   ② 「技能整句用『；』连接」的用例只有一条长句，`join` 的分隔符根本不可观测，该规则永远测不出来（已补第二条）。
   断言总数 125 → **203**。
-- **Android 构建三连坑（均在 CI 实测定位并修复）**：
+- **Android 构建四连坑（均在 CI 实测定位并修复）**：
   ① `android-actions/setup-android@v3` 的默认包列表含已被 Google 下线的 `tools` → 20 秒即失败，升 `@v4`；
   ② `package.json` 缺 `"tauri": "tauri"` script，而 `tauri android init` 会把
   `npm run -- tauri android android-studio-script` **烘焙进生成的 Gradle 工程** → `:app:rustBuildArm64Debug`
   必失败；
   ③ release 签名补丁里写了 `java.util.Properties` 全限定名，被 Gradle Kotlin DSL 的 `java` 扩展
-  **遮蔽** → `Unresolved reference: util`；已改为顶层 `import`。详见 `docs/ANDROID-BUILD.md` 第 8 节。
+  **遮蔽** → `Unresolved reference: util`；正确修法是改用顶层 `import` + **简单名**，
+  而不是「去补 import」；
+  ④ 顺着 ③ 的错误修法无条件插了一整块 import，而模板**第一行本来就是** `import java.util.Properties`
+  → 重复 import → `Conflicting import, imported name 'Properties' is ambiguous`。
+  现在补丁改为**逐条「先查再插」**，并按官方文档把 `signingConfigs` 插进 `android{}` 内
+  （`buildTypes` 之前）而非末尾追加第二个 `android{}`。详见 `docs/ANDROID-BUILD.md` 第 5.4 / 8 节。
 
 ### 变更
 

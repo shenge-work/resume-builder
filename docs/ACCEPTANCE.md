@@ -784,6 +784,91 @@ android {
 
 ---
 
+#### 修复后第一次真跑：又炸了（第二轮根因 —— 重复 import）
+
+按上面的「改成顶层 import」修完并推送后，`Build Android` run **35392881601** 依然失败，
+但**失败点前移且换了原因**：第 12 步「配置 Android 签名」**变绿**（说明 secrets 被正确识别、
+补丁脚本真的执行了），第 13 步「构建 APK + AAB」跑满 **213 秒**后红。
+
+定位只用了一步 —— 靠上一轮特意加进 workflow 的「补丁后把文件打进日志」：
+
+```
+  1| import java.io.FileInputStream
+  2| import java.util.Properties      ← 补丁插入的
+  3| import java.util.Properties      ← 模板自带的（原来就是第 1 行）
+  4|
+  5| plugins {
+```
+
+```
+e: app/build.gradle.kts:2:18: Conflicting import, imported name 'Properties' is ambiguous
+e: app/build.gradle.kts:3:18: Conflicting import, imported name 'Properties' is ambiguous
+* What went wrong:
+Script compilation errors:
+2 errors
+BUILD FAILED in 1m 32s
+```
+
+**根因**：Tauri 的 Android 模板 `app/build.gradle.kts` **第一行本来就是**
+`import java.util.Properties`（模板自身的 `val tauriProperties = Properties().apply { … }` 就在用它），
+而上一轮的修法是**无条件插入一整块 import**，于是插成了两行同名 import。
+
+> ⚠️ **重要的认知修正**：上一轮 `Unresolved reference: util` 的根因是「**多此一举写了全限定名**」，
+> 并不是「缺少 import」。顺着「缺 import」这个错误判断去补 import，才引出了第二轮。
+> 正确姿势是照模板/官方文档**用简单名**，且 **import 必须先查再插**。
+> —— 这是「诊断错方向」比「写错代码」更贵的又一例证。
+
+顺带确认了两件事：
+
+- 模板 `buildTypes` 里本来就有 `getByName("release")`，全局只有一个 `android { }`；
+- Kotlin 编译器**只报了那 2 条 import 冲突**，没报 `android` / `signingConfigs` / `signingConfig`
+  任何解析错误 —— 说明补丁的**语法与符号解析本来就是通的**，唯一的毛病就是 import 重复。
+
+**修法**（对齐 [Tauri 官方文档](https://v2.tauri.app/distribute/sign/android/)，三段式）：
+
+| # | 插入位置 | 内容 |
+|---|---|---|
+| ① | 文件开头（最后一条 `import` 之后） | `import java.io.FileInputStream` —— **先查再插** |
+| ② | `android {}` 内、`buildTypes` **之前** | `signingConfigs { create("release") { … } }` |
+| ③ | 模板已有的 release buildType 内 | `signingConfig = signingConfigs.getByName("release")` |
+
+②不再是「文件末尾追加第二个 `android {}` 块」——虽然那样也能编译通过，但官方姿势是插进已有的
+`android {}`。另外补丁自带 **5 条计数自检**与 **2 个锚点断言**：
+锚点找不到就立刻 `::error::` 退出，**0 秒失败，不让 Gradle 白跑 3 分钟**才抛
+`Script compilation errors`。
+
+#### 本地验证 40/40 通过（方法和上一轮不同）
+
+上一轮的自检用的是**我手写的 mock 模板** —— 所以漏掉了「真模板第一行就是
+`import java.util.Properties`」这个决定性事实。这一轮改成两步，见 `docs/ANDROID-BUILD.md` 第 5.8 节：
+
+1. **从 `@tauri-apps/cli` 的 `.node` 二进制里抽出真模板**（Tauri 把 Android 工程模板明文内嵌在里面）；
+2. **把该步骤的 `run` 脚本原样抽出来**（`yaml.safe_load` → `steps[id=signing].run`），
+   在临时目录里用真模板实跑，断言写出来的文件。
+
+8 个用例（40 项断言）全通过：真模板 / 幂等二次运行 / 模板缺 `Properties` 导入 / 带 `@file:` 注解 /
+缺 `buildTypes` 锚点 / 缺 `release` buildType 锚点 / 模板自带 `signingConfigs` / 已含 `keystore.properties`。
+
+> 三轮下来最有效的习惯：**改完 CI 脚本，先在本地用「真输入」把它跑一遍。**
+> 「照着逻辑另写一份测试」只能验证我的理解，验证不了环境事实。
+
+#### 顺带补验证：签名凭据的 4 项前置条件（此前从未验证过）
+
+「配了 secrets」不等于「签名一定能成」。这 4 项在**无 JDK 的机器上**也能用 `openssl` 核对
+（命令见 `docs/ANDROID-BUILD.md` 第 5.8 节）：
+
+| 项 | 结果 | 意义 |
+|---|---|---|
+| keystore 实际格式 | `30 82 … 02 01 03` = **PKCS12** | `storeType=PKCS12` 正确（尽管文件名是 `.jks`） |
+| 私钥 bag 的 `friendlyName` | `resume-studio` | 与 `ANDROID_KEY_ALIAS` 一致 → `keyAlias` 能找到私钥 |
+| 证书主体 / 有效期 | `CN=Resume Studio`，2026-09-18 → **2054-02-03** | 未过期 |
+| 证书 SHA-256 | `8db64d11…5230` | **与 CI 里写死的 `EXPECTED_SHA256` 完全一致** → 那条签名断言能通过 |
+
+⚠️ 若私钥 bag 缺 `friendlyName`，JDK 会**自造别名**（`1`）→ 与 secrets 里的别名对不上，
+表现为签名阶段才失败。本项目没踩到，但值得记一笔：**生成 keystore 时务必确认 bag 带 `friendlyName`**。
+
+---
+
 ## 自动发版流水线（2026-09-19）
 
 ### 范围
