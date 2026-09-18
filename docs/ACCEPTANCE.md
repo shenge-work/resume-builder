@@ -296,4 +296,46 @@ PDF 还要过系统打印对话框。本任务补齐这三块，全部不依赖�
 > 因此所谓「T7 未完成」**不是功能没写**，而是：① 两个模块没被 `index.html` 引入；② 没 UI 入口；③ 测试没被运行器装载（且断言接口 `assert` 与运行器的 `__ok` 不匹配）；④ 7c 的 `/api/pdf` 完全没写。
 > 另注：`test/cases-audit.js` 断言接口是 `ctx.assert`，与 `test/run.js` 注入的 `ctx.__ok` **不同名** → 即使把文件 require 进来也会立刻报错，需一并适配。
 
+---
+
+## CI 就绪性验证（2026-09-19）
+
+> 目的：**推送前先证明 workflow 能跑**，避免推一个坏 workflow 白等一轮 CI。
+
+### 实测结论（四项）
+
+| 序 | 实测项 | 结论 |
+|---|---|---|
+| 1 | `bundle.targets: ["dmg","msi","nsis"]` 在 macOS 上会不会撞 msi？ | **不会。误判。** 实测 `npx tauri build`（不带 `--bundles`）在 macOS 上**按平台自动过滤**：只打包 `.app` + `.dmg`，静默跳过 msi/nsis，不报错 → **配置无需修改**。（另注：`--bundles` 的 `possible values` 是**按宿主平台动态列出**的，macOS 下只显示 `ios, app, dmg`，勿据此误判配置有错。） |
+| 2 | `tauri android build` 的 flag 是否与 workflow 一致？ | **一致。** `--apk`/`--aab`/`--debug`/`--target`(aarch64,armv7,i686,x86_64) 均存在；`--apk --aab` 与 `--apk --aab --debug` **可同时传**（验证手法：clap 参数校验先于环境检查，参数合法时才会往下报 `cargo metadata` 缺失）。 |
+| 3 | `tauri android init` 需要显式加 `--ci` 吗？ | **不需要。** 该 flag 读环境变量 `CI`，GitHub Actions 默认已设 `CI=true`，会自动跳过交互提示。 |
+| 4 | `build-desktop.yml` 的 Linux 依赖能否装上？ | **❌ 原写法必然失败（真实缺陷，已修）。** `libappindicator3-dev` 在 ubuntu-24.04（当前 `ubuntu-latest`）**已从源中移除**；它与可用包写在**同一条** `apt-get install` 里 → 整条失败 → job 变红。 |
+
+### 已落地的修复
+
+| 文件 | 改动 |
+|---|---|
+| `.github/workflows/build-desktop.yml` | Linux 依赖拆成两条命令，托盘依赖走 `libayatana-appindicator3-dev` 并保留 `libappindicator3-dev` 兜底 |
+| `.github/workflows/build-android.yml` | APK 与 AAB 由**两步合并为一步**（`--apk --aab`），避免 4 个 ABI 的 Rust 编译被完整跑两遍 |
+| `.github/workflows/ci.yml` | ① Node 20 → 22（与另两个 workflow 对齐）；② 修正步骤名里「dist/ 根目录两份字节一致」的陈旧描述（现行构建已不再比根目录）；③ **新增前端资源完整性门禁** |
+| `tools/verify-frontend-assets.js`（新增）+ `npm run verify:assets` | 补上审计缺口 B-7：判定「引用文件缺失 / 未进 dist-desktop / 隐私目录泄漏」为 **FAIL**，「存在未被 index.html 引用的 js 模块（疑似死代码）/ 注入属性残留」为 **WARN** |
+
+> 门禁试跑即生效：立刻报出 `⚠ js/audit.js、js/export-extra.js 未被 index.html 引用` —— 正是上面 T7 的问题，证明这道门禁抓的就是「写了但没接线」。
+
+### 提交前 PII 扫描（抓到 2 处并已修）
+
+| 文件 | 问题 | 处理 |
+|---|---|---|
+| `docs/DESIGN.md:107` | 举例用了**真实公司名** | 改为 `某公司` |
+| `docs/ACCEPTANCE.md` | 本文件验收叙述里写进了**真实姓名** | 改为「真实姓名特征串」 |
+
+> 教训：**验收记录叙述里很容易顺手写进真实姓名 / 公司名**，而 `docs/` 是要入库的（`.workbuddy/` 虽被 gitignore，`docs/` 没有）。
+> 另：`index.html` 的注入污染已到「分钟级复现」程度，故提交采用「`npm run clean:html` && `git add -A`」链式执行，并复核 `git show :index.html | grep -c data-page-node-id` = **0**。
+
+### 提交记录
+
+- **`7260dc9`** on `main`：`feat: 跨平台改造 P0–P3（数据门面 / 响应式 / 桌面壳 / 安卓壳）+ CI 出包`，46 files，+11303 / −105。
+- **状态：已提交，尚未 push**（等待确认后推送以触发 CI 出包）。
+
+
 
