@@ -1,6 +1,6 @@
 {
   "name": "resume-builder",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "description": "简历编辑器（拖拽排版 / 纯文本编辑），含单文件版构建与核心逻辑测试",
   "scripts": {

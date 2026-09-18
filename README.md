@@ -107,6 +107,30 @@ npm run mobile:android:build   # 产出 APK / AAB（需 JDK 17 + Android SDK/NDK
 
 ---
 
+## 📦 下载安装包（各平台）
+
+**普通使用者不必自己构建** —— 到 [**Releases**](../../releases) 页下载对应平台的安装包即可：
+
+| 平台 | 下载什么 |
+|---|---|
+| Windows | `Resume-Studio-<版本>-windows-x64-setup.exe`（个人安装）或 `…-windows-x64.msi`（批量部署） |
+| macOS | `Resume-Studio-<版本>-macos-arm64.dmg`（Apple 芯片） |
+| Linux | `Resume-Studio-<版本>-linux-x86_64.AppImage`（免安装）或 `…-linux-amd64.deb` |
+| Android | `Resume-Studio-<版本>-android.apk`（直接安装到手机） |
+| 任意浏览器 | `Resume-Studio-<版本>-单文件版.html`（离线单文件，双击即用，无需安装） |
+
+每个 Release 都附带**该版本的更新说明**与 `SHA256SUMS.txt`（下载完整性用
+`sha256sum -c SHA256SUMS.txt` 校验）。
+
+> ⚠️ **首次打开可能被系统拦下**：当前尚未接入代码签名与公证，macOS 需**右键 → 打开**，
+> Windows 可能弹 SmartScreen「未知发布者」，Android 需允许「安装未知来源的应用」。
+> 详见对应 Release 的说明。
+
+发版流程（维护者）：见 [docs/RELEASE.md](./docs/RELEASE.md) —— 改版本号 + 写 CHANGELOG +
+推 `v*` 标签，流水线自动构建三平台 + 安卓包并创建 Release。
+
+---
+
 ## 📁 目录结构
 
 ```
@@ -146,12 +170,14 @@ resume-builder/
 │   ├── CROSSPLATFORM-DESIGN.md  # 跨平台改造方案
 │   ├── DESKTOP-BUILD.md         # 桌面端构建与排错
 │   ├── ANDROID-BUILD.md         # 安卓端构建与排错
+│   ├── RELEASE.md               # 发版流程（打标签 → 自动出包 → 创建 Release）
 │   ├── ACCEPTANCE.md            # 逐任务验收标准与验收记录
 │   └── DESIGN.md                # AI 辅助写简历（⏸ 暂不实施）
 ├── .github/workflows/
 │   ├── ci.yml               # push/PR：测试 + 构建 + 资源完整性门禁
-│   ├── build-desktop.yml    # 三平台矩阵出包（dmg / msi+nsis / deb+AppImage）
-│   └── build-android.yml    # APK + AAB
+│   ├── build-desktop.yml    # 三平台矩阵出包（dmg / msi+nsis / deb+AppImage），亦可被 release 复用
+│   ├── build-android.yml    # APK + AAB，亦可被 release 复用
+│   └── release.yml          # 推 v* 标签或手动触发：出三平台+安卓包并创建 GitHub Release
 ├── template.json            # ★ 公开示范数据（占位演示，随仓库分发）
 ├── data/                   # ★ 个人简历数据（已被 .gitignore 隔离，不进公开仓库）
 │   └── resume.json         #   版本化数据源（多文件版启动时自动读取 ./data/resume.json）
@@ -263,7 +289,9 @@ CI（`.github/workflows/ci.yml`）在每次 push / PR 自动运行前两项与�
 
 ## 🗺️ 版本与规划
 
+- **下载各平台安装包**：[Releases](../../releases)（每个版本都带更新说明与校验和）。
 - 各版本变更记录：见 [CHANGELOG.md](./CHANGELOG.md)。
+- 发版流程（维护者）：见 [docs/RELEASE.md](./docs/RELEASE.md)。
 - 后续优化方向：见 [ROADMAP.md](./ROADMAP.md)。
 - 跨平台改造的**逐任务验收标准与验收记录**：见 [docs/ACCEPTANCE.md](./docs/ACCEPTANCE.md)。
 

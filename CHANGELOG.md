@@ -5,15 +5,37 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+> **发版规则（与 CI 联动，改动前请先读 `docs/RELEASE.md`）**
+>
+> 1. 版本号以 `src-tauri/tauri.conf.json` 的 `version` 为**唯一权威**，`package.json` 必须与之一致
+>    （发版流水线会校验，不一致直接失败）。
+> 2. 发版时把下面 `## [Unreleased]` 整段改成 `## [x.y.z] - YYYY-MM-DD`，
+>    并新开一个空的 `## [Unreleased]`。
+> 3. GitHub Release 的**更新说明由流水线从本文件对应版本章节自动抽取**；
+>    若找不到对应章节会退回 `[Unreleased]`，两者都没有则**发版失败** —— 即「必须有版本更新描述」。
+
 ---
 
 ## [Unreleased]
+
+暂无。
+
+---
+
+## [1.1.0] - 2026-09-19
+
+**首个跨平台（桌面 + Android）发布。** 在 1.0.0 的浏览器版之上，引入 Tauri 2 原生壳：
+同一份前端产物现在能打包成 Windows / macOS / Linux 安装包与 Android APK / AAB，
+并新增 GitHub Release 自动发版流水线（三平台 + 安卓一键出包并附带本文件作为更新说明）。
 
 ### 新增
 
 - **跨平台（桌面 / 安卓）**：引入 Tauri 2 原生壳（`src-tauri/`），同一份前端产物可打包为
   Windows `.msi`/`.exe`、macOS `.app`/`.dmg`、Linux `.deb`/`.AppImage`，以及 Android `APK`/`AAB`。
   通过 `withGlobalTauri` 保持**零前端依赖、无打包器**的既有风格。
+- **自动发版流水线（`.github/workflows/release.yml`）**：推 `v*` 标签或手动一键触发，
+  自动构建三平台桌面包与 Android 包，聚合成一个 GitHub Release，附 `SHA256SUMS.txt` 校验文件；
+  版本号与更新说明分别取自 `tauri.conf.json` 与 CHANGELOG，无需手工编辑 Release 页面。
 - **原生层只做脏活**：飞书 HTTP 传输、凭证保管（`app_secret` 只存在于 Rust 进程）、token 缓存、
   multipart 上传、二进制流下载下沉到 Rust；业务编排仍留在 JS（`js/store/native-bridge.js` 复刻 `tools/feishu-sync.js` 的语义）。
 - **数据门面（`js/store/resume-store.js`）**：把原先散落的 `fetch('/api/*')` 收敛为
@@ -50,6 +72,13 @@
   时全部断言仍通过 —— 但流式解压器只读本地头，会解出损坏文件（现两处都校验，含 UTF-8 文件名标志 `0x0800`）；
   ② 「技能整句用『；』连接」的用例只有一条长句，`join` 的分隔符根本不可观测，该规则永远测不出来（已补第二条）。
   断言总数 125 → **203**。
+- **Android 构建三连坑（均在 CI 实测定位并修复）**：
+  ① `android-actions/setup-android@v3` 的默认包列表含已被 Google 下线的 `tools` → 20 秒即失败，升 `@v4`；
+  ② `package.json` 缺 `"tauri": "tauri"` script，而 `tauri android init` 会把
+  `npm run -- tauri android android-studio-script` **烘焙进生成的 Gradle 工程** → `:app:rustBuildArm64Debug`
+  必失败；
+  ③ release 签名补丁里写了 `java.util.Properties` 全限定名，被 Gradle Kotlin DSL 的 `java` 扩展
+  **遮蔽** → `Unresolved reference: util`；已改为顶层 `import`。详见 `docs/ANDROID-BUILD.md` 第 8 节。
 
 ### 变更
 
@@ -58,10 +87,17 @@
 - **`@media print` 补隐藏清单**：`.mobile-tabbar` / `.sync-pane` 此前未隐藏，手机打印会把底部 Tab 打进 PDF。
 - **测试运行器修复**：`test/run.js` 原先硬编码只读 `test/cases.js`，导致 `test/cases-audit.js`（294 行）
   **从未被执行过**；且沙箱缺 `clearTimeout` 会让套件提前终止。两者均已修复，断言总数 49 → **117**。
+- **CI 环境加固**：所有用到的 action 升到当前最新稳定
+  （`actions/checkout@v7`、`actions/setup-node@v7`、`actions/setup-java@v6`、`actions/upload-artifact@v7`、
+  `android-actions/setup-android@v4`），消除 Node 20 弃用警告。
 
 ### 安全
 
 - 新增前端资源完整性门禁（`npm run verify:assets`）与注入属性清理（`npm run clean:html`），并接入 CI。
+- **Android 上传密钥库绝不入库**：仓库根 `.gitignore` 与 `android-signing/.gitignore` 双层忽略；
+  密钥库只以 base64 存于 GitHub Secrets，CI 时解码到 `$RUNNER_TEMP` 并随 runner 销毁。
+- **新增 APK 签名证书自动断言**：签名配置失败是静默的（Gradle 不报错、只悄悄出 debug 包），
+  现由 CI 读取产物证书 SHA-256 与期望值硬比对，不符即让构建失败。
 
 后续规划见 [ROADMAP.md](./ROADMAP.md)。
 

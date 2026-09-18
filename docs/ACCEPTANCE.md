@@ -295,6 +295,9 @@ PDF 还要过系统打印对话框。本任务补齐这三块，全部不依赖�
 | Signing secrets 写入（原为人工待办） | 2026-09-19 | ✅ 通过 | 根因是 token 的 `Secrets` 权限只有 **read**（官方文档：写入需 **write**）→ 改权限后脚本一次写入 **`HTTP 201` × 4**；`ANDROID_KEY_BASE64` 5940 B / `ALIAS` 13 B / 两个口令各 32 B 且 **sha256 相同**（符合 PKCS12 要求）。**教训：`GET` 返回 200 不代表有写权限**，read/write 是两项独立授权 |
 | APK 签名证书自动断言 | 2026-09-19 | ✅ 已加（本地已验证，待 CI 复跑确认） | 新增「校验 APK 签名证书」步骤：apksigner 优先 / keytool 兜底，指纹归一化后与 `EXPECTED_SHA256` 硬比对，不符则 `exit 1`；`signed=false` 时只 warning 不阻断。本地三项验证：期望指纹与密钥库真实值**逐位一致**、解析管道对两种输出格式均成立、YAML 与全部 `run` 块 `bash -n` 通过 |
 | **壳内「导出不落盘」根因定位** | 2026-09-19 | ✅ 已定论（方案就绪，未实施） | 见下方专节与 [docs/EXPORT-NATIVE-SAVE.md](./EXPORT-NATIVE-SAVE.md)。四种方案（`blob:`/`data:` × 有/无下载处理器）**全部实测失败**；`window.print()` 在 WKWebView 里是**静默空操作** → 桌面端 PDF 的三条路（静默导出 / 打印兜底 / 预览下载）**全是死的** |
+| **Gradle Kotlin DSL 补丁修复（`java` 被遮蔽）** | 2026-09-19 | ✅ 已修（本地结构级自检 2/2 通过，待 CI 复跑确认） | 配齐 secrets 后首次真跑（run 35391157315）反而失败：`e: app/build.gradle.kts:76:43: Unresolved reference: util`。根因是 Gradle Kotlin DSL 的 `Project` 上挂着 **`java` 扩展（`JavaPluginExtension`）**，把 `java` 标识符遮蔽 → `java.util.Properties` 被解析成「扩展成员访问」。改为顶层 `import` + 简单名。**此前一直被「secrets 缺失时步骤提前 `exit 0`」掩盖**，属「修好一个坑暴露下一个」。本地用 mock 文件实跑补丁：断言 import 位置、无全限定名残留、无 `}val` 粘连、文件以换行结尾、幂等 —— 2 个用例（有/无 `@file:` 注解）**全通过**；另核实口令为纯字母数字，对 `echo` 写入与 `Properties.load` 均安全 |
+| **CI job 日志读取（结论修正）** | 2026-09-19 | ✅ 已定论 | 此前判为「公开仓库的 `/actions/jobs/{id}/logs` 也 403、只能靠 annotation」。**本次证实那是 token 权限问题**：换成含 `Actions: read`/`Contents: read` 的 PAT 后，同一接口返回 **200 + 260 KB 完整日志**，失败原因一眼可见。annotation 通道降级为「无权限时的兜底」，三条通道优先级已写入 `ANDROID-BUILD.md` 第 8.1 节 |
+| **自动发版流水线（release.yml）** | 2026-09-19 | ✅ 已落地（本地 42 项结构级验证全通过，待 CI 实跑确认） | 推 `v*` 标签或手动一键触发 → 复用 `build-desktop.yml` / `build-android.yml`（`workflow_call`）出三平台 + 安卓包 → 聚合、归一化文件名、生成 `SHA256SUMS.txt` → `gh release create` 创建 **GitHub Release**（含版本号、CHANGELOG 更新说明、安装包表格、系统拦截提示）。版本号以 `tauri.conf.json` 为唯一权威并校验 `package.json` 一致；更新说明从 CHANGELOG 抽取，**为空或只有占位则发版失败**。本地验证当场抓出 2 个真实缺陷（见下）。详见 [docs/RELEASE.md](./RELEASE.md) |
 | T6 P5 发布加固 | — | ⏳ 未开始 | 凭证仍**明文**存 `app_config_dir()/sync.config.json`（钥匙串未接）；**壳内文件落盘命令缺失** —— 且已**实证**在 WKWebView 下静默失败（见 [EXPORT-NATIVE-SAVE.md](./EXPORT-NATIVE-SAVE.md)，该项已单列进 ROADMAP 高优先级）；自动更新/签名/公证/引导页未做 |
 
 ---
@@ -689,11 +692,215 @@ YAML（15 步）与全部 `run` 块的 `bash -n` 均通过。
 
 > 换密钥时需同步更新该步骤里的 `EXPECTED_SHA256`。
 
+### Android release 签名补丁的根因：Gradle Kotlin DSL 里 `java` 被遮蔽
+
+**配好 secrets 后第一次真跑（run 35391157315），构建反而失败了** —— 而且失败点正是上一轮
+我们自己写的 Gradle 补丁。这是一条被「secrets 缺失」掩盖了很久的潜伏缺陷。
+
+#### 报错原文
+
+```
+e: app/build.gradle.kts:76:43: Unresolved reference: util
+e: app/build.gradle.kts:78:46: Unresolved reference: io
+   Line 76:  val keystoreProperties = java.util.Properties()
+   Line 78:  keystoreProperties.load(java.io.FileInputStream(keystorePropertiesFile))
+```
+
+#### 根因
+
+Gradle Kotlin DSL 脚本的隐式接收者是 `Project`，而 **`Project` 上挂着一个 `java` 扩展
+（`JavaPluginExtension`，即 `java { }` 配置块）**。这个扩展把 `java` 这个**标识符**遮蔽成了
+扩展属性，于是 `java.util.Properties` 被解析为「`java` 扩展的 `util` 成员访问」→
+`Unresolved reference: util`，`java.io.FileInputStream` 同理（`Unresolved reference: io`）。
+
+**这不是「包名写错」，而是 Kotlin 的标识符解析规则**：局部/成员作用域优先于包名。
+**修法只有一条：改成文件顶层的 `import`，正文里用简单名。**
+
+```kotlin
+import java.io.FileInputStream
+import java.util.Properties
+
+val keystoreProperties = Properties()
+val keystorePropertiesFile = rootProject.file("keystore.properties")
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(FileInputStream(keystorePropertiesFile))
+}
+
+android {
+    signingConfigs {
+        create("release") { /* ... 用简单名 Properties / FileInputStream 就不会冲突 ... */ }
+    }
+}
+```
+
+#### 为什么之前一直没暴露
+
+**因为签名步骤在 secrets 缺失时会提前 `exit 0`，补丁根本不执行。**
+
+| 阶段 | secrets 状态 | 签名步骤 | Gradle 补丁 | 结果 |
+|---|---|---|---|---|
+| 2026-09-19 之前 | 未配置 | 立即 `exit 0`、`signed=false` | **不执行** | ✅ 构建成功（但出的是 debug 包） |
+| 配好 secrets 之后 | 已配置 | 写 properties + 打补丁 | **执行** | ❌ 补丁有语法/解析错误 → 构建失败 |
+
+也就是说：**这个缺陷恰好被「secrets 配置成功」触发**，是典型的「修好一个坑，暴露出下一个」。
+
+#### 诚实修正上一轮的一处说法
+
+上一轮我写「在**没有 Android SDK** 的机器上复刻跑通了 CI 的签名步骤」。那句**不够严谨**：
+当时只验证了「大括号 9:9 平衡」「properties 写全」「`keytool` 能打开密钥库」，
+**并没有编译过那份 Kotlin 脚本**（本机没有 Gradle + Android SDK，做不到）。
+大括号平衡与 Kotlin 语义正确是两回事。
+
+补上的**结构级自检**（本机可跑，见 `docs/RELEASE.md`）：从 workflow 里抽出补丁脚本，
+用 mock 的 `app/build.gradle.kts` 实跑，断言「import 插到了 `@file:` 之后、`plugins` 之前」
+「不再出现 `java.util.*` 全限定名」「拼接处无 `}val` 粘连」「文件以换行结尾」「幂等」。
+这能在推送前抓住这类问题，但**抓不出 Kotlin 类型错误** —— 那只能靠 CI。
+
+#### 顺带查证：口令字符集对写法是安全的
+
+`keystore.properties` 是用 shell `echo "storePassword=$VAR"` 写的，而读取方
+`java.util.Properties.load()` 会把 `\`、`:`、`=`、`#`、空格当特殊字符。故核对了实际口令的字符集：
+
+```
+口令长度 : 32
+字符集   : 5679BCKNPQUWacdghruwxy      ← 纯字母数字
+对 `echo "...$VAR"` 有风险的字符 : 无
+对 Properties.load 有风险的字符 : 无
+```
+
+结论：现有写法安全。**但这是一条「碰巧安全」——若将来换用含特殊字符的口令，
+必须改用 `printf '%s\n'` 或直接把密码 base64 后再解码写入。** 已记入 `docs/ANDROID-BUILD.md`。
+
+#### 另一项查证：CI job 日志现在读得到了
+
+上一轮为了读失败原因，绕道做了「把错误打成 `::error::` annotation」的机制，理由是
+`/actions/jobs/{id}/logs` 返回 `403 Must have admin rights`。这次发现**那是 token 权限问题**：
+换成有 `Actions: read` / `Contents: read` 的 PAT 之后，**同一个接口立刻返回 200 与 260 KB 完整日志**，
+失败原因一眼可见。
+
+⇒ 结论修正：**annotation 通道仍有价值（无权限时唯一可读的正文），但它不再是首选**。
+读日志的第一选择是 `curl -H "Authorization: Bearer $TOKEN" .../actions/jobs/{id}/logs`。
+已把三条通道的优先级写进 `docs/ANDROID-BUILD.md` 第 8.1 节。
+
+---
+
+## 自动发版流水线（2026-09-19）
+
+### 范围
+
+让「出包」这件事从「人工去 Actions 页下载 artifact」升级为**一键发版**：推一个标签，
+三平台桌面包 + Android 包自动构建、聚合，并在仓库的 **Releases** 页面生成一版带
+**版本号**与**更新说明**的正式发布。
+
+设计文档与操作手册：[docs/RELEASE.md](./RELEASE.md)。
+
+### 验收标准（AC）
+
+| # | 标准 | 判定方式 |
+|---|---|---|
+| AC1 | 推 `v*` 标签能触发发版，且**只触发** Release 一条流水线（不额外触发 build-desktop / build-android） | `build-*.yml` 的 push 触发限定在 `branches: main`，标签不匹配 |
+| AC2 | 也能在 Actions 页面手动发版（填版本号即可，无需本地打标签） | `workflow_dispatch` + `gh release create --target` |
+| AC3 | 版本号只有**一个权威来源**，不一致时**发版失败**并指出去改哪个文件 | `tauri.conf.json` vs `package.json` vs 标签/输入，三方比对 |
+| AC4 | Release 必须带**版本更新说明**，取不到就不发（不能发空壳） | 从 CHANGELOG 对应版本章节抽取；空/占位则 `exit 1` |
+| AC5 | 发版用的构建与平时 CI 的构建**是同一条代码路径**（不复制粘贴） | `workflow_call` 复用 `build-desktop.yml` / `build-android.yml` |
+| AC6 | 测试不过不许发版 | `prepare` 里 `npm test` 失败即中断 |
+| AC7 | 产物文件名带版本号与平台，便于下载者辨识 | 归一化为 `Resume-Studio-<版本>-<平台>.<ext>` |
+| AC8 | 附带校验和，下载者可验证完整性 | 生成 `SHA256SUMS.txt` 并随资产发布 |
+| AC9 | Android 签名凭据要传到被调用的 workflow（否则静默退回 debug） | `secrets: inherit` |
+| AC10 | 同一个版本重复发版不报错（幂等） | `gh release view` 命中则 `edit` + `upload --clobber` |
+
+### 本地验证结果（42 项，全通过）
+
+本机没有 Android SDK / Gradle，跑不了真实构建，因此写了**结构级自检**：解析全部 workflow 的
+YAML、对每个 `run` 块跑 `bash -n`、把关键步骤的 Python heredoc 抽出来在临时目录用 mock 文件实跑。
+
+| 组 | 内容 | 结果 |
+|---|---|---|
+| 1 | 4 个 workflow YAML 解析 + release.yml 结构断言（job 依赖、`uses`、`secrets: inherit`、`contents: write`） | 11/11 |
+| 2 | 全部 **21** 个 `run` 块的 `bash -n` 语法检查 | 1/1 |
+| 3 | 版本号解析（标签 → 版本）、格式正则 7 个正反例、两个文件一致性 3 个正反例 | 11/11 |
+| 4 | CHANGELOG 抽取：命中 `[1.1.0]` / 不混入 `[1.0.0]` / 不存在版本报错 / `[Unreleased]` 兜底 / 占位内容报错 | 7/7 |
+| 5 | 产物改名（9 个资产）、校验和、Release 说明生成，**用 Tauri 风格真实文件名（含空格）** 模拟 | 12/12 |
+
+### ⭐ 本地验证当场抓出的两个真实缺陷（都已修）
+
+这两个都不是「测试写错」，而是**照原样推上去就会在 CI 上炸**的缺陷：
+
+**① `[Unreleased]` 的占位检查被 `---` 分隔线绕过**
+
+`CHANGELOG.md` 里 `[Unreleased]` 段是：
+
+```markdown
+## [Unreleased]
+
+暂无。
+
+---
+
+## [1.1.0] ...
+```
+
+原来的正则抽到的是 `"暂无。\n\n---"`，而占位判断是 `re.fullmatch(r'暂无[。.]?', body)` ——
+**匹配不上**，于是「占位内容」被当成合法更新说明，Release 会带着一个只有「暂无。」的说明发出去。
+**修法**：抽取后先剥掉首尾的空行与分隔线（`---` / `***` / `___`）再判空。
+
+**② `$VAR` 紧跟全角字符 → UTF-8 locale 下被当成变量名（会在 CI 上直接失败）**
+
+Release 说明生成里有一行 `echo "| $plat | \`$b\`（$size） |"`。
+在 **UTF-8 locale（CI 的 ubuntu-latest 默认就是 `C.UTF-8`）** 下，bash 会把紧跟其后的 `（`
+吞进变量名 → 报 `size）: unbound variable`，步骤直接失败。
+
+最小实验（本机实测）：
+
+| 环境 | `echo "$size）"` |
+|---|---|
+| 继承（`C.UTF-8`） | ❌ 变量名被解析成 `size）`，输出空 |
+| `LC_ALL=C` | ✅ 正常输出 `5）` |
+| `LC_ALL=zh_CN.UTF-8` | ❌ 同上 |
+| `LC_ALL=en_US.UTF-8` | ❌ 同上 |
+
+**→ 本地如果碰巧是 `LC_ALL=C`，这个 bug 永远测不出来，但在 CI 上必炸。**
+
+审计后一共发现 **8 处**同类写法（`release.yml` 7 处 + `build-android.yml` 的签名校验步骤 1 处），
+已全部改成 `${VAR}` 形式，并把这个审计脚本写进了 `docs/RELEASE.md` 第 10 节，
+作为推送前的固定检查项。
+
+> 附带说明：`build-android.yml` 那一处（`"…期望 $EXPECTED_SHA256，实际 …"`）此前**从未被执行过**
+> —— 因为该步骤是在构建成功之后才跑的，而构建一直失败。**若这次没做审计，它会在
+> 「Android 构建终于成功」的那一次才炸**，又是一轮「修好一个坑暴露下一个」。
+
+### 顺带的其他改动
+
+- **版本号统一为 `1.1.0`**：`package.json` 由 `1.0.0` 提升，`src-tauri/tauri.conf.json` 由
+  `0.1.0` 对齐到同一值（此前两处不一致，且 tauri 侧还是初始值）。
+- **CHANGELOG 首版发布**：`[Unreleased]` 的跨平台内容整理为 `## [1.1.0] - 2026-09-19`，
+  并新开空的 `[Unreleased]`；文件顶部补「发版规则」三条。
+  > 过程中我用一次范围过大的替换把 1.0.0 章节重复插入了一份，靠脚本按出现次数精确删除修好。
+  > 教训：**大段替换后必须立刻按标题做一次结构校验**，不能只看"没报错"。
+- **README 新增「下载安装包」章节**：直接给使用者指到 Releases 页，列出各平台该下载哪个文件，
+  并写明当前未签名导致的首次打开拦截。
+- **说明「Packages」区为何为空**：那是 npm / Docker / Maven 这类**包管理器产物**的注册表，
+  本项目交付的是安装包，正确归属是 **Releases**。写进 `RELEASE.md` 第 8 节，避免以后误以为配置漏了。
+
+### 仍待真 CI 确认
+
+- `release.yml` 尚未在真 GitHub 上跑过（本机只能做结构级验证）；
+  尤其 `workflow_call` 复用、`secrets: inherit` 传递签名凭据、`gh release create` 建标签
+  这三处只能真跑才知道。
+- Kotlin DSL 补丁（`java` 遮蔽）修复后尚未跑过 Android 构建 —— 见上一节。
+- **`actions/download-artifact@v8` 与 `actions/upload-artifact@v7` 的搭配**：已查过 v8 的
+  release notes（只提到 ESM 化与 digest 校验默认改为 error，未提与 v7 上传不兼容），
+  但没找到明确的兼容性矩阵，属**待 CI 实测确认**项。
+
+---
+
 ### 后续可选项（本轮未做，避免影响在跑的构建）
 
-- 三个 workflow 均**未配 `concurrency`**：连着推两次会让两轮构建并行跑。加一段
+- 三个构建 workflow 均**未配 `concurrency`**：连着推两次会让两轮构建并行跑。加一段
   `concurrency: { group: <wf>-${{ github.ref }}, cancel-in-progress: true }` 可自动取消上一轮。
-  本次**刻意不加**——`Build Desktop #1` 已跑 25 分钟以上，取消会白扔这一轮的 Windows msi。
+  本次**刻意不加** —— 会取消正在跑的长任务，白扔已完成的构建。
+  > 注：`release.yml` **已加** `concurrency`（group 为 `release-${{ github.ref }}`，
+  > `cancel-in-progress: false`），保留给将来需要中断重发时调整。
 - `dtolnay/rust-toolchain@stable` 用浮动 `@stable` 是官方推荐（rust-cache 需要它）；若要完全可复现可钉到具体版本。
 - **仓库可见性（已决策，暂不处理）**：仓库现为 **public**（`shenge-work/resume-builder`）。
   Release 签名的 APK/AAB 会作为 artifact 挂在公开仓库的 Actions 上，**构建成功后 14 天内**

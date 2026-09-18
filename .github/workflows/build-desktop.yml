@@ -20,6 +20,10 @@ on:
       - '.github/workflows/build-desktop.yml'
   pull_request:
   workflow_dispatch:
+  # 供 .github/workflows/release.yml 复用（发版时调用）。
+  # 复用而不是复制一份构建逻辑，是为了保证「平时 CI 冒烟构建」与「发版构建」
+  # 走的是同一条代码路径 —— 否则两套配置迟早漂移，出现「CI 绿的、发版挂的」。
+  workflow_call:
 
 jobs:
   build-desktop:
