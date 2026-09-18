@@ -97,7 +97,7 @@ src-tauri/gen/android/app/build/outputs/
 `.github/workflows/build-android.yml` 在 `push`（main 分支且前端/Rust/配置/workflow 有变动）、
 `pull_request` 与手动 `workflow_dispatch` 时运行，`runs-on: ubuntu-latest`。
 
-流程：`checkout@v7` → `setup-java@v6`（JDK 17 / temurin）→ `android-actions/setup-android@v3` →
+流程：`checkout@v7` → `setup-java@v6`（JDK 17 / temurin）→ `android-actions/setup-android@v4` →
 `sdkmanager` 安装 `ndk;27.0.12077973` 并导出 `NDK_HOME` → `setup-node@v7`（22）→
 `dtolnay/rust-toolchain@stable` → `rustup target add` 4 个 Android 目标 → `swatinem/rust-cache@v2` →
 `npm install` → **`npm run mobile:android:init`（现场生成 Android 工程）** →
@@ -281,7 +281,8 @@ adb uninstall com.resumestudio.desktop            # 卸载（包名 = tauri.conf
 | 现象 | 原因与处理 |
 |---|---|
 | `Unable to locate a Java Runtime` / `JAVA_HOME is not set` | 未装 JDK 17。装 Temurin 17 并导出 `JAVA_HOME`（装法见第 5 节文末）；CI 由 `setup-java@v6` 处理 |
-| `ANDROID_HOME not set` / `SDK location not found` | 未设 `ANDROID_HOME`（CI 由 `android-actions/setup-android@v3` 设置；本地写入 shell 配置） |
+| `ANDROID_HOME not set` / `SDK location not found` | 未设 `ANDROID_HOME`（CI 由 `android-actions/setup-android@v4` 设置；本地写入 shell 配置） |
+| `设置 Android SDK` 步骤 **20 秒即失败**、日志里出现 `Failed to find package 'tools'` | `android-actions/setup-android` 用了 **v3**。v3.2.2 的默认 `packages` 含 `tools`，而 **Google 已把 `tools` 包从 `repository2-3.xml` 移除** → `sdkmanager tools` 报错并把整个 action 拖垮。**升到 `@v4`**（v4.0.2 起只装 `platform-tools`）。这是本项目实测踩到的坑，见 `docs/ACCEPTANCE.md` |
 | `NDK not configured` / `NDK_HOME` 未生效 / `No toolchains found` | 用 `sdkmanager --install "ndk;27.0.12077973"` 安装并导出 `NDK_HOME=$ANDROID_HOME/ndk/27.0.12077973`（同时设 `ANDROID_NDK_HOME` 兼容旧脚本） |
 | `error: target ... may not be enabled` / 链接器报 `arm-linux-androideabi` 缺失 | rust target 未装全：`rustup target add aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android` |
 | Gradle 下载超时 / `Could not resolve com.android.tools.build:gradle` | 网络问题或代理未配；重跑一次；自建环境可配 `~/.gradle/gradle.properties` 的代理；CI 上通常是偶发，重试 workflow |

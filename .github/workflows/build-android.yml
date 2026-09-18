@@ -40,7 +40,10 @@ jobs:
           java-version: '17'
 
       - name: 设置 Android SDK
-        uses: android-actions/setup-android@v3
+        # 必须用 v4：v3.2.2 的默认 packages 里含 `tools`，而 Google 已把该包从 repository2-3.xml
+        # 移除 → `sdkmanager tools` 报 "Failed to find package 'tools'" 并把整个 action 拖垮
+        # （实测 v3 在 ubuntu-latest 上 20 秒即失败）。v4.0.2 起已去掉 tools，只装 platform-tools。
+        uses: android-actions/setup-android@v4
 
       - name: 安装 Android NDK 并导出 NDK_HOME
         run: |

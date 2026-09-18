@@ -532,6 +532,32 @@ python3 补丁成功追加 release signingConfig；大括号 9 : 9 平衡 ✅
 → 全部改为真实的 `com.resumestudio.desktop`。另在 `ANDROID-BUILD.md` 第 8 节补 5 条
 签名类排错（口令不符 / 格式不匹配 / 别名不存在 / base64 非法 / 误以为配了却仍走 debug）。
 
+### CI 实测挖出的一个既存缺陷（已修）
+
+推送后实测发现 **`Build Android` 在「设置 Android SDK」这一步 20 秒即失败**。
+关键是先分清责任：**`Build Android #1`（改动前的 `b371306`）就是同样失败**，
+所以与本次 action 升级无关，而是既存缺陷。随后 `Build Desktop #1`（`b371306`）
+**433 秒成功**，说明三端桌面包没问题。
+
+根因靠 `android-actions/setup-android@v4.0.2` 的 release notes 定位到（原文）：
+
+> Google no longer serves the `tools` package: it is gone from `repository2-3.xml`,
+> so `sdkmanager tools` fails with "Failed to find package 'tools'" and **takes the
+> whole action down with it**.
+
+v3.2.2（2024-11）的默认 `packages` 里就含 `tools` → 该版本在今天的 runner 上**必然失败**。
+修复：`setup-android@v3` → **`@v4`**（v4.0.2 起只装 `platform-tools`），
+并在 workflow 里写下原因、在排查表补一条，避免以后有人「顺手降回 v3」。
+
+> 顺带：这也解释了为什么 `Build Android` 的日志里有一条
+> `Node.js 20 is deprecated ... android-actions/setup-android@v3` 的强制升级警告——
+> v4 同时把运行时抬到了 Node 24。
+
+**方法论记录**：本次无法读取 job 日志（`/actions/jobs/{id}/logs` 返回
+`403 Must have admin rights`，公开仓库也不例外），是靠 ① 对比改动前后的同名运行、
+② 逐 step 取失败位置、③ 读上游 release notes 三步定位的。
+`check-run annotations` 只能拿到弃用类警告，拿不到失败正文。
+
 ### 需要人工完成的一步（无法代劳）
 
 **把 4 个值填进仓库 Secrets**：`Settings → Secrets and variables → Actions → New repository secret`。
