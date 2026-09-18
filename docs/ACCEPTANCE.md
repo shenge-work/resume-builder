@@ -558,12 +558,80 @@ v3.2.2（2024-11）的默认 `packages` 里就含 `tools` → 该版本在今天
 ② 逐 step 取失败位置、③ 读上游 release notes 三步定位的。
 `check-run annotations` 只能拿到弃用类警告，拿不到失败正文。
 
-### 需要人工完成的一步（无法代劳）
+### Android 构建的根因修复：`package.json` 缺 `"tauri"` script
+
+`setup-android` 升 v4 后，构建推进到了「构建 APK + AAB」，但仍在 1 分 59 秒处失败：
+
+```
+FAILURE: Build failed with an exception.
+* What went wrong:
+Execution failed for task ':app:rustBuildArm64Debug'.
+BUILD FAILED in 1m 59s
+```
+
+**定位过程**（因为读不到 job 日志，只能靠 API 侧的 annotation）：
+
+1. 上一轮给 workflow 加的「失败时发 `::error::` annotation」逻辑生效，拿到了上面的正文与
+   `npm error To see a list of scripts, run: / npm error   npm run`。
+2. 顺着这条线索读 Tauri CLI 源码 `crates/tauri-cli/src/mobile/init.rs`，找到机制：
+   `tauri android init` 按「**CLI 是怎么被启动的**」来推断 Gradle 该执行什么命令。
+   本项目通过 npm 脚本启动 → CI 检测到 `npm_execpath` 指向 `npm-cli` → 推断出
+   `npm run -- tauri android android-studio-script`，并把它**烘焙进生成的**
+   `buildSrc/src/main/kotlin/BuildTask.kt`：
+   ```kotlin
+   val executable = "npm";
+   val args = listOf("run", "--", "tauri", "android", "android-studio-script");
+   ```
+3. 于是 Gradle 的 `rustBuild*` 任务会去执行 `npm run tauri ...`，而本仓库
+   `package.json` 的 `scripts` 里**没有 `tauri` 条目** → npm 报错 → 构建失败。
+   （`create-tauri-app` 官方模板本来就带这一条，本项目是手工给静态站包壳，所以漏了。）
+
+**A/B 对照验证**（决定性证据）：
+
+| 条件 | `npm run -- tauri --version` 输出 |
+|---|---|
+| 有 `"tauri": "tauri"` | `tauri-cli 2.11.4` ✅ |
+| 临时删掉该 script | `npm error To see a list of scripts, run:`<br>`npm error   npm run` ← **与 CI 日志逐字相同** |
+
+**修复**：`package.json` 的 `scripts` 增加 `"tauri": "tauri"`；
+并在 `docs/ANDROID-BUILD.md` 第 4 节补前置条件警告、第 8 节补对应排错条目
+（含机制说明与自检命令 `npm run -- tauri --version`）。
+
+> 这条坑的价值超出了本项目：**任何手工给静态 Web 应用包 Tauri 壳的仓库都会踩到**，
+> 已同步写入 `~/.workbuddy/skills/tauri-wrap-static-webapp/SKILL.md`。
+
+### 需要人工完成的一步（API 路径被权限挡住）
 
 **把 4 个值填进仓库 Secrets**：`Settings → Secrets and variables → Actions → New repository secret`。
-值取自 `android-signing/`（口令在 `ANDROID-SIGNING-CREDENTIALS.txt`，base64 在同名 `.base64` 文件）。
+值取自 `android-signing/`：
+
+| Secret 名 | 取值 |
+|---|---|
+| `ANDROID_KEY_BASE64` | `android-signing/resume-studio-upload.keystore.base64` 的**全部内容**（5940 字节单行） |
+| `ANDROID_KEY_ALIAS` | `resume-studio` |
+| `ANDROID_KEY_PASSWORD` | 见 `ANDROID-SIGNING-CREDENTIALS.txt` 的 `口令:` |
+| `ANDROID_STORE_PASSWORD` | 同 `ANDROID_KEY_PASSWORD`（PKCS12 下二者必须相等） |
+
 Secret 一旦创建就**不可再读回**，所以务必先在密码管理器里留一份。
 4 个缺任一个都会静默回退 debug 签名（日志里只有一条 `::notice::`）。
+
+> **为什么是手工**：本机钥匙串里的 GitHub 凭据是**细粒度 PAT**，
+> 对 Actions Secrets 只授了 **Read**、没有 Write。实测 `PUT /actions/secrets/{name}` 返回
+> `403 Resource not accessible by personal access token`（4 个 secret 全部 403，未写入任何内容）。
+> 值得记一笔的教训：**`GET /actions/secrets` 返回 200 并不代表有写权限** ——
+> 读写是两项独立授权，不能用「能读」推断「能写」。留待后续的替代路径：
+> 在 token 设置里把 `Secrets` 权限改为 **Read and write**，即可由脚本一次写入。
+
+**降低手工出错概率的两个小技巧**（5940 字符手工选中很容易多带空格/换行）：
+
+```bash
+cd android-signing
+pbcopy < resume-studio-upload.keystore.base64   # 然后直接 Cmd+V 填 ANDROID_KEY_BASE64
+pbcopy < ANDROID-SIGNING-CREDENTIALS.txt        # 口令与别名在这份里
+```
+
+CI 侧消费方式是 `echo "$ANDROID_KEY_BASE64" | base64 -d`，**对尾部换行不敏感**，
+所以只要中间没有多余空白即可。
 
 ### 后续可选项（本轮未做，避免影响在跑的构建）
 
@@ -571,6 +639,12 @@ Secret 一旦创建就**不可再读回**，所以务必先在密码管理器里
   `concurrency: { group: <wf>-${{ github.ref }}, cancel-in-progress: true }` 可自动取消上一轮。
   本次**刻意不加**——`Build Desktop #1` 已跑 25 分钟以上，取消会白扔这一轮的 Windows msi。
 - `dtolnay/rust-toolchain@stable` 用浮动 `@stable` 是官方推荐（rust-cache 需要它）；若要完全可复现可钉到具体版本。
+- **仓库可见性（已决策，暂不处理）**：仓库现为 **public**（`shenge-work/resume-builder`）。
+  Release 签名的 APK/AAB 会作为 artifact 挂在公开仓库的 Actions 上，**构建成功后 7 天内**
+  任何登录 GitHub 的账号都能下载。当前产出的是调试期包、不含个人数据，故**本轮决定保持 public**。
+  ⚠️ **将来出正式可上架包之前必须重新评估这一点**：那时 artifact 里会带上真实签名产物，
+  若要走 Play 上架，建议先转 private（私有仓库的 Actions 分钟数会计费，公开仓库免费）。
+  另一个长期方向是干脆不在 CI 侧出 release 包，改为本机跑 `mobile:android:build` 出包、只把 debug 包留给 CI 冒烟。
 
 
 
