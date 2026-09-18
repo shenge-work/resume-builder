@@ -97,11 +97,18 @@ src-tauri/gen/android/app/build/outputs/
 `.github/workflows/build-android.yml` 在 `push`（main 分支且前端/Rust/配置/workflow 有变动）、
 `pull_request` 与手动 `workflow_dispatch` 时运行，`runs-on: ubuntu-latest`。
 
-流程：`checkout@v4` → `setup-java@v4`（JDK 17 / temurin）→ `android-actions/setup-android@v3` →
-`sdkmanager` 安装 `ndk;27.0.12077973` 并导出 `NDK_HOME` → `setup-node@v4`（22）→
+流程：`checkout@v7` → `setup-java@v6`（JDK 17 / temurin）→ `android-actions/setup-android@v3` →
+`sdkmanager` 安装 `ndk;27.0.12077973` 并导出 `NDK_HOME` → `setup-node@v7`（22）→
 `dtolnay/rust-toolchain@stable` → `rustup target add` 4 个 Android 目标 → `swatinem/rust-cache@v2` →
 `npm install` → **`npm run mobile:android:init`（现场生成 Android 工程）** →
-`tauri android build --apk` / `--aab` → `actions/upload-artifact@v4`（`if-no-files-found: error`）。
+`配置 Android 签名`（见第 5 节）→ **`tauri android build --apk --aab`（一步同时出两种包）** →
+`actions/upload-artifact@v7`（`if-no-files-found: error`）。
+
+> APK 与 AAB 用**同一条命令**产出：`--apk --aab` 在同一个进程内做两次打包、共享 Rust 产物。
+> 拆成两条命令会让 4 个 ABI 的 Rust 编译被完整跑两遍（首轮构建多花十几分钟）。
+>
+> action 主版本一律取**当前最新稳定**（checkout / setup-node 已到 v7，setup-java 到 v6）。
+> v4 系列运行在 Node 20 上，GitHub 已弃用并会在日志里刷 deprecation 警告。
 
 | artifact 名 | 内容 |
 |---|---|
@@ -116,58 +123,130 @@ src-tauri/gen/android/app/build/outputs/
 
 ---
 
-## 5. keystore 生成与保管（**绝不入库**）
+## 5. 签名配置（**密钥库绝不入库**）
 
-### 5.1 生成上传密钥
+> 本项目已生成好一套可用凭据，放在 `android-signing/`（该目录被双保险忽略，见 5.6）。
+> 你只需把其中 4 个值填进 GitHub Secrets（见 5.3）。
 
-```bash
-keytool -genkeypair -v \
-  -keystore ~/upload-keystore.jks \
-  -keyalg RSA -keysize 2048 -validity 10000 \
-  -alias upload
-# 记牢：store 密码、key 密码、alias（上面的 upload）
-```
-
-> 一个 keystore 一旦上传 Play，**丢失即无法更新应用**（只能换包名重新上架）。
-> 请离线备份到密码管理器 / 公司密钥托管处。
-
-### 5.2 编码为 base64 并配置 CI secrets
+### 5.1 生成上传密钥（需要 JDK 的 `keytool`）
 
 ```bash
-base64 -i ~/upload-keystore.jks | pbcopy        # macOS：复制到剪贴板
-# Linux：base64 -w 0 ~/upload-keystore.jks
+JDK="$HOME/.workbuddy/binaries/java/temurin-17"   # 本机已装，见文末
+"$JDK/bin/keytool" -genkeypair \
+  -keystore android-signing/resume-studio-upload.keystore \
+  -storetype PKCS12 \
+  -alias resume-studio \
+  -keyalg RSA -keysize 4096 -sigalg SHA256withRSA \
+  -validity 10000 \
+  -dname "CN=Resume Studio, OU=Release, O=Resume Studio, L=Shenzhen, ST=Guangdong, C=CN" \
+  -storepass "$PW" -keypass "$PW"
 ```
 
-GitHub 仓库 → **Settings → Secrets and variables → Actions → New repository secret**，建 4 个：
+这些参数别乱改，各自的理由：
 
-| secret | 值 |
+| 参数 | 为什么这样取值 |
 |---|---|
-| `ANDROID_KEY_BASE64` | keystore 文件的 base64（单行） |
-| `ANDROID_KEY_ALIAS` | `upload`（或你的 alias） |
-| `ANDROID_KEY_PASSWORD` | key 密码 |
-| `ANDROID_STORE_PASSWORD` | keystore 密码（建议与 key 密码一致） |
+| `-storetype PKCS12` | JDK 9 起 `keytool` 的默认格式，也是 AGP 未指定 `storeType` 时的默认。**PKCS12 下 `keypass` 必须等于 `storepass`**（JKS 才允许两者不同） |
+| `-alias resume-studio` | 与 CI 写入的 `keystore.properties` 里 `keyAlias` 一致；改名要同步改 secret |
+| `-keysize 4096` + `SHA256withRSA` | Play 接受，比 2048 更耐时间 |
+| `-validity 10000` | ≈27 年。Play 要求上传密钥有效期至少覆盖到 **2033-10-22**，而 `keytool` 默认只有 90 天 |
+| `-dname` | **不要写真名 / 真公司**——这段会随 APK 公开可见（本项目用中性占位） |
 
-CI 会把它解码到 `$RUNNER_TEMP/upload-keystore.jks`，并写入生成目录下的
-`src-tauri/gen/android/keystore.properties`（`storeFile` / `storePassword` / `keyAlias` /
-`keyPassword` / `password`）。`app/build.gradle.kts` 默认没有 release 签名配置，
-CI 仅在尚未配置时追加一段 `signingConfigs { create("release") { ... } }`（幂等，已存在则跳过）。
+### 5.2 编码为 base64（必须单行）
 
-### 5.3 本地签名
+```bash
+openssl base64 -A -in android-signing/resume-studio-upload.keystore \
+  -out android-signing/resume-studio-upload.keystore.base64
+```
 
-把 `keystore.properties` 放到 `src-tauri/gen/android/`（该文件是生成目录下的，**不会入库**）：
+> 用 `openssl base64 -A`（`-A` = 不折行）。macOS 自带的 `base64 -i file` 会按 76 列折行；
+> CI 侧虽然用 `base64 -d` 能容忍换行，但统一单行最不容易踩坑。
+
+**用之前先自检一遍**（解码回文件 → 字节比对 → 让 `keytool` 真打开一次）：
+
+```bash
+base64 -d < android-signing/resume-studio-upload.keystore.base64 > /tmp/rt.keystore
+cmp android-signing/resume-studio-upload.keystore /tmp/rt.keystore && echo "字节一致"
+"$JDK/bin/keytool" -list -keystore /tmp/rt.keystore -storepass "$PW"
+```
+
+### 5.3 配置 4 个 GitHub Secrets
+
+仓库页 → **Settings → Secrets and variables → Actions → Secrets → New repository secret**：
+
+| secret | 取值 |
+|---|---|
+| `ANDROID_KEY_BASE64` | `android-signing/resume-studio-upload.keystore.base64` 的**全部内容**（单行，约 5.8 KB） |
+| `ANDROID_KEY_ALIAS` | `resume-studio` |
+| `ANDROID_KEY_PASSWORD` | keystore 口令（PKCS12 下与下面同一个值） |
+| `ANDROID_STORE_PASSWORD` | keystore 口令（同上） |
+
+> 4 个都填了才走 release 签名；**缺任一个会自动回退 debug 签名**并输出一条 `::notice::`，
+> workflow 不会失败——能装真机验证，但不能上架。
+
+### 5.4 CI 里实际做了什么
+
+`.github/workflows/build-android.yml` 的「配置 Android 签名」步骤：
+
+1. 先判断 4 个 secret 是否齐全，不齐则 `signed=false` 并跳过整步；
+2. `base64 -d` 解码到 `$RUNNER_TEMP/upload-keystore.jks`——**临时目录，构建结束随 runner 销毁**；
+3. 在生成的工程里写 `src-tauri/gen/android/keystore.properties`：
+
+   ```properties
+   storeFile=$RUNNER_TEMP/upload-keystore.jks
+   storeType=PKCS12
+   storePassword=***
+   keyAlias=resume-studio
+   keyPassword=***
+   password=***
+   ```
+
+4. 官方模板的 `app/build.gradle.kts` **不含 release 签名配置**，CI 在文件末尾追加
+   `signingConfigs { create("release") { ... } }` 与 `buildTypes.release.signingConfig`。
+   补丁是幂等的（已含 `keystore.properties` 引用就跳过）——因为 `gen/android` 每次 CI 都重新生成。
+
+### 5.5 本地签名（想在本机出 release 包时）
+
+把 `keystore.properties` 放到 `src-tauri/gen/android/`（生成目录，不入库），
+并把 5.4 的 Gradle 补丁手动加到 `app/build.gradle.kts`：
 
 ```properties
-storeFile=/absolute/path/to/upload-keystore.jks
-storePassword=********
-keyAlias=upload
-keyPassword=********
+storeFile=/绝对路径/android-signing/resume-studio-upload.keystore
+storeType=PKCS12
+storePassword=***
+keyAlias=resume-studio
+keyPassword=***
 ```
 
-并按 Tauri 官方文档在 `src-tauri/gen/android/app/build.gradle.kts` 里补上 release 签名配置
-（与 CI 追加的那段相同）。
+### 5.6 凭据隔离与运维
 
-> **绝不要把 keystore / 密码提交进仓库**：`.jks`、`.keystore`、`keystore.properties`
-> 都应在 `.gitignore` 覆盖范围内；本项目还会忽略整个 `src-tauri/gen/`。
+- **忽略规则**：仓库根 `.gitignore` 覆盖整个 `android-signing/`、`*.jks`、`*.keystore`、
+  `keystore.properties`；`android-signing/` 内**另有一层 `.gitignore`（内容为 `*`）**做双保险，
+  防误用 `git add -f`。提交前用 `git status --short` 确认该目录不出现。
+- **务必离线备份**：keystore 一旦用于 Play 上架，**丢失就再也无法更新同一个应用**
+  （只能换包名重新上架）。请连同口令一起存进密码管理器。
+  本项目把口令放在 `android-signing/ANDROID-SIGNING-CREDENTIALS.txt`（同样不入库，仅供自取）。
+- **核对指纹**：`keytool -list -v` 会打印 SHA-256。Android 与 Play 后台都按指纹校验，
+  轮换密钥时用它确认换对了。
+- **轮换**：重新生成 → 重算 base64 → 更新 4 个 secret 即可，代码与 workflow 都不用动。
+
+<details>
+<summary>本机 JDK 是怎么装上的（如需重装）</summary>
+
+本机原本没有 JDK（`/usr/bin/keytool` 是 macOS 的空壳，直接调用会报
+"Unable to locate a Java Runtime"），而生成密钥库必须用 `keytool`。安装方式：
+
+```bash
+# GitHub Release 直连在本机被代理拦截（502），改用清华镜像
+curl -L -o jdk17.tar.gz \
+  https://mirrors.tuna.tsinghua.edu.cn/Adoptium/17/jdk/aarch64/mac/OpenJDK17U-jdk_aarch64_mac_hotspot_17.0.20.1_1.tar.gz
+tar -xzf jdk17.tar.gz
+# macOS 的 tar 包是 bundle 结构（jdk-*/Contents/Home/...），要把 Contents/Home 上提一层
+mv jdk-17*+1/Contents/Home "$HOME/.workbuddy/binaries/java/temurin-17"
+# 压缩包 177 MB，解压后约 309 MB；只用来生成密钥库的话，装完即可整个删除
+```
+
+</details>
 
 ---
 
@@ -178,7 +257,7 @@ adb devices                                      # 确认设备已连接（并�
 adb install -r app-universal-debug.apk           # 安装 / 覆盖安装（debug 包最省事）
 adb install -r src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release.apk
 adb logcat | grep -i tauri                       # 看运行时日志
-adb uninstall com.resumestudio.app               # 卸载（identifier 见 tauri.conf.json）
+adb uninstall com.resumestudio.desktop            # 卸载（包名 = tauri.conf.json 的 identifier）
 ```
 
 > Android 11+ 若提示签名不一致，先卸载旧包再装；release 包必须用同一 keystore 签名才能覆盖升级。
@@ -201,14 +280,19 @@ adb uninstall com.resumestudio.app               # 卸载（identifier 见 tauri
 
 | 现象 | 原因与处理 |
 |---|---|
-| `Unable to locate a Java Runtime` / `JAVA_HOME is not set` | 未装 JDK 17。装 Temurin 17 并导出 `JAVA_HOME`；CI 由 `setup-java@v4` 处理 |
+| `Unable to locate a Java Runtime` / `JAVA_HOME is not set` | 未装 JDK 17。装 Temurin 17 并导出 `JAVA_HOME`（装法见第 5 节文末）；CI 由 `setup-java@v6` 处理 |
 | `ANDROID_HOME not set` / `SDK location not found` | 未设 `ANDROID_HOME`（CI 由 `android-actions/setup-android@v3` 设置；本地写入 shell 配置） |
 | `NDK not configured` / `NDK_HOME` 未生效 / `No toolchains found` | 用 `sdkmanager --install "ndk;27.0.12077973"` 安装并导出 `NDK_HOME=$ANDROID_HOME/ndk/27.0.12077973`（同时设 `ANDROID_NDK_HOME` 兼容旧脚本） |
 | `error: target ... may not be enabled` / 链接器报 `arm-linux-androideabi` 缺失 | rust target 未装全：`rustup target add aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android` |
 | Gradle 下载超时 / `Could not resolve com.android.tools.build:gradle` | 网络问题或代理未配；重跑一次；自建环境可配 `~/.gradle/gradle.properties` 的代理；CI 上通常是偶发，重试 workflow |
 | `Could not resolve all files` / 依赖下载卡在 `services.gradle.org` | 同上；也可在公司网络下改用内网 Gradle 镜像 |
-| 安装时 `INSTALL_FAILED_UPDATE_INCOMPATIBLE` / 签名不匹配 | 旧包是另一 keystore 签的。先 `adb uninstall com.resumestudio.app` 再装 |
+| 安装时 `INSTALL_FAILED_UPDATE_INCOMPATIBLE` / 签名不匹配 | 旧包是另一 keystore 签的。先 `adb uninstall com.resumestudio.desktop` 再装 |
 | release 包未签名（`app-universal-release-unsigned.apk`） | `keystore.properties` 缺失或 `build.gradle.kts` 没有 release signingConfig。检查第 5 节；CI 未配 secrets 时会有 `::notice::` 提示并自动改走 debug 签名 |
+| `Keystore was tampered with, or password was incorrect` | 口令不对。**注意 PKCS12 下 `keyPassword` 必须与 `storePassword` 相同**（JKS 才允许不同）；也可能是 secret 里复制进了多余空格/换行 |
+| `Invalid keystore format` / `toDerInputStream rejects tag type` / `Unsupported keystore format` | `storeType` 与文件实际格式不匹配（JKS ↔ PKCS12 混淆）。本项目统一用 PKCS12，并已在 CI 显式写入 `storeType=PKCS12`；若你换成 JKS，务必同步改 `keystore.properties` 与 Gradle 里的 `storeType` |
+| `Key with alias '...' was not found` / `Cannot recover key` | `ANDROID_KEY_ALIAS` 写错。用 `keytool -list -keystore <file> -storepass <pw>` 打出真实别名核对 |
+| `storeFile ... does not exist` / `base64: invalid input` | `ANDROID_KEY_BASE64` 为空或不是完整单行。用第 5.2 的「自检」命令先本地验一遍再贴 |
+| 构建日志显示 `未配置 ... 走 debug 签名` 而你以为配了 | 4 个 secret **缺任一个**都会整体回退 debug。检查名称拼写（含大小写）与是否建在 **Secrets** 而非 **Variables** |
 | `tauri android init` 报 identifier 不合法 / 改过 identifier | `tauri.conf.json` 的 `identifier` 改动后要 **重新 init**（删掉 `src-tauri/gen/android` 再生成），否则包名与配置不一致 |
 | 打出来的包白屏 / 资源 404 | `dist-desktop/` 是旧的或缺失。`mobile:android:*` 脚本会先跑 `npm run desktop:assets`；手动跑 `tauri` 命令前请补跑一次 |
 | `frontendDist ../dist-desktop not found` | 同上，先 `npm run desktop:assets` |

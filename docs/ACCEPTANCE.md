@@ -18,7 +18,7 @@
 | **T4** | P3 安卓壳 | Tauri Android → APK/AAB，移动端签名与 safe-area 真机验证 | ✅ 通过（APK/AAB 由 CI 产出） |
 | **T5** | P4 冲突合并 | 字段级 3-way merge + 飞书版本历史兜底，多端同时编辑 | ⏳ 待执行 |
 | **T6** | P5 发布加固 | 凭证入 OS 钥匙串、自动更新、签名与公证 | ⏳ 待执行 |
-| **T7** | 投递链路 | 内容体检 / ATS 检查 + DOCX·纯文本·Markdown 导出 + 静默 PDF | ✅ 通过（接线已补，并修复 1 处稳定误报） |
+| **T7** | 投递链路 | 内容体检 / ATS 检查 + DOCX·纯文本·Markdown 导出 + 静默 PDF | ✅ 通过（接线已补，修复 1 处稳定误报 + 打印边距缺陷；导出侧测试已补齐并经变异测试证伪） |
 
 > 本轮推进节奏：**先定 AC → subagent 执行 → 主代理回查 → 写验收记录**，每轮结果追加到本文件「验收记录」表。
 
@@ -222,6 +222,30 @@ PDF 还要过系统打印对话框。本任务补齐这三块，全部不依赖�
 - AC4 前端「静默导出 PDF」入口接在「导出」菜单与移动端「同步/工具 → 导出」分组。
 - AC5 `node --check` 通过；本机实测（找到 Chrome 时）产出 PDF 且文件头为 `%PDF-`。
 
+**7d 打印 / 静默 PDF 的页边距跟随设置（遗留缺陷修复）**
+- AC1 「页面边距」面板改动后，`Ctrl/Cmd+P` 打印与静默 PDF 的 `@page` 边距随之改变（原为硬编码 `14mm`，用户设置形同虚设）。
+- AC2 实现方式为**动态 `@page` 规则**（不依赖 `@page` 内的 `var()` —— 各浏览器解析时机不一致，不可靠）；`tools/render-resume.js` 生成的独立 A4 HTML 同步注入同一规则。
+- AC3 实测：同一份数据把边距从 14mm 调到 30mm 后，静默导出的 PDF 与前者**字节不同**、内容可用宽度收窄（页数或内容流随之变化）。
+- AC4 不改变预览观感与既有 `@page{size:A4}` 纸张尺寸；不改动数据模型与既有对外 API。
+
+**7e 体检补充两项检查（遗留登记项）**
+- AC1 新增 `empty-sections`（一个板块都没有 → `error`）与 `subtitle-missing`（头衔 `subtitle` 为空 → `info`）。
+- AC2 两项在「健康」假数据上**不误报**（不破坏其「零命中」前提）；在「空数据」假数据上命中。
+- AC3 `test/cases-audit.js` 补对应断言（含 id 对照表更新），`npm test` 全绿。
+
+**7f 导出模块的自动化测试补齐（遗留登记项）**
+- AC1 新增 `test/cases-export.js` 并接入 `test/run.js`（与 `cases-audit.js` 同构：CommonJS + `ctx.assert`）；
+  覆盖 `crc32` / `zipStore` / `buildBlocks` / `buildPlain`(txt·md) / `buildDocx` 五个纯函数与三个导出入口的降级行为。
+- AC2 断言必须落在**「看得见的东西」之外的失效面**上：zip 的**本地文件头**（不只中央目录）、
+  `document.xml` 引用的每个段落样式在 `styles.xml` 中**确实有定义**、XML 转义与控制字符、
+  A4 `sectPr`、无残留 `**`、无 `<w:tbl>`/`<w:drawing>`；DOCX 是「格式对了才打得开」的产物，
+  只断言「字节非空 / 长度合理」等于没测。
+- AC3 只读性：四个生成器跑完后原始数据**逐字节未变**（导出不得就地改写数据，否则会污染预览并触发一次自动保存）。
+- AC4 断言集合须经**变异测试**证伪：对 `js/export-extra.js` 注入若干处真实缺陷（少转义 `&`、
+  样式引用不存在的 `Heading9`、纸张改 Letter、丢部件、压缩标记写成 8、crc32 表初值错、
+  就地改写输入数据、静默导出不再回退打印等），要求**每一处都被至少一条断言抓住**；
+  同时先跑未变异源码作对照（必须 0 失败），否则结论无效。
+
 ### 验收记录（T7 复验·逐条核对）
 
 | AC | 结果 | 证据 |
@@ -232,13 +256,19 @@ PDF 还要过系统打印对话框。本任务补齐这三块，全部不依赖�
 | 7c-AC1/2 静默 PDF | ✅ | 见下方「实测记录」：`HTTP 200` + `%PDF-1.4` + 3 页 + 0 图片 XObject + 0 临时文件残留；服务仍只监听 `127.0.0.1` |
 | 7c-AC3 降级 | ✅ | 无可用浏览器时返回 `501 {error, hint}`；前端 `exportPdfSilent()` 捕获后自动调用 `window.print()`，并在提示位说明原因 |
 | 7c-AC4 入口 | ✅ | 桌面「导出」菜单 + 移动端「同步/工具 → 导出」均有入口 |
-| 7c-AC5 静态 | ✅ | `node --check` 全通过（`serve.js` / `audit.js` / `export-extra.js` / `build-single.js`）；项目测试 **117/117** 全绿（含 T7 接线断言） |
+| 7c-AC5 静态 | ✅ | `node --check` 全通过（`serve.js` / `audit.js` / `export-extra.js` / `build-single.js` / `app.js` / `render-resume.js`）；项目测试 **125/125** 全绿（含 T7 接线断言与新增的页边距回归断言；7f 补齐导出测试后为 **203/203**） |
+| 7d-AC1/2/4 打印边距跟随 | ✅ | `js/app.js` 新增 `syncPrintPageMargin()`，在 `renderPreview()` 里把「页面边距」写成一条动态 `@media print{@page{...}}` 规则（元素 `#printPageMarginStyle`），覆盖 `css/style.css` 中硬编码的 14mm；`tools/render-resume.js` 注入同源规则。纸张仍 A4、预览观感与数据模型零改动 |
+| 7d-AC3 实测边距生效 | ✅ | 同一份真实简历：14mm 边距 → PDF **797,963 B / 4 页**；30/25mm 边距 → **800,804 B / 5 页**（内容变窄、多出一页），两者 `MediaBox` 均为 `594.96×841.92pt`（= A4，纸张尺寸未变）。浏览器侧另用 DOM 桩实测：`applyImported` 改边距 → 规则文本随之更新（14 → 30/25 → 8/10mm），且**只创建一个 style 元素**（不重复插入） |
+| 7e-AC1/2/3 体检补两项 | ✅ | 新增 `empty-sections`（error）与 `subtitle-missing`（info）；空数据命中且 error 恰好 3 条，健康假数据不误报；`test/cases-audit.js` 补 4 条断言 → 测试 117 → **125** 全绿 |
+| 7f-AC1/2/3 导出测试补齐 | ✅ | 新增 `test/cases-export.js`（14 个用例 / 78 条断言）并接入运行器；测试 125 → **203/203** 全绿。断言落在失效面上：自写 zip 解析器同时校验**本地头**与中央目录的压缩标记、标志位、CRC、长度；`document.xml` 引用的 5 种 `pStyle` 逐一回溯到 `styles.xml` 的定义；XML 五类特殊字符转义 + 非法控制字符剔除；A4 `sectPr`（11906×16838）；无残留 `**`、无 `<w:tbl>`/`<w:drawing>`；只读性用「运行前后 `JSON.stringify` 逐字节相等」验证 |
+| 7f-AC4 变异测试证伪 | ✅ | 对 `js/export-extra.js` 注入 15 处真实缺陷 → **14 处被断言抓住**，唯一「漏网」的是刻意构造的**等价变异**（只改 DOS 时间字段，语义中性），即不存在有意义的盲区。对照实验：未变异源码在该 harness 下 **0 失败**（首版 harness 缺 `ResumeEditor` 桩，导致 3 条断言在**未变异时**也失败，一度掩盖了 2 处真实测试盲区 —— 已修正）。**变异测试当场抓出 2 个真实测试盲区并已修复**：① 原先只读中央目录的压缩标记，把本地头写成 deflate(8) 时全部断言仍通过（流式解压器只读本地头 → 会解出损坏文件）；② skills「整句用『；』连接」的用例只有**一条**长句，`join` 分隔符不可观测，该规则永远测不出来（已补第二条长句） |
 
 **已知偏差与前提（如实登记）**
 - **静默 PDF 依赖本机已装 Chromium 系浏览器**（Chrome / Chromium / Edge / Brave），也可用环境变量 `CHROME_PATH` 指定路径；未安装则自动降级为打印对话框。
 - **页数估算分两种精度**：浏览器内用 `#preview .resume` 的真实 DOM 高度 ÷ A4 可用高度；Node 等无 DOM 环境下按 900 字/页粗估（同一份示范数据估算 2 页、真实 3 页），**仅供无浏览器场景使用**。
 - **页数是几何推算，不含浏览器分页时的 `break-inside:avoid` 推挤**：`css/style.css` 为避免「一条经历被拦腰截断」给 `.job/.project/.skill-group/.adv li/.card/.growth` 加了 `break-inside:avoid`，被整体推到下一页时会多出空白，于是**实际页数可能比推算多 1 页**。实测：`template.json` 推算 3 页 = PDF 实际 3 页（一致）；用户真实简历推算 3 页、PDF 实际 **4 页**（含 2 个公司 Logo 图片）。误差方向恒为「实际 ≥ 推算」，因此「超过 2 页」类提示**不会漏报**，只会略微保守。
-- 打印纸张尺寸与边距由 `css/style.css` 的 `@page{size:A4;margin:14mm}` 决定，**不随「页面边距」面板变化**（既有行为，非本次引入）；若需让它跟随 `data.pageMargins`，应另开任务。
+- ~~打印纸张尺寸与边距由 `css/style.css` 的 `@page{size:A4;margin:14mm}` 决定，不随「页面边距」面板变化~~ → **本次已修复（7d）**：打印与静默 PDF 的 `@page` 边距现在跟随 `data.pageMargins`；`css/style.css` 里的 14mm 仅作为「没有 JS 参与渲染」场景（如把 `index.html` 直接交给别的工具）的兜底默认值。
+- 页边距的**非法值回退**：`null` / `undefined` / 空串 / 负数 / 非数字一律回退为默认 14mm（刻意先判空值 —— `Number(null) === 0`，否则外部 JSON 里一个 `null` 会静默变成「0mm 边距」，纸面内容直接顶到纸边）。
 
 ---
 
@@ -257,7 +287,10 @@ PDF 还要过系统打印对话框。本任务补齐这三块，全部不依赖�
 | T7 投递链路（接线收尾·复验） | 2026-09-19 | ✅ 通过 | ① `index.html` 引入两模块（排在 `app.js` 之后）+ 补齐 UI 入口（导出菜单 4 项、同步面板「投递准备」、体检面板 `#auditBody`、工具栏「体检」按钮）；② `tools/serve.js` 补 `POST /api/pdf`（本机 Chrome/Edge headless 打印，失败回退 `window.print()`）；③ `test/cases-audit.js` **接入运行器**并逐条对齐实现契约（原断言用的是设想 id：`name`/`contact`/`no-quantify`/`pages`/`career-order`/`pii` → 实际为 `required-name`/`required-contact`/`quantify-missing`/`pages-over`·`pages-thin`/`date-order-N`/`pii-idcard`）；④ 两端产物复验：单文件版含两模块且「剩余外部引用 0 个」，`dist-desktop/` 亦含两模块（299/300 行）；⑤ 测试 49 → **117 条全绿** |
 | T7 投递链路（静默 PDF·端到端实测） | 2026-09-19 | ✅ 通过（并修掉 1 个致命缺陷） | 真实 `POST /api/pdf`（本机 Chrome headless）：`HTTP 200` / `application/pdf` / **511,143 B** / 文件头 `%PDF-1.4` / **3 页**（示范数据 `template.json`；换用真实简历为 797,963 B / 4 页）/ 字体已嵌入（`FontFile`）/ **0 个图片 XObject**（矢量文字，可选中可搜索）；`dist/` 临时文件 **0 残留**。<br>**过程中发现并修复真实缺陷**：macOS 下 Chrome 打印完成后**不退出**（stderr 反复刷 `CVDisplayLinkCreateWithCGDisplay failed`，`--dump-dom about:blank` 12s 后仍挂起），原先「等进程 `close` 再取结果」的写法会让该接口**永久挂起**（实测 4 分 2 秒无响应 + `dist/` 残留 6 个临时文件）→ 改为「**轮询产物文件体积稳定 + 主动 SIGKILL 收尾**」，并支持新旧 headless 标志回退。<br>附带修复：`tools/render-resume.js` 在 vm 沙箱里缺 `clearTimeout`（P0 之后静默失效）+ 缺 `ResumeStore` → 一并补齐并在产物落盘后 `process.exit(0)` |
 | T7 投递链路（浏览器冒烟） | 2026-09-19 | ✅ 通过 | 真实 Chromium 打开 `npm start` 页面：`window.ResumeAudit` / `window.ResumeExport` 均已暴露（导出 9 个 API）、**控制台零错误**；点工具栏「体检」→ 面板展开，在**真实简历数据**上输出「3 页 / 4715 字 / 4 板块」+ 1 条建议修改（超 2 页）+ 2 条可以更好（29 处缺量化、3 张图片）；配色随主题变量，夜间模式下仍为灰阶 |
+| T7 遗留收口（7d 打印边距跟随 + 7e 补两项检查） | 2026-09-19 | ✅ 通过 | **7d**：打印 / 静默 PDF 的 `@page` 边距改为跟随「页面边距」设置（`app.js` 动态规则 + `render-resume.js` 注入），实测同一份简历 14mm → 797,963 B/4 页、30/25mm → 800,804 B/5 页，`MediaBox` 仍为 A4；`null` 不再被当成 0mm。**7e**：体检补 `empty-sections`(error) 与 `subtitle-missing`(info)，正反两面均有断言。测试 117 → **125/125** 全绿，新增 4 条页边距回归断言防止重构丢失 |
+| T7 导出测试补齐（7f） | 2026-09-19 | ✅ 通过 | 新增 `test/cases-export.js`（自带独立 zip 解析器，不复用被测实现的 CRC/解压逻辑）+ 接入运行器 → 测试 125 → **203/203** 全绿；`verify:assets` 通过 10 引用、`npm run build` 单文件版 md5 `f9f855a4605051d02b83012c1f2e868a`（与改动前一致，证明测试改动未触碰产物）。**变异测试 14/15 抓住**（唯一漏网为等价变异），并据此修掉 2 个真实测试盲区（本地头压缩标记未校验、skills 分隔符用例只有一条长句） |
 | T5 P4 冲突合并 | — | ⏳ 未开始 | 无 `baseVersion` 记录、无 3-way merge、无「打开即 pull」；**且本文件尚未为 T5 定义 AC 章节**（违反「先定 AC 再执行」流程，需先补） |
+| CI 运维加固 + Android 签名凭据 | 2026-09-19 | ✅ 通过（AC1–AC8；**最后一步「填 Secret」需人工**） | action 升到最新稳定（`checkout@v7` / `setup-node@v7` / `setup-java@v6` / `upload-artifact@v7`，并纠正上轮「升到 v5 即可」的过期建议）；本机装 Temurin 17.0.20.1 生成 **PKCS12** 上传密钥库（RSA 4096 / SHA256withRSA / 10000 天 / alias `resume-studio`）；base64 `openssl -A` 单行 5.8 KB，**解码后字节一致且可被 keytool 打开**；CI 侧补 `storeType=PKCS12`（消除 JKS/PKCS12 歧义）；**无 Android SDK 也复刻跑通了签名步骤**（解码 → `keystore.properties` → Gradle 补丁，大括号平衡、证书可导出）；修掉 3 处 identifier 文档漂移（`ANDROID-BUILD.md` ×2、`DESKTOP-BUILD.md` ×3）并补 5 条签名排错 |
 | T6 P5 发布加固 | — | ⏳ 未开始 | 凭证仍**明文**存 `app_config_dir()/sync.config.json`（钥匙串未接）；**壳内文件落盘命令缺失**（导出全走 `<a download>`，macOS WKWebView / Android WebView 极可能静默失败且从未真机验证）；自动更新/签名/公证/引导页未做 |
 
 ---
@@ -279,7 +312,7 @@ PDF 还要过系统打印对话框。本任务补齐这三块，全部不依赖�
 
 | 序 | 事项 | 事实依据 | 影响 |
 |---|---|---|---|
-| 1 | **Windows msi / Android APK 待 CI 产出** | 改造内容**已全部提交**（本地 `7260dc9` / `bda7316` 及后续提交），待 push 触发 CI | 用户原始诉求「PC 安装包 + 安卓安装包」目前只兑现 macOS；**推送后由 CI 补齐** |
+| 1 | **Windows msi / Android APK 由 CI 产出中** | 状态已推进：改造内容**已推送**（`7260dc9` → `bda7316` → `b371306` → `d1f5fce`）。`CI #5` 实测 **Success（9s）**；`Build Desktop #1` 与 `Build Android #1` 实测**已在 Actions 中运行** | 用户原始诉求「PC 安装包 + 安卓安装包」**由 CI 补齐中**；Android 的**签名凭据已生成备好**（见文末「CI 运维加固与 Android 签名凭据」），未配 secret 前出的是 debug 包 |
 | 2 | ~~**T7 三件套运行时不可达**~~ ✅ **本次已解决** | 已修：`index.html` 引入两模块 + UI 入口；`tools/serve.js` 补 `POST /api/pdf`；`test/cases-audit.js` 接入运行器（原缺口：`test/run.js` 硬编码只读 `cases.js`，且缺 `cases-audit.js` 需要的 `ctx.assert` → 294 行测试从未执行） | 已从「写了但运行时不可达」变为**真实生效**：测试 49 → 117 条全绿 |
 | 3 | **壳内导出落盘未验证** | 全项目无任何原生 save-file 命令（桥仅 6 个 `feishu*` + 2 个 `state*`） | 安装包内点「下载 PDF/图片/HTML/JSON」在 WKWebView/Android WebView 下**可能静默不落盘** |
 | 4 | **T5 冲突合并未做且无 AC** | 无 `baseVersion`；`docs/ACCEPTANCE.md` 无 T5 章节 | 「手机和电脑同时改」的**不丢数据**保证尚未实现（当前只有「后写覆盖 + 飞书版本历史可回滚」） |
@@ -289,6 +322,7 @@ PDF 还要过系统打印对话框。本任务补齐这三块，全部不依赖�
 
 ### C. 从未验证（诚实登记，非缺陷）
 
+- **导出的 `.docx` 从未用真实 Word / WPS / LibreOffice 打开过**：现有证据只到「合法 zip（`unzip -t` 全 OK、Python `zipfile.testzip()` 返回 `None`）+ 五个部件齐全 + 结构对照 WordprocessingML 规范 + 交叉引用自洽」。这些**能证明文件没坏，不能证明 Word 愿意按预期渲染**（OOXML 语义错误两者都看不出来）。本机无 Word / LibreOffice（`soffice` 未安装），故无法进一步验证；若要补，最省事的是 `soffice --headless --convert-to txt out.docx`。
 - Android 真机 / 模拟器运行、APK 签名、真机返回键与安全区（代码已写，仅在浏览器模拟过）
 - 桌面壳内**飞书同步真机联调**（本机无凭证，仅 `FEISHU_DRY_RUN=1` 验证过服务端链路）
 - macOS Gatekeeper 首次打开（**未签名/未公证**，用户需右键→打开）
@@ -298,7 +332,8 @@ PDF 还要过系统打印对话框。本任务补齐这三块，全部不依赖�
 ### D. 仓库卫生
 
 - `index.html` 的 `data-page-node-id` 注入**仍在持续发生**（本次复查时 157 → 172 处，几十秒内自增）→ 已跑 `npm run clean:html` 清零；**提交前必须再扫一次**。
-- 本次改造产物（`src-tauri/`、`docs/`、`js/store/`、`js/theme.js`、`js/audit.js`、`js/export-extra.js`、`tools/*`、`.github/workflows/*`、`test/cases-audit.js`）**全部处于未提交状态**。
+- 本次改造产物（`src-tauri/`、`docs/`、`js/store/`、`js/theme.js`、`js/audit.js`、`js/export-extra.js`、`tools/*`、`.github/workflows/*`、`test/cases-audit.js`）**已全部提交并推送**（`7260dc9` / `bda7316` / `b371306` / `d1f5fce`），工作区干净。
+- `android-signing/`（上传密钥库与口令）**不在版本库内**：仓库根 `.gitignore` 忽略该目录 + `*.jks` + `*.keystore` + `keystore.properties`，目录内**另有一层 `.gitignore`（`*`）**双保险。**任何情况下都不得提交。**
 
 ### E. T7 模块本体实测（用于判断「接线」工作量）
 
@@ -418,6 +453,98 @@ node --check    → js/audit.js / js/export-extra.js / tools/serve.js / test/cas
 
 > 遗留（非阻塞，已登记 ROADMAP）：实现中**缺**「零板块」「头衔（subtitle）为空」两项检查；
 > 若要补，应先补 AC 再动实现 —— 本次不扩大范围。
+
+---
+
+## CI 运维加固与 Android 签名凭据（2026-09-19）
+
+### 背景
+
+上一轮把 CI 跑通后发现两件事需要收口：① CI 日志持续刷 `actions/checkout@v4` /
+`setup-node@v4` 跑在 Node 20 上的弃用警告；② Android 走的是 debug 签名，
+要出**可上架**的 release 包必须先备好 4 个签名 secret——而这台机器连 JDK 都没有。
+
+### 范围
+
+1. 三个 workflow 的 action 主版本升到「当前最新稳定」；
+2. 在本机生成一套 Android 上传密钥库，并给出可核对的自检流程；
+3. 消除 CI 签名环节里 JKS/PKCS12 的格式歧义；
+4. 同步修正文档中因 identifier 改动而产生的陈旧引用。
+
+### 验收标准（AC）
+
+| # | 验收标准 | 判定方式 |
+|---|---|---|
+| AC1 | 仓库内**不再出现** `@v4`；使用的每个主版本**真实存在**于对应 action 的 tags | `grep -rn "@v4" .github/workflows/` 为空；逐个核对 tags 页 |
+| AC2 | 密钥库可被 `keytool` 打开，且别名 / 口令 / 证书三者自洽 | `keytool -list -v` + `keytool -exportcert` 均成功 |
+| AC3 | `ANDROID_KEY_BASE64` **往返无损**，即 CI 的 `base64 -d` 能还原出字节一致的 keystore | `base64 -d` 后 `cmp` 与原文件一致，且对还原文件 `keytool -list` 通过 |
+| AC4 | base64 为**单行**（`openssl base64 -A`），不会因折行在 secret 里埋坑 | `wc -l` = 0 |
+| AC5 | 签名材料**绝不入库**：`.gitignore` 覆盖 + 目录内二层 `.gitignore` | `git status --short` 不出现该目录；`git check-ignore -v` 命中 |
+| AC6 | CI 的签名步骤逻辑**在无 Android SDK 的情况下也能被验证** | 本地复刻该 run 块（假 `build.gradle.kts`），跑通解码 → 写 `keystore.properties` → 追加 Gradle 补丁，并检查大括号平衡 |
+| AC7 | 显式声明 `storeType`，消除「JKS 还是 PKCS12」的运行时歧义 | `keystore.properties` 与 Gradle 补丁都含 `storeType` |
+| AC8 | 文档与真值一致（action 版本、identifier、签名流程） | 全仓 `grep` 无陈旧引用 |
+
+### 实测结果
+
+**AC1 ✅** 改后清单：`checkout@v7`（×3）、`setup-node@v7`（×3）、`setup-java@v6`、`upload-artifact@v7`（×3）。
+**这里纠正一个我先前的错误建议**：上一轮我说「提到 `@v5` 即可」，实际核对 tags 后发现
+`actions/checkout` 与 `actions/setup-node` **都已到 v7**、`setup-java` 到 v6、`upload-artifact` 到 v7 ——
+按 v5 改等于刚升完又落后两个大版本。三个 YAML 均由 `YAML.load_file` 解析通过。
+
+**AC2 / AC3 / AC4 ✅** 本机装 Temurin **17.0.20.1**（装法见 `docs/ANDROID-BUILD.md` 第 5 节文末）后：
+
+```
+keytool -genkeypair -storetype PKCS12 -alias resume-studio -keyalg RSA -keysize 4096
+                   -sigalg SHA256withRSA -validity 10000
+→ 别名 resume-studio / PrivateKeyEntry / SHA256withRSA
+→ SHA-256: 8D:B6:4D:11:FA:4A:2C:23:73:0D:9E:7C:D4:3D:94:C2:C9:75:16:84:38:E6:2A:95:73:61:19:6C:32:13:52:30
+
+openssl base64 -A  → 5.8 KB、单行（wc -l = 0）
+base64 -d 还原     → cmp 字节一致 ✅
+keytool -list 还原件 → 通过 ✅
+keytool -exportcert -alias resume-studio → 导出证书 1430 字节 ✅
+```
+
+> **过程中自己踩了一个坑并当场修掉**：首次生成 base64 时漏了 `-in`，`openssl base64` 把
+> **口令字符串**编码了进去（产物只有 44 字节）。是靠 `ls -lh` 的体积异常发现的——
+> 这也说明「base64 出来先看大小、再解码比对」这一步不能省。
+
+**AC5 ✅** 根 `.gitignore` 新增 `android-signing/`、`*.jks`、`*.keystore`、`keystore.properties`；
+目录内另有 `.gitignore`（内容 `*`，保留自身）。
+
+**AC6 ✅** 在 `/tmp` 复刻 workflow 的 run 块（假 `src-tauri/gen/android/app/build.gradle.kts` + 假 `$RUNNER_TEMP`）：
+
+```
+解码出的 keystore 与原文件字节一致 ✅
+keystore.properties 完整写出（storeFile/storeType/storePassword/keyAlias/keyPassword/password）
+python3 补丁成功追加 release signingConfig；大括号 9 : 9 平衡 ✅
+用 storePassword 真打开解码件 → PKCS12 / 1 个条目 / resume-studio ✅
+用 keyAlias + keyPassword 导出证书 → 成功 ✅
+```
+
+**AC7 ✅** `keystore.properties` 增 `storeType=PKCS12`；Gradle 补丁改用
+`keystoreProperties.getProperty("storeType", "PKCS12")`（带默认值，避免该键缺失时
+`as String` 空指针）。
+
+**AC8 ✅** 顺带修掉三处**文档漂移**（都是 identifier 从上轮改动留下）：
+`docs/ANDROID-BUILD.md` 的 `adb uninstall com.resumestudio.app`（×2）与
+`docs/DESKTOP-BUILD.md` 的三平台凭证路径 `.../com.resumestudio.app/...`（×3）
+→ 全部改为真实的 `com.resumestudio.desktop`。另在 `ANDROID-BUILD.md` 第 8 节补 5 条
+签名类排错（口令不符 / 格式不匹配 / 别名不存在 / base64 非法 / 误以为配了却仍走 debug）。
+
+### 需要人工完成的一步（无法代劳）
+
+**把 4 个值填进仓库 Secrets**：`Settings → Secrets and variables → Actions → New repository secret`。
+值取自 `android-signing/`（口令在 `ANDROID-SIGNING-CREDENTIALS.txt`，base64 在同名 `.base64` 文件）。
+Secret 一旦创建就**不可再读回**，所以务必先在密码管理器里留一份。
+4 个缺任一个都会静默回退 debug 签名（日志里只有一条 `::notice::`）。
+
+### 后续可选项（本轮未做，避免影响在跑的构建）
+
+- 三个 workflow 均**未配 `concurrency`**：连着推两次会让两轮构建并行跑。加一段
+  `concurrency: { group: <wf>-${{ github.ref }}, cancel-in-progress: true }` 可自动取消上一轮。
+  本次**刻意不加**——`Build Desktop #1` 已跑 25 分钟以上，取消会白扔这一轮的 Windows msi。
+- `dtolnay/rust-toolchain@stable` 用浮动 `@stable` 是官方推荐（rust-cache 需要它）；若要完全可复现可钉到具体版本。
 
 
 

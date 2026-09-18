@@ -31,10 +31,10 @@ jobs:
       NDK_VERSION: 27.0.12077973
     steps:
       - name: 拉取代码
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: 设置 JDK 17（Temurin）
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: '17'
@@ -53,7 +53,7 @@ jobs:
           ls "$ANDROID_HOME/ndk"
 
       - name: 设置 Node 22
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: '22'
 
@@ -95,6 +95,7 @@ jobs:
           echo "$ANDROID_KEY_BASE64" | base64 -d > "$RUNNER_TEMP/upload-keystore.jks"
           {
             echo "storeFile=$RUNNER_TEMP/upload-keystore.jks"
+            echo "storeType=PKCS12"
             echo "storePassword=$ANDROID_STORE_PASSWORD"
             echo "keyAlias=$ANDROID_KEY_ALIAS"
             echo "keyPassword=$ANDROID_KEY_PASSWORD"
@@ -121,6 +122,7 @@ jobs:
                           keystoreProperties.load(java.io.FileInputStream(keystorePropertiesFile))
                       }
                       storeFile = file(keystoreProperties["storeFile"] as String)
+                      storeType = keystoreProperties.getProperty("storeType", "PKCS12")
                       storePassword = keystoreProperties["storePassword"] as String
                       keyAlias = keystoreProperties["keyAlias"] as String
                       keyPassword = keystoreProperties["keyPassword"] as String
@@ -149,7 +151,7 @@ jobs:
           fi
 
       - name: 上传 APK artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: resume-studio-android-apk
           path: src-tauri/gen/android/app/build/outputs/apk/**/*.apk
@@ -157,7 +159,7 @@ jobs:
           retention-days: 14
 
       - name: 上传 AAB artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: resume-studio-android-aab
           path: src-tauri/gen/android/app/build/outputs/bundle/**/*.aab

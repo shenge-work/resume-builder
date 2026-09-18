@@ -103,9 +103,12 @@ Tauri 不支持跨平台交叉打包 Windows 安装包（msi/NSIS 依赖 Windows
 
 | 平台 | 路径 |
 |---|---|
-| macOS | `~/Library/Application Support/com.resumestudio.app/sync.config.json` |
-| Windows | `%APPDATA%\com.resumestudio.app\sync.config.json` |
-| Linux | `~/.config/com.resumestudio.app/sync.config.json` |
+| macOS | `~/Library/Application Support/com.resumestudio.desktop/sync.config.json` |
+| Windows | `%APPDATA%\com.resumestudio.desktop\sync.config.json` |
+| Linux | `~/.config/com.resumestudio.desktop/sync.config.json` |
+
+> 目录名取自 `tauri.conf.json` 的 `identifier`（当前为 `com.resumestudio.desktop`）。
+> 早期版本曾是 `com.resumestudio.app`，若在旧构建里存过配置，改 identifier 后要重新填一次。
 
 - 首次点击「保存配置」时由 Rust 自动创建该目录与文件；同目录还有 `sync.state.json`
   （保存 `file_token` / `document_id`，浏览器模式下的 `sync.state.json` 在桌面端由 Rust 托管）。
