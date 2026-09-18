@@ -145,13 +145,52 @@ jobs:
 
       # 一次构建同时产出 APK + AAB：`--apk --aab` 是同一进程内的两次打包，
       # 共享 Rust 产物；拆成两条命令会让 4 个 ABI 的 Rust 编译被完整跑两遍。
+      #
+      # 失败时主动把关键行转成 `::error::` annotation：公开仓库的
+      # /actions/jobs/{id}/logs 也需要 admin 权限（返回 403），annotation 是唯一
+      # 能通过 API 读到的失败正文。没有这段，失败信息只能靠人肉打开网页看。
       - name: 构建 APK + AAB
         run: |
-          if [ "${{ steps.signing.outputs.signed }}" = "true" ]; then
-            npm run mobile:android:build -- --apk --aab
-          else
-            npm run mobile:android:build -- --apk --aab --debug
+          set -o pipefail
+          ARGS="--apk --aab"
+          if [ "${{ steps.signing.outputs.signed }}" != "true" ]; then ARGS="$ARGS --debug"; fi
+          LOG="$RUNNER_TEMP/android-build.log"
+
+          # 先记录环境事实，失败时这些也会进 annotation
+          {
+            echo "ANDROID_HOME=$ANDROID_HOME"
+            echo "ANDROID_NDK_HOME=$ANDROID_NDK_HOME"
+            echo "JAVA_HOME=$JAVA_HOME"
+            echo "已装 rust target: $(rustup target list --installed | tr '\n' ' ')"
+            echo "SDK 目录: $(ls "$ANDROID_HOME" 2>/dev/null | tr '\n' ' ')"
+            echo "NDK 目录: $(ls "$ANDROID_HOME/ndk" 2>/dev/null | tr '\n' ' ')"
+            df -h "$RUNNER_TEMP" | tail -1
+          } > "$RUNNER_TEMP/android-env.txt" 2>&1 || true
+
+          if npm run mobile:android:build -- $ARGS 2>&1 | tee "$LOG"; then
+            exit 0
           fi
+
+          echo "================ 关键行（完整输出见 Actions 界面）================"
+          grep -nEi "error|failed|caused by|what went wrong|not found|exception|no such|cannot|unable|denied|no space" "$LOG" | tail -50 || true
+          echo "================ 尾部 30 行 ================"
+          tail -30 "$LOG" || true
+
+          # 转成 annotation。注意 `%`、`\r`、`::` 都要转义，否则 workflow command 会被截断。
+          # 三条互补：环境事实 / 关键词命中行 / 日志尾部。任一条都可能包含真正的原因，
+          # 因为不同工具（Gradle、cargo、npm）报错格式完全不同。
+          esc() { sed 's/%/%25/g; s/\r//g; s/::/ : : /g'; }
+          ENVONE=$(tr '\n' '~' < "$RUNNER_TEMP/android-env.txt" | cut -c1-700)
+          KEY=$(grep -nEi "error|failed|caused by|what went wrong|not found|exception|no such|cannot|unable|denied|no space" "$LOG" | tail -10 | esc | tr '\n' '~' | cut -c1-1400)
+          TAIL=$(tail -c 1600 "$LOG" | esc | tr '\n' '~')
+          echo "::error title=Android 构建失败｜环境::$ENVONE"
+          # 注意：GitHub 的 run 默认是 `bash -e`，这里必须用 if 而不是 `[ -n .. ] && echo ..`，
+          # 否则 KEY 为空时复合命令返回非零会直接中止步骤，把最后一条 annotation 吃掉。
+          if [ -n "$KEY" ]; then
+            echo "::error title=Android 构建失败｜关键词命中::$KEY"
+          fi
+          echo "::error title=Android 构建失败｜日志尾部::$TAIL"
+          exit 1
 
       - name: 上传 APK artifact
         uses: actions/upload-artifact@v7
