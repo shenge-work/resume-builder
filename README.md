@@ -138,9 +138,10 @@ resume-builder/
 │   ├── save-data.js        # 把浏览器导出的 JSON 落盘为 data/resume.json（备用回写方式）
 │   └── render-resume.js     # JSON → 独立 A4 简历 HTML（用项目真实渲染管线，输出到 dist/）
 ├── test/                    # 纯 Node、零依赖测试
-│   ├── run.js               #   运行器（DOM/浏览器桩，vm 加载 data + store + app + audit）
+│   ├── run.js               #   运行器（DOM/浏览器桩，vm 加载 data + store + app + audit + export-extra）
 │   ├── cases.js             #   核心逻辑用例
-│   └── cases-audit.js       #   投递体检用例（CommonJS，经 ctx.assert 上报）
+│   ├── cases-audit.js       #   投递体检用例（CommonJS，经 ctx.assert 上报）
+│   └── cases-export.js      #   多格式导出用例（自带独立 zip 解析器，逐字节校验 OOXML）
 ├── docs/
 │   ├── CROSSPLATFORM-DESIGN.md  # 跨平台改造方案
 │   ├── DESKTOP-BUILD.md         # 桌面端构建与排错
@@ -237,14 +238,20 @@ node tools/render-resume.js                          # 用项目真实渲染管�
 ## 🧪 测试与构建
 
 ```bash
-npm test               # 纯 Node、零依赖：117 条断言
+npm test               # 纯 Node、零依赖：203 条断言
 npm run build          # 重建单文件版 → dist/简历编辑器-单文件.html
 npm run verify:assets  # 资源完整性门禁：引用缺失 / 漏打包 / 模块未接线 / 隐私目录泄漏
 npm run clean:html     # 剥离 index.html 中被外部编辑器注入的 data-page-node-id（提交前跑）
 ```
 
-`npm test` 覆盖四类：核心逻辑与入口接线、打印样式、IIFE 封装边界，以及**投递体检**
-（`test/cases-audit.js` —— 三份假数据 × 全部检查项 + 接口契约 + 只读性）。
+`npm test` 覆盖五类：核心逻辑与入口接线、打印样式、IIFE 封装边界，以及两个 T7 模块
+——**投递体检**（`test/cases-audit.js`：三份假数据 × 全部检查项 + 接口契约 + 只读性）与
+**多格式导出**（`test/cases-export.js`：自带一个独立于被测实现的 zip 解析器，逐字节校验本地头 / 中央目录 /
+CRC / 标志位，并把 `document.xml` 引用的每个段落样式回溯到 `styles.xml` 的定义）。
+
+> 导出模块的断言用**变异测试**反向验证过有效性：往 `js/export-extra.js` 注入 15 处真实缺陷
+> （少转义 `&`、引用不存在的样式、纸张改 Letter、丢部件、压缩标记写成 deflate 等），
+> 14 处被断言抓住，唯一漏网的是语义中性的等价变异。这轮验证当场揪出两个测试盲区，均已修复。
 
 CI（`.github/workflows/ci.yml`）在每次 push / PR 自动运行前两项与资源门禁。
 

@@ -107,6 +107,11 @@
     if (!trim(data.name)) {
       add('required-name', 'error', '姓名未填写', '简历抬头为空，投递时无法识别是谁的简历。', '在右侧「基础信息 → 姓名」填写姓名。', '');
     }
+    if (!trim(data.subtitle)) {
+      add('subtitle-missing', 'info', '缺少一句话头衔',
+        '姓名下方没有头衔，HR 很难在几秒内看出你的方向、亮点与年限。',
+        '建议补一行「方向 · 亮点 · 年限」，例如「Java 后端 · 高并发 · 5 年经验」。', '');
+    }
     const contacts = (data.contact || []).map(c => plain(T(c))).filter(Boolean);
     if (!contacts.length) {
       add('required-contact', 'error', '联系方式为空', '没有任何电话 / 邮箱等联系方式，HR 无法联系你。', '在「基础信息 → 联系方式」至少填手机号与邮箱。', '');
@@ -118,6 +123,12 @@
         add('required-contact-type', 'warn', '联系方式可能不完整',
           '当前联系方式：' + contacts.join(' / ') + '。', '建议同时给出手机号与邮箱，并确认格式可被识别。', contacts[0].slice(0, 12));
       }
+    }
+    const secsAll = (data.sections || []).filter(Boolean);
+    if (!secsAll.length) {
+      add('empty-sections', 'error', '简历没有任何板块',
+        '当前 sections 为空，预览区除了抬头不会出现任何内容。',
+        '点编辑器底部的「添加板块」至少补上「个人优势」或「职业履历」。', '');
     }
     const emptySec = [];
     (data.sections || []).forEach(sec => {

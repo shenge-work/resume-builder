@@ -99,7 +99,20 @@ try {
   /* ---------- 组装独立 A4 简历 HTML ---------- */
   // css/style.css 含 .app/.toolbar 等编辑区样式，本文件不含这些节点，故只需覆盖 body 的
   // height:100%/overflow:hidden 以免裁切，并把背景设为灰色、加一点外边距模拟编辑预览。
+  // 打印页边距必须跟随数据里的 pageMargins（与 index.html 里 app.js 动态维护的 @page 规则同源），
+  // 否则静默导出 / Ctrl+P 会退回 css/style.css 中硬编码的 14mm，用户在「页面边距」面板调的值形同虚设。
+  const pm = (payload.data && payload.data.pageMargins) || {};
+  // 注意 null 必须先判掉：Number(null) === 0，否则外部 JSON 里的 null 会变成「0mm 边距」
+  const mmNum = (v, d) => {
+    if (v === null || v === undefined || v === '') return d;
+    const n = Number(v);
+    return (isFinite(n) && n >= 0) ? Math.round(n * 100) / 100 : d;
+  };
+  const pageMarginRule = '@media print{@page{size:A4;margin:'
+    + mmNum(pm.top, 14) + 'mm ' + mmNum(pm.right, 14) + 'mm '
+    + mmNum(pm.bottom, 14) + 'mm ' + mmNum(pm.left, 14) + 'mm;}}';
   const override = `
+  ${pageMarginRule}
   html,body{height:auto;overflow:visible;background:#e9e9e9;}
   body{padding:22px 0;font-family:"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Source Han Sans SC",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#1a1a1a;}
   .resume{margin:0 auto;}

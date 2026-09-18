@@ -162,10 +162,39 @@ function renderResumeInner(){
 }
 
 const preview = document.getElementById('preview');
+
+/* 打印 / 静默导出的页边距必须跟随「页面边距」面板：
+   css/style.css 里的 @page{size:A4;margin:14mm} 只是出厂默认，这里用一条动态规则覆盖它。
+   刻意不写成 @page{margin:var(--x)} —— @page 规则内的 var() 各浏览器解析时机不一致，不可靠。 */
+const PRINT_PAGE_STYLE_ID = 'printPageMarginStyle';
+function safeMm(v, fallback){
+  // 空值必须显式回退：Number(null) === 0，否则导入的外部 JSON 里一个 null 会变成「0mm 边距」
+  if(v === null || v === undefined || v === '') return fallback;
+  const n = Number(v);
+  if(!Number.isFinite(n) || n < 0) return fallback;
+  return Math.round(n * 100) / 100;
+}
+function syncPrintPageMargin(){
+  const m = getPageMargins();
+  const css = '@media print{@page{size:A4;margin:'
+    + safeMm(m.top, 14) + 'mm ' + safeMm(m.right, 14) + 'mm '
+    + safeMm(m.bottom, 14) + 'mm ' + safeMm(m.left, 14) + 'mm;}}';
+  let el = document.getElementById(PRINT_PAGE_STYLE_ID);
+  if(!el){
+    el = document.createElement('style');
+    el.id = PRINT_PAGE_STYLE_ID;
+    // document.head 在极简 DOM 桩（tools/render-resume.js、测试沙箱）里可能不存在，逐级兜底
+    const host = document.head || document.documentElement || document.body;
+    if(host && host.appendChild) host.appendChild(el);
+  }
+  if(el.textContent !== css) el.textContent = css;
+}
+
 function renderPreview(){
   const m = getPageMargins();
   const marginStyle = `width:210mm;max-width:none;box-sizing:border-box;padding-top:${mmToPx(m.top)}px;padding-right:${mmToPx(m.right)}px;padding-bottom:${mmToPx(m.bottom)}px;padding-left:${mmToPx(m.left)}px;`;
   preview.innerHTML = `<div class="resume" style="${getVarStr()}${marginStyle}">${renderResumeInner()}</div>`;
+  syncPrintPageMargin();
   drawPageGuides();
   saveState();
 }

@@ -33,6 +33,7 @@ function makeEl() {
 
 const store = new Map();
 const alertCalls = [];
+let printCalls = 0;
 const ctx = {
   console, JSON, Date, Math, Object, Array, String, Number, Boolean,
   isNaN, parseInt, parseFloat, RegExp, Error, Promise, setTimeout, clearTimeout, process,
@@ -53,6 +54,8 @@ const ctx = {
   confirmReturn: true,
   confirm: () => ctx.confirmReturn,
   alertCalls: alertCalls,
+  // 静默 PDF 的降级目标：调用次数用于断言「无 fetch 时确实回退了打印」
+  print: () => { printCalls++; },
   document: {
     title: '',
     body: makeEl(),
@@ -126,6 +129,28 @@ for (const c of auditCases) {
   catch (e) { fileResults.push({ name: 'audit › ' + c.name + '（抛错: ' + (e && e.message ? e.message : e) + '）', pass: false }); }
 }
 
+/* ---------- 第四步：js/export-extra.js 的导出用例（DOCX / 纯文本 / Markdown）----------
+   与 audit 同构：CommonJS 由 Node 侧 require，断言走 ctx.assert。
+   注意 export-extra.js 内部通过 typeof window 取全局，vm 里 window 即 ctx。 */
+try {
+  const exportCode = fs.readFileSync(path.join(ROOT, 'js', 'export-extra.js'), 'utf8');
+  vm.runInContext(exportCode, ctx, { filename: 'export-extra.js' });
+} catch (e) {
+  fileResults.push({ name: '加载期异常（js/export-extra.js）: ' + (e && e.message ? e.message : e), pass: false });
+}
+
+const exportCases = require(path.join(ROOT, 'test', 'cases-export.js'));
+const exportCtx = {
+  ResumeExport: ctx.ResumeExport,
+  global: ctx,
+  get printCalls() { return printCalls; },
+  assert(cond, msg) { fileResults.push({ name: 'export › ' + msg, pass: !!cond }); },
+};
+for (const c of exportCases) {
+  try { c.fn(exportCtx); }
+  catch (e) { fileResults.push({ name: 'export › ' + c.name + '（抛错: ' + (e && e.message ? e.message : e) + '）', pass: false }); }
+}
+
 /* ---------- 文件级冒烟断言（打印样式 / 入口接线，不依赖浏览器）---------- */
 F('打印样式存在 @media print', /@media\s+print/.test(cssCode));
 F('打印时隐藏编辑区与工具栏', /@media\s+print[\s\S]*?\.toolbar,\.editor-pane[^;]*display\s*:\s*none/.test(cssCode));
@@ -155,6 +180,17 @@ F('导出菜单含纯文本', /ResumeExport\.exportTxt\(\)/.test(htmlClean));
 F('导出菜单含 Markdown', /ResumeExport\.exportMarkdown\(\)/.test(htmlClean));
 F('导出菜单含静默 PDF', /ResumeExport\.exportPdfSilent\(\)/.test(htmlClean));
 F('体检面板容器存在（#auditBody）', /id="auditBody"/.test(htmlClean));
+
+/* ---------- 文件级冒烟断言：打印 / 静默导出的页边距跟随「页面边距」设置（7d）----------
+   这三条是「防回归」：动态 @page 一旦被重构丢掉，打印就会悄悄退回硬编码的 14mm，
+   而界面上完全看不出来，所以必须在测试里钉住。 */
+const renderResumeCode = fs.readFileSync(path.join(ROOT, 'tools', 'render-resume.js'), 'utf8');
+F('app.js 定义并调用 syncPrintPageMargin（浏览器打印路径）',
+  /function syncPrintPageMargin\(\)/.test(appCode) && /syncPrintPageMargin\(\);/.test(appCode));
+F('app.js 空值不被当成 0mm（null / undefined / 空串显式回退）',
+  /v === null \|\| v === undefined \|\| v === ''/.test(appCode));
+F('render-resume.js 注入动态 @page（静默导出路径）', /pageMarginRule/.test(renderResumeCode));
+F('css/style.css 保留 A4 默认 @page（无 JS 环境下的兜底）', /@page\{\s*size:A4/.test(cssCode));
 
 /* ---------- 报告 ---------- */
 const all = ctx.__results.concat(fileResults);

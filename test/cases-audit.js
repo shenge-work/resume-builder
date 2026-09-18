@@ -159,14 +159,24 @@ module.exports = [
   }},
 
   /* ---- 空数据 ---- */
-  /* 注：实现的 id 为 required-name / required-contact（不是 name / contact）；
-     「零板块」与「头衔为空」当前并无对应检查项，故不在此断言 —— 那是功能缺口，不是测试职责。 */
-  { name: '空数据：必填两项以 error 命中', fn: function(ctx){
+  /* 注：实现的 id 为 required-name / required-contact / empty-sections（不是 name / contact / sections）；
+     「零板块」与「头衔为空」曾记为功能缺口，现已补齐（见 ACCEPTANCE.md 的 7e）。 */
+  { name: '空数据：必填三项以 error 命中（含零板块）', fn: function(ctx){
     const A = ctx.ResumeAudit;
     const r = A.run(emptyData());
+    const errors = r.checks.filter(c => c.level === 'error').length;
     ctx.assert(has(r.checks, 'required-name', 'error'), '姓名缺失 → error');
     ctx.assert(has(r.checks, 'required-contact', 'error'), '联系方式全空 → error');
-    ctx.assert(r.checks.filter(c => c.level === 'error').length === 2, '空数据恰好 2 条 error');
+    ctx.assert(has(r.checks, 'empty-sections', 'error'), '零板块 → error');
+    ctx.assert(errors === 3, '空数据恰好 3 条 error（实际 ' + errors + '）');
+    ctx.assert(has(r.checks, 'subtitle-missing', 'info'), '头衔为空 → info');
+  }},
+
+  { name: '健康简历：不误报「零板块 / 缺头衔」（AC2 反向）', fn: function(ctx){
+    const A = ctx.ResumeAudit;
+    const r = A.run(healthyData());
+    ctx.assert(!has(r.checks, 'empty-sections'), '有板块 → 不报 empty-sections');
+    ctx.assert(!has(r.checks, 'subtitle-missing'), '有头衔 → 不报 subtitle-missing');
   }},
 
   { name: '空数据：内容为空时提示页数过少', fn: function(ctx){
