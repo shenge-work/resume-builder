@@ -8,7 +8,7 @@
 |---|---|---|
 | **浏览器版** | `npm start` → `http://127.0.0.1:8000` | 日常编辑；每次改动**实时写回** `data/resume.json` |
 | **单文件版** | `npm run build` → `dist/简历编辑器-单文件.html`，双击即开 | 离线使用、分享给他人 |
-| **桌面 / 安卓 App** | 见 [docs/DESKTOP-BUILD.md](./docs/DESKTOP-BUILD.md)、[docs/ANDROID-BUILD.md](./docs/ANDROID-BUILD.md) | 免装 Node；飞书凭证由原生层保管，不经浏览器 |
+| **桌面 / 安卓 App** | 见 [docs/桌面版构建说明.md](./docs/桌面版构建说明.md)、[docs/Android版构建说明.md](./docs/Android版构建说明.md) | 免装 Node；飞书凭证由原生层保管，不经浏览器 |
 
 > 本项目最初是一份单文件 HTML，后拆分为多文件便于 Git 协作；单文件版由 `npm run build` 自动生成到 `dist/`（`git` 忽略，断网可用）。
 
@@ -103,7 +103,7 @@ npm run mobile:android:build   # 产出 APK / AAB（需 JDK 17 + Android SDK/NDK
 
 > **不想装 Rust / SDK？直接用 CI 出包。** push 到 GitHub 后，`Build Desktop` 与 `Build Android`
 > 会在三平台矩阵上产出安装包，到 Actions 页对应 run 的 **Artifacts** 下载即可。
-> 细节与排错见 [docs/DESKTOP-BUILD.md](./docs/DESKTOP-BUILD.md)、[docs/ANDROID-BUILD.md](./docs/ANDROID-BUILD.md)。
+> 细节与排错见 [docs/桌面版构建说明.md](./docs/桌面版构建说明.md)、[docs/Android版构建说明.md](./docs/Android版构建说明.md)。
 
 ---
 
@@ -114,10 +114,10 @@ npm run mobile:android:build   # 产出 APK / AAB（需 JDK 17 + Android SDK/NDK
 | 平台 | 下载什么 |
 |---|---|
 | Windows | `Resume-Studio-<版本>-windows-x64-setup.exe`（个人安装）或 `…-windows-x64.msi`（批量部署） |
-| macOS | `Resume-Studio-<版本>-macos-arm64.dmg`（Apple 芯片） |
+| macOS | `Resume-Studio-<版本>-macos-arm64.dmg`（Apple 芯片；**Intel Mac 暂未提供**） |
 | Linux | `Resume-Studio-<版本>-linux-x86_64.AppImage`（免安装）或 `…-linux-amd64.deb` |
 | Android | `Resume-Studio-<版本>-android.apk`（直接安装到手机） |
-| 任意浏览器 | `Resume-Studio-<版本>-单文件版.html`（离线单文件，双击即用，无需安装） |
+| 任意浏览器 | `Resume-Studio-<版本>-standalone.html`（离线单文件，双击即用，无需安装） |
 
 每个 Release 都附带**该版本的更新说明**与 `SHA256SUMS.txt`（下载完整性用
 `sha256sum -c SHA256SUMS.txt` 校验）。
@@ -126,7 +126,7 @@ npm run mobile:android:build   # 产出 APK / AAB（需 JDK 17 + Android SDK/NDK
 > Windows 可能弹 SmartScreen「未知发布者」，Android 需允许「安装未知来源的应用」。
 > 详见对应 Release 的说明。
 
-发版流程（维护者）：见 [docs/RELEASE.md](./docs/RELEASE.md) —— 改版本号 + 写 CHANGELOG +
+发版流程（维护者）：见 [docs/发版说明.md](./docs/发版说明.md) —— 改版本号 + 写 CHANGELOG +
 推 `v*` 标签，流水线自动构建三平台 + 安卓包并创建 Release。
 
 ---
@@ -167,12 +167,12 @@ resume-builder/
 │   ├── cases-audit.js       #   投递体检用例（CommonJS，经 ctx.assert 上报）
 │   └── cases-export.js      #   多格式导出用例（自带独立 zip 解析器，逐字节校验 OOXML）
 ├── docs/
-│   ├── CROSSPLATFORM-DESIGN.md  # 跨平台改造方案
-│   ├── DESKTOP-BUILD.md         # 桌面端构建与排错
-│   ├── ANDROID-BUILD.md         # 安卓端构建与排错
-│   ├── RELEASE.md               # 发版流程（打标签 → 自动出包 → 创建 Release）
-│   ├── ACCEPTANCE.md            # 逐任务验收标准与验收记录
-│   └── DESIGN.md                # AI 辅助写简历（⏸ 暂不实施）
+│   ├── 跨平台简历编辑器-技术设计与架构方案.md  # 跨平台改造方案
+│   ├── 桌面版构建说明.md         # 桌面端构建与排错
+│   ├── Android版构建说明.md         # 安卓端构建与排错
+│   ├── 发版说明.md               # 发版流程（打标签 → 自动出包 → 创建 Release）
+│   ├── 跨平台改造-验收标准与验收记录.md            # 逐任务验收标准与验收记录
+│   └── AI辅助写简历-技术设计方案.md                # AI 辅助写简历（⏸ 暂不实施）
 ├── .github/workflows/
 │   ├── ci.yml               # push/PR：测试 + 构建 + 资源完整性门禁
 │   ├── build-desktop.yml    # 三平台矩阵出包（dmg / msi+nsis / deb+AppImage），亦可被 release 复用
@@ -291,11 +291,11 @@ CI（`.github/workflows/ci.yml`）在每次 push / PR 自动运行前两项与�
 
 - **下载各平台安装包**：[Releases](../../releases)（每个版本都带更新说明与校验和）。
 - 各版本变更记录：见 [CHANGELOG.md](./CHANGELOG.md)。
-- 发版流程（维护者）：见 [docs/RELEASE.md](./docs/RELEASE.md)。
+- 发版流程（维护者）：见 [docs/发版说明.md](./docs/发版说明.md)。
 - 后续优化方向：见 [ROADMAP.md](./ROADMAP.md)。
-- 跨平台改造的**逐任务验收标准与验收记录**：见 [docs/ACCEPTANCE.md](./docs/ACCEPTANCE.md)。
+- 跨平台改造的**逐任务验收标准与验收记录**：见 [docs/跨平台改造-验收标准与验收记录.md](./docs/跨平台改造-验收标准与验收记录.md)。
 
-> ⏸ **关于「AI 辅助写简历」**：仓库内 [docs/DESIGN.md](./docs/DESIGN.md) 存有一份完整的技术设计方案
+> ⏸ **关于「AI 辅助写简历」**：仓库内 [docs/AI辅助写简历-技术设计方案.md](./docs/AI辅助写简历-技术设计方案.md) 存有一份完整的技术设计方案
 > （选型调研、功能设计、UI 设计、目录结构），但**那只是未来演进方向，当前尚未实施** ——
 > 本工具目前不含 AI 能力，请以本文描述的功能为准。
 
