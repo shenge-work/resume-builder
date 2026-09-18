@@ -87,8 +87,16 @@ jobs:
           fi
           # 去掉可能被粘进来的空白
           VERSION="$(printf '%s' "$VERSION" | tr -d '[:space:]')"
+          # 报错提示要按触发方式给：对着「手动填版本号」的人讲「标签形如 v1.1.0」，
+          # 会把人往错的方向带。（这条分支只有在 dispatch 填错时才走到 —— 本地把脚本
+          # 抽出来实跑才发现的，见 /tmp 的自检：真脚本 + 真 env）
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            HINT="手动触发填的是版本号本身，如 1.2.0 —— 不要带 v 前缀"
+          else
+            HINT="标签形如 v1.1.0"
+          fi
           if ! printf '%s' "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$'; then
-            echo "::error title=版本号格式不合法::取到「${VERSION}」，应为 x.y.z 或 x.y.z-预发布后缀（标签形如 v1.1.0）"
+            echo "::error title=版本号格式不合法::取到「${VERSION}」，应为 x.y.z 或 x.y.z-预发布后缀（${HINT}）"
             exit 1
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
