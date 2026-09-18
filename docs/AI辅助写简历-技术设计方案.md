@@ -403,7 +403,7 @@ resume-studio/
 │   ├── resume.json
 │   └── ai-usage.json           # 新增：累计用量（gitignore）
 ├── docs/
-│   ├── DESIGN.md               # 本文档
+│   ├── AI辅助写简历-技术设计方案.md               # 本文档
 │   └── AI.md                   # 用户向：AI 配置与使用说明
 └── 其余（README / CHANGELOG / ROADMAP / CONTRIBUTING / LICENSE）相应更新
 ```
