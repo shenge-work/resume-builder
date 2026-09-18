@@ -77,7 +77,7 @@ function renderResumeInner(){
         if(job.summary && T(job.summary).trim()){
           const quote = job.summaryQuote !== false;
           const color = esc(job.summaryColor || '#888888');
-          const qStyle = quote ? `padding:6px 0 6px 10px;border-left:2px solid ${color};background:#fafafa;` : '';
+          const qStyle = quote ? `padding:6px 0 6px 10px;border-left:2px solid ${color};background:var(--paper-card-bg,#fafafa);` : '';
           h+=`<div class="job-summary" style="${spacingStyle('summary', job.summarySpacing)}${qStyle}">${esc(T(job.summary)).replace(/\n/g,'<br>')}</div>`;
         }
         (job.projects||[]).forEach((p,pi)=>{
@@ -87,7 +87,7 @@ function renderResumeInner(){
             +`<span class="stack" style="${spacingStyle('pStack', p.stackSpacing)}">${esc(T(p.stack))}</span>`;
           const pQuote = p.descQuote !== false;
           const pColor = esc(p.descColor || '#888888');
-          const pQStyle = pQuote ? `padding:6px 0 6px 10px;border-left:2px solid ${pColor};background:#fafafa;` : '';
+          const pQStyle = pQuote ? `padding:6px 0 6px 10px;border-left:2px solid ${pColor};background:var(--paper-card-bg,#fafafa);` : '';
           h+=`<p class="desc" style="${spacingStyle('pDesc', p.descSpacing)}${pQStyle}">${esc(T(p.desc))}</p>`;
           h+=`<ul>`;
           (p.results||[]).forEach((r,ri)=>{
@@ -107,7 +107,7 @@ function renderResumeInner(){
           +`<span class="stack" style="${spacingStyle('pStack', p.stackSpacing)}">${esc(T(p.stack))}</span>`;
         const pQuote = p.descQuote !== false;
         const pColor = esc(p.descColor || '#888888');
-        const pQStyle = pQuote ? `padding:6px 0 6px 10px;border-left:2px solid ${pColor};background:#fafafa;` : '';
+        const pQStyle = pQuote ? `padding:6px 0 6px 10px;border-left:2px solid ${pColor};background:var(--paper-card-bg,#fafafa);` : '';
         h+=`<p class="desc" style="${spacingStyle('pDesc', p.descSpacing)}${pQStyle}">${esc(T(p.desc))}</p>`;
         h+=`<ul>`;
         (p.results||[]).forEach((r,ri)=>{
@@ -629,8 +629,8 @@ function renderSpacingSettings(){
     const s=currentSpacing[k];
     return `<div class="setting"><label>${s.label}</label>`
       +`<span style="display:flex;gap:6px;align-items:center;">`
-      +`<small style="color:#999;">上</small><input type="number" min="-40" max="80" step="1" value="${s.mt}" data-k="${k}" data-pos="mt" title="上间距" style="width:46px;">`
-      +`<small style="color:#999;">下</small><input type="number" min="-40" max="80" step="1" value="${s.mb}" data-k="${k}" data-pos="mb" title="下间距" style="width:46px;">`
+      +`<small style="color:var(--ui-faint);">上</small><input type="number" min="-40" max="80" step="1" value="${s.mt}" data-k="${k}" data-pos="mt" title="上间距" style="width:46px;">`
+      +`<small style="color:var(--ui-faint);">下</small><input type="number" min="-40" max="80" step="1" value="${s.mb}" data-k="${k}" data-pos="mb" title="下间距" style="width:46px;">`
       +`</span></div>`;
   }).join('');
   wrap.querySelectorAll('input').forEach(inp=>{
@@ -767,6 +767,59 @@ function toggleGuides(){
 }
 window.addEventListener('resize', ()=>{ if(guidesOn) drawPageGuides(); });
 
+/* ============ 预览等比缩放：窄屏下让 A4 整页可见 ============
+   为什么用 transform 而不是 zoom / 改宽度：
+   - transform 只影响绘制，不触发重排 → offsetWidth/offsetHeight 读数与实际排版不变，
+     与打印/导出的 WYSIWYG 一致（zoom 实测会使内容重排，offsetHeight 2451→2464）；
+   - 导出用的 makeCaptureClone 会显式 clone.style.transform='none' 且用 live.offsetWidth 取尺寸，
+     因此缩放不会污染导出成品；
+   - 打印由 @media print 里的 !important 复位（见 css/style.css）。
+   触发时机：预览尺寸变化、内容重渲染（renderPreview 会重建 .resume 节点）、窗口缩放/旋转。 */
+function applyPreviewScale(){
+  const resume = preview.querySelector('.resume');
+  if(!resume) return;
+  const cs = getComputedStyle(preview);
+  const avail = preview.clientWidth - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0);
+  const naturalW = resume.offsetWidth, naturalH = resume.offsetHeight;
+  if(avail <= 0 || !naturalW || !naturalH) return;   // 预览不可见（手机处于编辑/同步页）时跳过
+  const s = Math.min(1, avail / naturalW);
+  const scaled = s < 0.999;
+  preview.classList.toggle('is-scaled', scaled);
+  if(!scaled){
+    resume.style.transform = '';
+    resume.style.transformOrigin = '';
+    resume.style.marginBottom = '';
+    return;
+  }
+  resume.style.transformOrigin = 'top left';
+  resume.style.transform = 'translateX(' + Math.max(0, (avail - naturalW * s) / 2) + 'px) scale(' + s + ')';
+  // 视觉高度变为 naturalH*s，用负 margin 把布局高度补回缩放后的高度，避免底部出现大片空白
+  resume.style.marginBottom = (-(1 - s) * naturalH) + 'px';
+}
+if(typeof MutationObserver === 'function'){
+  new MutationObserver(applyPreviewScale).observe(preview, {childList:true});
+}
+if(typeof ResizeObserver === 'function'){
+  new ResizeObserver(applyPreviewScale).observe(preview);
+}
+window.addEventListener('resize', applyPreviewScale);
+window.addEventListener('orientationchange', applyPreviewScale);
+
+/* ============ 主题（日间 / 夜间）============
+   具体逻辑在 js/theme.js（与本文件解耦）；这里只做三件事：
+     1) 把工具栏 / 菜单的点击转发过去
+     2) 导出时「临时把纸张拉回白纸」，确保夜间模式不会污染产物
+     3) theme.js 缺席时全部静默降级，不影响编辑器本身 */
+function themeApi(){
+  try{ return (global.ResumeTheme && typeof global.ResumeTheme.setMode === 'function') ? global.ResumeTheme : null; }
+  catch(e){ return null; }
+}
+function beginPaperGuard(){ const t = themeApi(); if(t) t.beginExport(); }
+function endPaperGuard(){ const t = themeApi(); if(t) t.endExport(); }
+function toggleTheme(){ const t = themeApi(); if(t) t.toggleTheme(); }
+function setThemeMode(mode){ const t = themeApi(); if(t) t.setMode(mode); }
+function togglePaperTheme(){ const t = themeApi(); if(t) t.togglePaperFollows(); }
+
 /* ============ 导出 PDF：按实时预览的分页逐页截图，再拼成 PDF ============ */
 let currentPdfBlobUrl = null;
 // 把实时预览里的 .resume 克隆到屏幕外容器中（固定 A4 宽度并按页边距留白），用于 html2canvas 整页截图
@@ -848,6 +901,8 @@ function exportPDF(){
     if(btn){ btn.disabled = false; btn.textContent = 'PDF 预览'; }
     return;
   }
+  /* 截图期间纸张强制白纸：夜间模式下导出的 PDF / 长图仍是白底黑字 */
+  beginPaperGuard();
   buildImagePdf().then(({blob, pages})=>{
     if(currentPdfBlobUrl) URL.revokeObjectURL(currentPdfBlobUrl);
     currentPdfBlobUrl = URL.createObjectURL(blob);
@@ -857,6 +912,7 @@ function exportPDF(){
   }).catch(err=>{
     alert('PDF 生成失败：' + (err && err.message ? err.message : err));
   }).finally(()=>{
+    endPaperGuard();
     if(btn){ btn.disabled = false; btn.textContent = 'PDF 预览'; }
   });
 }
@@ -910,6 +966,8 @@ async function exportLongImage(){
   if(typeof html2canvas === 'undefined'){ alert('截图库(html2canvas)未加载，请检查网络'); return; }
   const btn = document.querySelector('.toolbar button[onclick="ResumeEditor.exportLongImage()"]');
   if(btn){ btn.disabled = true; btn.textContent = '生成中…'; }
+  /* 同上：长图导出也走白纸，避免「纸张跟随夜间」被截进图片里 */
+  beginPaperGuard();
   const cap = makeCaptureClone(live);
   try{
     if(document.fonts && document.fonts.ready) await document.fonts.ready;
@@ -924,6 +982,7 @@ async function exportLongImage(){
     alert('长图导出失败：' + (err && err.message ? err.message : err));
   }finally{
     document.body.removeChild(cap.wrapper);
+    endPaperGuard();
     if(btn){ btn.disabled = false; btn.textContent = '导出（图片版）'; }
   }
 }
@@ -976,6 +1035,7 @@ document.addEventListener('keydown', e=>{
   const mod = e.ctrlKey || e.metaKey;
   if(mod && (e.key==='z' || e.key==='Z')){ e.preventDefault(); if(e.shiftKey) redo(); else undo(); }
   else if(mod && (e.key==='y' || e.key==='Y')){ e.preventDefault(); redo(); }
+  else if(mod && (e.key==='b' || e.key==='B')){ e.preventDefault(); toggleEditorPane(); }
 });
 
 /* ============ 自动保存（编辑即存入浏览器 localStorage，重新打开本文件时恢复） ============ */
@@ -1061,17 +1121,13 @@ function saveState(){
   // 实时写回仓库 data/resume.json（需经本地写服务 npm start 打开）；file:// 或只读服务器会静默失败、回退 localStorage
   pushRepoDebounced();
 }
-/* 把当前数据 POST 到本地写服务（tools/serve.js），落盘为 data/resume.json，实现「实时保存不丢失」 */
+/* 实时写回：经 ResumeStore 数据门面持久化（LocalStore/BrowserStore），不再直接 fetch 本地写服务 */
 let _repoPushTimer = null;
 function pushRepo(){
-  if(typeof fetch !== 'function') return;
-  const payload = JSON.stringify({data, fonts: currentFonts, spacing: currentSpacing, v: SAVE_VERSION});
-  fetch('/api/resume', {method:'POST', headers:{'Content-Type':'application/json'}, body: payload, keepalive:true})
-    .then(r=>{ if(!r.ok) throw new Error('HTTP ' + r.status); })
-    .catch(()=>{ /* 服务不可写：静默，依赖浏览器 localStorage 兜底 */ });
+  const p = {data, fonts: currentFonts, spacing: currentSpacing, v: SAVE_VERSION};
+  ResumeStore.save(p);   // fire-and-forget；store 内部吞掉持久化错误，绝不让异常冒泡
 }
 function pushRepoDebounced(){
-  if(typeof fetch !== 'function') return;
   if(_repoPushTimer) clearTimeout(_repoPushTimer);
   _repoPushTimer = setTimeout(pushRepo, 800);
 }
@@ -1217,7 +1273,341 @@ async function loadTemplateData(opts){
   return true;
 }
 
+/* ============ 飞书同步：上报 / 从飞书恢复版本 ============ */
+function showFeishuStatus(msg){
+  const el = document.getElementById('feishuStatus');
+  if (el) el.textContent = msg;
+  const m = document.getElementById('feishuStatusMobile');
+  if (m) m.textContent = msg;
+}
+/* 手动上报：把当前 {data,fonts,spacing,v} 推送到飞书（文档 docx + 云盘文件 resume.json，双写） */
+async function reportToFeishu(){
+  const btn = document.getElementById('feishuReportBtn');
+  if (btn){ btn.disabled = true; btn.textContent = '上报中…'; }
+  showFeishuStatus('正在上报到飞书…');
+  try {
+    const payload = { data, fonts: currentFonts, spacing: currentSpacing, v: SAVE_VERSION };
+    const j = await ResumeStore.push(payload);
+    const when = new Date().toLocaleTimeString();
+    const tail = j.dryRun ? '（dry-run，未真实写入）' : (j.docUrl ? (' · ' + j.docUrl) : '');
+    showFeishuStatus('✓ 已上报到飞书 · ' + when + tail);
+  } catch (e) {
+    showFeishuStatus('✗ 上报失败：' + e.message);
+  } finally {
+    if (btn){ btn.disabled = false; btn.textContent = '上报到飞书'; }
+  }
+}
+/* 打开「从飞书恢复」面板：列出云盘文件 resume.json 的历史版本 */
+async function openFeishuRestore(){
+  showFeishuStatus('正在拉取飞书版本…');
+  try {
+    const versions = await ResumeStore.listVersions();
+    const list = document.getElementById('feishuVersions');
+    if (!versions || !versions.length){
+      showFeishuStatus('飞书中暂无版本');
+      list.innerHTML = '<div style="color:var(--ui-muted);font-size:13px;">飞书中还没有任何版本，请先「上报到飞书」。</div>';
+    } else {
+      showFeishuStatus('共 ' + versions.length + ' 个飞书版本');
+      list.innerHTML = versions.map(v => {
+        const t = v.create_time ? new Date((v.create_time) * 1000).toLocaleString() : '';
+        return '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;border:1px solid var(--ui-border);border-radius:4px;padding:8px 10px;">'
+          + '<div><div style="font-weight:700;">版本 ' + esc(v.version_id || '') + '</div>'
+          + '<div style="font-size:12px;color:var(--ui-muted);">' + esc(t) + ' · ' + esc(String(v.size || '')) + ' 字节</div></div>'
+          + '<button style="height:30px;padding:0 14px;font-size:12.5px;font-weight:600;background:var(--ui-solid-bg);color:var(--ui-solid-text);border:none;border-radius:4px;cursor:pointer;" onclick="ResumeEditor.restoreFromFeishu(\'' + esc(v.version_id || '') + '\')">恢复此版本</button>'
+          + '</div>';
+      }).join('');
+    }
+    document.getElementById('feishuRestoreModal').style.display = 'flex';
+  } catch (e) {
+    showFeishuStatus('✗ 拉取版本失败：' + e.message);
+  }
+}
+function closeFeishuRestore(){
+  const m = document.getElementById('feishuRestoreModal');
+  if (m) m.style.display = 'none';
+}
+/* 恢复指定飞书版本：下载该版本 JSON 并覆盖式应用（可撤销） */
+async function restoreFromFeishu(versionId){
+  if (!confirm('将从飞书恢复该版本，覆盖当前编辑器内容（可用撤销 Ctrl/Cmd+Z 回退），确定继续？')) return;
+  showFeishuStatus('正在从飞书恢复…');
+  try {
+    const obj = await ResumeStore.restore(versionId);
+    recordHistory('action');
+    applyDataPayload(obj);
+    closeFeishuRestore();
+    showFeishuStatus('✓ 已从飞书恢复该版本');
+  } catch (e) {
+    showFeishuStatus('✗ 恢复失败：' + e.message);
+  }
+}
+
+/* ============ 工具栏菜单 / 飞书配置表单 ============ */
+/* 菜单按钮：悬停即展开（CSS :hover）；点击可固定展开，点其他区域收起 */
+function toggleMenu(btn){
+  const m = btn.closest('.menu');
+  const wasOpen = m.classList.contains('open');
+  document.querySelectorAll('.toolbar .menu.open').forEach(x => x.classList.remove('open'));
+  if (!wasOpen) m.classList.add('open');
+}
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.toolbar .menu')) {
+    document.querySelectorAll('.toolbar .menu.open').forEach(x => x.classList.remove('open'));
+  }
+});
+
+/* 打开飞书配置表单：回填现有配置（Secret 永不回传，只提示「已设置」） */
+async function openFeishuConfig(){
+  try {
+    const cfg = await ResumeStore.loadConfig();
+    const c = cfg || {};
+    document.getElementById('cfgAppId').value = c.app_id || '';
+    const secretInput = document.getElementById('cfgAppSecret');
+    secretInput.value = '';
+    secretInput.placeholder = c.hasSecret ? '已设置，留空表示不修改' : '首次配置必填';
+    document.getElementById('cfgDomain').value = c.domain || '';
+    document.getElementById('cfgFolder').value = c.folder_token || '';
+    document.getElementById('cfgDocTitle').value = c.doc_title || '';
+    document.getElementById('cfgFileName').value = c.file_name || '';
+    document.getElementById('cfgDryRun').checked = !!c.dryRun;
+  } catch (e) { /* 非本地服务打开（file:// 等）或原生桥异常，表单留空即可 */ }
+  document.getElementById('feishuConfigModal').style.display = 'flex';
+}
+function closeFeishuConfig(){
+  const m = document.getElementById('feishuConfigModal');
+  if (m) m.style.display = 'none';
+}
+/* 保存配置：经本地服务写入 sync.config.json（凭证不进 localStorage / 简历数据） */
+async function saveFeishuConfig(){
+  const btn = document.getElementById('cfgSaveBtn');
+  if (btn){ btn.disabled = true; btn.textContent = '保存中…'; }
+  try {
+    const body = {
+      app_id: document.getElementById('cfgAppId').value,
+      app_secret: document.getElementById('cfgAppSecret').value,
+      domain: document.getElementById('cfgDomain').value,
+      folder_token: document.getElementById('cfgFolder').value,
+      doc_title: document.getElementById('cfgDocTitle').value,
+      file_name: document.getElementById('cfgFileName').value,
+      dryRun: document.getElementById('cfgDryRun').checked
+    };
+    const j = await ResumeStore.saveConfig(body);
+    closeFeishuConfig();
+    showFeishuStatus(j.configured ? '✓ 飞书配置已保存，可以「上报到飞书」了' : '✓ 配置已保存（未完整配置，仅 dry-run 可用）');
+  } catch (e) {
+    showFeishuStatus('✗ 配置保存失败：' + e.message);
+  } finally {
+    if (btn){ btn.disabled = false; btn.textContent = '保存配置'; }
+  }
+}
+
+/* ============ 右侧编辑面板 收起/展开（收起后简历预览占满居中） ============ */
+const PANE_COLLAPSED_KEY = 'resume_editor_pane_collapsed_v1';
+function setPaneCollapsed(collapsed, persist){
+  const app = document.querySelector('.app');
+  if (!app) return;
+  app.classList.toggle('pane-collapsed', collapsed);
+  const tab = document.getElementById('paneTab');
+  const arrow = document.getElementById('paneTabArrow');
+  const menuBtn = document.getElementById('paneToggleBtn');
+  if (tab) tab.title = (collapsed ? '展开' : '收起') + '编辑面板 (Ctrl/Cmd+B)';
+  if (arrow) arrow.textContent = collapsed ? '‹' : '›';
+  if (menuBtn) menuBtn.textContent = collapsed ? '展开编辑面板' : '收起编辑面板';
+  if (persist !== false) { try{ localStorage.setItem(PANE_COLLAPSED_KEY, collapsed ? '1' : ''); }catch(e){} }
+}
+function toggleEditorPane(){
+  const app = document.querySelector('.app');
+  setPaneCollapsed(!(app && app.classList.contains('pane-collapsed')));
+}
+/* 手机视图切换：preview / edit / sync（仅新增，不影响桌面布局与渲染逻辑） */
+function setMobileView(view){
+  const app = document.querySelector('.app');
+  if (!app) return;
+  const prevView = currentMobileView();
+  app.classList.remove('mv-preview','mv-edit','mv-sync');
+  app.classList.add('mv-' + view);
+  document.querySelectorAll('.mobile-tabbar button').forEach(b=>{
+    b.classList.toggle('active', b.getAttribute('data-mv') === view);
+  });
+  applyPreviewScale();   // 预览页从隐藏变为可见后重新等比缩放
+  /* P3 返回键钩子：只在 preview ↔ 非 preview 之间切换时动 history，避免连点堆积 */
+  try{
+    if(mvHistoryLocked) return;
+    if(view !== 'preview' && prevView === 'preview') pushMobileHistory(view);
+    else if(view === 'preview' && prevView !== 'preview') consumeMobileHistory();
+  }catch(e){}
+}
+
+/* ============ P3 返回键语义（移动端加固） ============
+   手机按系统返回键 / 浏览器后退时的优先级：
+     1) 有可见弹层 → 只关弹层，不改变视图；
+     2) 当前不是预览视图 → 回到预览视图；
+     3) 已在预览视图且无弹层 → 允许真正后退（不把用户困住，也不无故拦截离开页面）。
+   实现：History API（浏览器可实测）+ Tauri 原生返回事件（能力探测，不可用则静默跳过）。
+   约束：只在 setMobileView 内挂钩子，不触碰渲染 / recordHistory / undo / redo；全程 try/catch。 */
+let mvHistoryLocked = false;   // popstate 处理期间锁住 history 钩子，避免递归
+function currentMobileView(){
+  try{
+    const app = document.querySelector('.app');
+    if(!app) return 'preview';
+    if(app.classList.contains('mv-edit')) return 'edit';
+    if(app.classList.contains('mv-sync')) return 'sync';
+  }catch(e){}
+  return 'preview';
+}
+/* 弹层靠 inline display:flex 显示（见 exportPDF / showExportModal），这里按「当前可见」判定 */
+function visibleModal(){
+  try{
+    const list = document.querySelectorAll('.pdf-modal');
+    let found = null;
+    for(let i=0;i<list.length;i++){
+      const el = list[i];
+      const cs = (typeof global.getComputedStyle === 'function') ? global.getComputedStyle(el) : null;
+      if(el.style.display === 'flex' || (cs && cs.display !== 'none')) found = el;
+    }
+    return found;
+  }catch(e){ return null; }
+}
+function closeVisibleModal(){
+  try{
+    const m = visibleModal();
+    if(!m) return false;
+    if(m.id === 'pdfModal'){ closePdfModal(); return true; }
+    if(m.id === 'exportModal'){ closeExportModal(); return true; }
+    if(m.id === 'feishuRestoreModal'){ closeFeishuRestore(); return true; }
+    if(m.id === 'feishuConfigModal'){ closeFeishuConfig(); return true; }
+    m.style.display = 'none';
+    return true;
+  }catch(e){ return false; }
+}
+function pushMobileHistory(view){
+  try{
+    if(!global.history || typeof global.history.pushState !== 'function') return;
+    global.history.pushState({ mv: view }, '');
+  }catch(e){}
+}
+/* 回到预览视图时消费掉之前压入的那条历史，保持 history 与视图状态一致 */
+function consumeMobileHistory(){
+  try{
+    const h = global.history;
+    if(!h || !h.state || !h.state.mv || typeof h.back !== 'function') return;
+    h.back();
+  }catch(e){}
+}
+function onMobilePopState(){
+  if(mvHistoryLocked) return;
+  mvHistoryLocked = true;
+  try{
+    if(closeVisibleModal()){
+      /* 这次后退已被浏览器消费（用来关弹层），补回一条状态，避免下一次后退直接离页 */
+      pushMobileHistory(currentMobileView());
+      return;
+    }
+    if(currentMobileView() !== 'preview') setMobileView('preview');
+  }catch(e){
+  }finally{ mvHistoryLocked = false; }
+}
+/* 返回动作的统一入口：返回 true 表示已被应用消费（原生壳 / 测试可直接调它） */
+function handleMobileBack(){
+  try{
+    if(closeVisibleModal()) return true;
+    if(currentMobileView() !== 'preview'){ setMobileView('preview'); return true; }
+  }catch(e){}
+  return false;
+}
+/* 原生壳返回事件：Tauri 2 未内置统一的 back 事件，故做能力探测——命中 API 才监听，
+   拿不到就静默跳过、绝不报错。Android WebView 的系统返回键本身会触发 history.back()，
+   所以上面那条浏览器路径已覆盖绝大多数场景。 */
+function setupNativeBack(){
+  try{
+    const T = global.__TAURI__;
+    if(!T) return false;
+    const evt = T.event || (T.core && T.core.event);
+    if(!evt || typeof evt.listen !== 'function') return false;
+    ['tauri://back-button','back-button','android-back','onBackPressed'].forEach(name=>{
+      try{
+        const p = evt.listen(name, ()=>{ handleMobileBack(); });
+        if(p && typeof p.then === 'function') p.catch(()=>{});
+      }catch(e){}
+    });
+    return true;
+  }catch(e){ return false; }
+}
+function setupMobileBackGesture(){
+  try{
+    if(global.history && typeof global.addEventListener === 'function'){
+      global.addEventListener('popstate', onMobilePopState);
+    }
+  }catch(e){}
+  setupNativeBack();
+}
+
+/* ============ P3 软键盘可视区（移动端加固） ============
+   把 visualViewport 的可视高度 / 键盘高度写进 CSS 变量 --vvh / --kb；
+   只有 css/style.css 里 ≤640px 的媒体查询消费它们，桌面 / 平板零变化。
+   没有 visualViewport 时退化为 window.innerHeight（键盘高度按 0），再不行就完全不动
+   （CSS 侧有 var(--vvh,100vh) / var(--kb,0px) 兜底）。 */
+function setupVisualViewport(){
+  try{
+    const root = document.documentElement;
+    if(!root || !root.style || typeof root.style.setProperty !== 'function') return;
+    const vv = global.visualViewport;
+    if(!vv || typeof vv.addEventListener !== 'function'){
+      const fallback = ()=>{
+        try{
+          root.style.setProperty('--vvh', global.innerHeight + 'px');
+          root.style.setProperty('--kb', '0px');
+        }catch(e){}
+      };
+      fallback();
+      global.addEventListener('resize', fallback);
+      return;
+    }
+    const update = ()=>{
+      try{
+        const h = vv.height || global.innerHeight;
+        // Android：软键盘弹出时 innerHeight 同步变矮 → kb≈0（Tab 自然贴住键盘上沿）
+        // iOS：innerHeight 不变而 vv.height 变矮 → kb>0，把 Tab 顶到键盘之上
+        const kb = Math.max(0, (global.innerHeight || h) - h - (vv.offsetTop || 0));
+        root.style.setProperty('--vvh', h + 'px');
+        root.style.setProperty('--kb', kb + 'px');
+      }catch(e){}
+    };
+    update();
+    vv.addEventListener('resize', update);
+    vv.addEventListener('scroll', update);
+    global.addEventListener('resize', update);
+  }catch(e){}
+}
+/* 移动端聚焦输入框后把它滚进可视区，避免被软键盘遮挡（只在小屏 / 触控设备生效） */
+function setupKeyboardFocusGuard(){
+  try{
+    if(typeof global.matchMedia !== 'function') return;
+    const mq = global.matchMedia('(max-width:640px), (pointer:coarse)');
+    document.addEventListener('focusin', e=>{
+      try{
+        if(!mq.matches) return;
+        const el = e.target;
+        if(!el || !el.tagName) return;
+        const tag = String(el.tagName).toLowerCase();
+        if(tag !== 'input' && tag !== 'textarea' && tag !== 'select') return;
+        setTimeout(()=>{   // 等软键盘动画结束再滚，否则仍会被键盘盖住
+          try{
+            if(el && el.isConnected && typeof el.scrollIntoView === 'function'){
+              el.scrollIntoView({block:'center', inline:'nearest'});
+            }
+          }catch(e){}
+        }, 300);
+      }catch(e){}
+    }, true);
+  }catch(e){}
+}
+/* 启动时恢复上次的面板状态（不回写存储） */
+try{ setPaneCollapsed(localStorage.getItem(PANE_COLLAPSED_KEY) === '1', false); }catch(e){}
+
 /* ============ 初始化 ============ */
+/* 主题：js/theme.js 加载时已自行初始化并写好 <html> 属性；
+   这里再刷一次按钮文案（防御性：若将来调整脚本加载顺序也不会漏渲） */
+try{ if(themeApi()) themeApi().init(); }catch(e){}
 loadFileNameBase();
 const restored = loadState();
 renderSettings();
@@ -1231,6 +1621,10 @@ try{ document.title = (data.name||'简历') + ' · 简历编辑器'; }catch(_){}
 updateUndoButtons();
 if(restored){ const el=document.getElementById('autosave'); if(el) el.textContent='✓ 已恢复上次保存的内容'; }
 bootDone = true;
+/* P3 移动端加固：软键盘可视区变量 + 返回键语义（任一步失败都静默，桌面 / 浏览器零影响） */
+setupVisualViewport();
+setupKeyboardFocusGuard();
+setupMobileBackGesture();
 // 初始化数据源优先级：
 //   1) 仓库 data/resume.json（用户私有实时数据，最高优先）
 //   2) 否则 template.json（公开示范数据）
@@ -1266,12 +1660,31 @@ global.ResumeEditor = {
   importJSON: importJSON,
   loadRepoData: loadRepoData,
   clearSaved: clearSaved,
+  reportToFeishu: reportToFeishu,
+  openFeishuRestore: openFeishuRestore,
+  restoreFromFeishu: restoreFromFeishu,
+  closeFeishuRestore: closeFeishuRestore,
+  toggleMenu: toggleMenu,
+  openFeishuConfig: openFeishuConfig,
+  closeFeishuConfig: closeFeishuConfig,
+  saveFeishuConfig: saveFeishuConfig,
+  toggleEditorPane: toggleEditorPane,
+  toggleTheme: toggleTheme,
+  setThemeMode: setThemeMode,
+  togglePaperTheme: togglePaperTheme,
+  setMobileView: setMobileView,
+  handleMobileBack: handleMobileBack,
+  currentMobileView: currentMobileView,
+  closeVisibleModal: closeVisibleModal,
   undo: undo,
   redo: redo,
   resetSpacing: resetSpacing,
   resetMargins: resetMargins,
   closePdfModal: closePdfModal,
   downloadPDFNow: downloadPDFNow,
+  // —— 供平行模块（js/audit.js 体检、js/export-extra.js 导出）只读取当前数据 ——
+  // 只读用途：体检 / 导出；外部需要改数据请走 applyImported，勿直接改返回的 data
+  getData: function(){ return { data: data, fonts: currentFonts, spacing: currentSpacing }; },
   // —— 供单元测试 / 调试复用（非公开 API） ——
   blankSection: blankSection,
   blankItem: blankItem,

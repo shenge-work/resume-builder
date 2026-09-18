@@ -6,7 +6,19 @@
   "scripts": {
     "start": "node tools/serve.js",
     "test": "node test/run.js",
-    "build": "node tools/build-single.js"
+    "build": "node tools/build-single.js",
+    "desktop:assets": "node tools/build-desktop-frontend.js",
+    "desktop:dev": "npm run desktop:assets && tauri dev",
+    "desktop:build": "npm run desktop:assets && tauri build",
+    "mobile:android:init": "npm run desktop:assets && tauri android init",
+    "mobile:android:dev": "npm run desktop:assets && tauri android dev",
+    "mobile:android:build": "npm run desktop:assets && tauri android build",
+    "icons:gen": "node tools/gen-icons.js",
+    "clean:html": "node tools/clean-html-injections.js",
+    "verify:assets": "node tools/verify-frontend-assets.js"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.0.0"
   },
   "engines": {
     "node": ">=16"

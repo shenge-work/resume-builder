@@ -1,6 +1,12 @@
 # 构建产物（由 tools/build-single.js 生成，不入库）
 dist/
 
+# 桌面壳构建产物（tools/build-desktop-frontend.js 生成的 dist-desktop/，Tauri 的 frontendDist）
+dist-desktop/
+
+# 移动端生成物：Android / iOS 工程由 `tauri android init` / `tauri ios init` 现场生成，不入库
+src-tauri/gen/
+
 # 个人简历数据（含真实信息，公开仓库必须隔离、不入库）
 # data/ 整体不入库（私有实时数据源 resume.json 等）；公开示范模板已移到仓库根目录 template.json
 data/
@@ -20,6 +26,10 @@ yarn-error.log*
 .vscode/
 *.sublime-project
 *.sublime-workspace
+
+# 飞书同步：凭证与私有状态（不入库）
+sync.config.json
+sync.state.json
 
 # 本地 Agent / 工具状态（含本地记忆、运行日志，不入库）
 .workbuddy/

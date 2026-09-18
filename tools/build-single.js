@@ -12,6 +12,8 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+/* 复用统一的注入属性清理实现（与 build-desktop-frontend.js 同源） */
+const { stripInjections, countInjections } = require('./clean-html-injections.js');
 
 const ROOT = path.resolve(__dirname, '..');
 const DIST = path.join(ROOT, 'dist');
@@ -20,6 +22,20 @@ const OUT_FILE = path.join(DIST, '简历编辑器-单文件.html');
 const read = (p) => fs.readFileSync(path.join(ROOT, p), 'utf8');
 
 let html = read('index.html');
+
+/* 0) 先净化源 HTML：某些 HTML 可视化编辑/预览工具会给每个标签注入
+      data-page-node-id="..."（对运行无影响，但会污染 diff 与产物）。
+      这里只净化「内存中的字符串」，不改动源 index.html；
+      源文件用 npm run clean:html 清理。
+      不净化的话，下面第 1 步的精确标签匹配会直接失败。
+      正则与 build-desktop-frontend.js 共用同一份实现，避免两处漂移。 */
+{
+  const injected = countInjections(html);
+  if (injected) {
+    html = stripInjections(html);
+    console.log('ℹ 产物已剥离注入属性 data-page-node-id × ' + injected + '（源 index.html 请跑 npm run clean:html）');
+  }
+}
 
 /* 内联脚本中若出现 </script 会提前结束标签，必须转义 */
 const safe = (code) => code.replace(/<\/script/gi, '<\\/script');
@@ -36,6 +52,9 @@ html = html.replace(LINK, '<style>' + css + '</style>');
 const files = [
   ['vendor/html2canvas.min.js', 'html2canvas 1.4.1'],
   ['vendor/jspdf.umd.min.js', 'jsPDF 2.5.1'],
+  ['js/theme.js', 'js/theme.js（日间 / 夜间主题）'],
+  ['js/store/resume-store.js', 'js/store/resume-store.js（P0 数据门面）'],
+  ['js/store/native-bridge.js', 'js/store/native-bridge.js（P2 原生桥）'],
   ['js/app.js', 'js/app.js']
 ];
 for (const [file, name] of files) {

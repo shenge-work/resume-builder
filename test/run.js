@@ -35,7 +35,7 @@ const store = new Map();
 const alertCalls = [];
 const ctx = {
   console, JSON, Date, Math, Object, Array, String, Number, Boolean,
-  isNaN, parseInt, parseFloat, RegExp, Error, Promise, setTimeout, process,
+  isNaN, parseInt, parseFloat, RegExp, Error, Promise, setTimeout, clearTimeout, process,
   // 浏览器 API 桩
   localStorage: {
     getItem(k) { return store.has(k) ? store.get(k) : null; },

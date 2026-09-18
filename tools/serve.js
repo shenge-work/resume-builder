@@ -8,6 +8,8 @@
  *   GET  /                       → index.html（编辑器）
  *   GET  /<任意静态资源>          → 项目内文件（含 data/resume.json）
  *   POST /api/resume             → 把请求体 JSON 落盘为 data/resume.json（实时保存）
+ *   POST /api/pdf                → 静默导出「可选中文字」的 PDF（复用 render-resume.js 渲染管线
+ *                                  + 本机 Chrome/Edge 的 headless 打印，不经系统打印对话框）
  *
  * 启动：node tools/serve.js   或   npm start   （默认端口 8000，可用 PORT 环境变量覆盖）
  *
@@ -16,6 +18,8 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
+const { spawn } = require('child_process');
 
 const ROOT = path.resolve(__dirname, '..');
 const PORT = process.env.PORT || 8000;
@@ -39,6 +43,110 @@ function send(res, status, body, type) {
   res.writeHead(status, { 'Content-Type': type || 'text/plain; charset=utf-8' });
   if (Buffer.isBuffer(body) || typeof body === 'string') res.end(body);
   else res.end(JSON.stringify(body));
+}
+
+/* =============================================================
+ * 静默 PDF：本机 Chrome / Edge 的 headless 打印
+ * -------------------------------------------------------------
+ * 为什么这么做：纯前端无法在不弹打印对话框的前提下产出「可选中文字」的 PDF
+ * （html2canvas 是截图；jsPDF 要内嵌中文字体，体积与许可都不划算）。而本机
+ * 几乎都装了 Chrome/Edge，用它的 headless 打印即可拿到矢量文字 PDF。
+ * 失败时前端自动回退到 window.print()，不影响任何既有用法。
+ * ============================================================= */
+/* 探测本机可用的 Chromium 系浏览器；可用 CHROME_PATH 环境变量强制指定 */
+function findBrowser() {
+  if (process.env.CHROME_PATH && fs.existsSync(process.env.CHROME_PATH)) return process.env.CHROME_PATH;
+  const c = [];
+  if (process.platform === 'darwin') {
+    c.push(
+      '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+      '/Applications/Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary',
+      '/Applications/Chromium.app/Contents/MacOS/Chromium',
+      '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
+      '/Applications/Brave Browser.app/Contents/MacOS/Brave Browser'
+    );
+  } else if (process.platform === 'win32') {
+    const pf = process.env['ProgramFiles'] || 'C:\\Program Files';
+    const pf86 = process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)';
+    const local = process.env['LOCALAPPDATA'] || '';
+    c.push(
+      path.join(pf, 'Google\\Chrome\\Application\\chrome.exe'),
+      path.join(pf86, 'Google\\Chrome\\Application\\chrome.exe'),
+      path.join(local, 'Google\\Chrome\\Application\\chrome.exe'),
+      path.join(pf, 'Microsoft\\Edge\\Application\\msedge.exe'),
+      path.join(pf86, 'Microsoft\\Edge\\Application\\msedge.exe')
+    );
+  } else {
+    c.push('/usr/bin/google-chrome', '/usr/bin/google-chrome-stable', '/usr/bin/chromium',
+      '/usr/bin/chromium-browser', '/snap/bin/chromium', '/opt/google/chrome/chrome');
+  }
+  for (const p of c) { try { if (p && fs.existsSync(p)) return p; } catch (e) { /* 忽略无权限路径 */ } }
+  return null;
+}
+
+/* 跑一个子进程并收集输出（不抛异常，失败以 code/err 返回，交由调用方决定降级） */
+function runCmd(cmd, args, timeoutMs) {
+  return new Promise(resolve => {
+    let done = false;
+    const finish = r => { if (!done) { done = true; resolve(r); } };
+    let p;
+    try { p = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'] }); }
+    catch (e) { return finish({ code: -1, out: '', err: String(e && e.message || e) }); }
+    let out = '', err = '';
+    p.stdout.on('data', d => { out += d; });
+    p.stderr.on('data', d => { err += d; });
+    p.on('error', e => finish({ code: -1, out: out, err: String(e && e.message || e) }));
+    p.on('close', code => finish({ code: code, out: out, err: err }));
+    const t = setTimeout(() => { try { p.kill(); } catch (e) { } finish({ code: -1, out: out, err: '超时（' + (timeoutMs || 60000) + 'ms）' }); }, timeoutMs || 60000);
+    if (t.unref) t.unref();
+  });
+}
+
+/* 用项目真实渲染管线把 payload 渲染成独立 A4 HTML（复用 tools/render-resume.js） */
+async function renderA4Html(payload, baseName) {
+  // 临时文件放 dist/（gitignored）：让 HTML 里的相对资源路径（如 vendor/xxx.png）仍能解析
+  const dist = path.join(ROOT, 'dist');
+  fs.mkdirSync(dist, { recursive: true });
+  const jsonPath = path.join(dist, baseName + '.json');
+  const htmlPath = path.join(dist, baseName + '.html');
+  fs.writeFileSync(jsonPath, JSON.stringify(payload), 'utf8');
+  const r = await runCmd(process.execPath, [path.join(__dirname, 'render-resume.js'), jsonPath, htmlPath], 60000);
+  if (r.code !== 0 || !fs.existsSync(htmlPath)) {
+    throw new Error('渲染简历 HTML 失败：' + (r.err || r.out || '未知错误').toString().slice(0, 300));
+  }
+  return htmlPath;
+}
+
+/* headless 打印 HTML → PDF；返回 PDF 文件路径 */
+async function printToPdf(htmlPath, pdfPath) {
+  const browser = findBrowser();
+  if (!browser) {
+    const e = new Error('未找到 Chrome / Chromium / Edge，无法静默导出 PDF');
+    e.code = 'NO_BROWSER';
+    throw e;
+  }
+  const userDir = fs.mkdtempSync(path.join(os.tmpdir(), 'resume-pdf-'));
+  const baseArgs = [
+    '--disable-gpu', '--no-sandbox', '--no-first-run', '--no-default-browser-check',
+    '--user-data-dir=' + userDir,
+    '--no-pdf-header-footer',            // 去掉页眉页脚（日期 / URL / 页码）
+    '--print-to-pdf-no-header',
+    '--virtual-time-budget=8000',        // 等字体与图片就绪
+    '--run-all-compositor-stages-before-draw',
+    'file://' + htmlPath.replace(/\\/g, '/')
+  ];
+  // 新版 Chrome 用 --headless=new；个别版本对 --print-to-pdf 支持不同，失败后回退老 headless
+  let r = await runCmd(browser, ['--headless=new', '--print-to-pdf=' + pdfPath].concat(baseArgs), 90000);
+  if (r.code !== 0 || !fs.existsSync(pdfPath)) {
+    r = await runCmd(browser, ['--headless', '--print-to-pdf=' + pdfPath].concat(baseArgs), 90000);
+  }
+  try { fs.rmSync(userDir, { recursive: true, force: true }); } catch (e) { /* 清理失败不影响结果 */ }
+  if (!fs.existsSync(pdfPath)) {
+    throw new Error('PDF 生成失败：' + (r.err || r.out || '浏览器未产出文件').toString().slice(0, 300));
+  }
+  const buf = fs.readFileSync(pdfPath);
+  if (buf.slice(0, 5).toString('latin1') !== '%PDF-') throw new Error('产出的文件不是合法 PDF');
+  return buf;
 }
 
 const server = http.createServer((req, res) => {
@@ -70,6 +178,134 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  // —— 静默 PDF：请求体是完整数据 payload，返回 application/pdf 直接下载 ——
+  if (req.method === 'POST' && pathname === '/api/pdf') {
+    let buf = '';
+    req.on('data', (c) => { buf += c; if (buf.length > 20 * 1024 * 1024) req.destroy(); });
+    req.on('end', async () => {
+      let payload;
+      try { payload = JSON.parse(buf); } catch (e) { return send(res, 400, { error: 'JSON 解析失败: ' + e.message }); }
+      if (!payload || !payload.data || !Array.isArray(payload.data.sections)) {
+        return send(res, 400, { error: '格式不正确（缺少 data.sections）' });
+      }
+      const stamp = 'print-tmp-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7);
+      const dist = path.join(ROOT, 'dist');
+      let htmlPath = '', pdfPath = path.join(dist, stamp + '.pdf');
+      try {
+        htmlPath = await renderA4Html(payload, stamp);
+        const pdf = await printToPdf(htmlPath, pdfPath);
+        res.writeHead(200, {
+          'Content-Type': 'application/pdf',
+          'Content-Length': pdf.length,
+          'Cache-Control': 'no-store'
+        });
+        return res.end(pdf);
+      } catch (e) {
+        return send(res, e && e.code === 'NO_BROWSER' ? 501 : 500, {
+          error: (e && e.message) || 'PDF 生成失败',
+          hint: e && e.code === 'NO_BROWSER'
+            ? '请安装 Chrome / Edge，或用 CHROME_PATH 指定浏览器路径；也可改用「打印 / 另存为 PDF」'
+            : '可改用工具栏「打印 / 另存为 PDF」'
+        });
+      } finally {
+        try { if (htmlPath) fs.unlinkSync(htmlPath); } catch (e) { }
+        try { fs.unlinkSync(path.join(dist, stamp + '.json')); } catch (e) { }
+        try { fs.unlinkSync(pdfPath); } catch (e) { }
+      }
+    });
+    return;
+  }
+
+  // —— 飞书同步接口（上报 / 版本列表 / 恢复）——
+  // 凭证由本地服务持有，浏览器只与本服务通信，凭证绝不进浏览器。
+  const feishuSync = (() => { try { return require('./feishu-sync.js'); } catch (e) { return null; } })();
+  if (req.method === 'POST' && pathname === '/api/sync') {
+    let buf = '';
+    req.on('data', (c) => { buf += c; if (buf.length > 20 * 1024 * 1024) req.destroy(); });
+    req.on('end', async () => {
+      if (!feishuSync) return send(res, 500, { error: 'feishu-sync.js 未找到' });
+      if (!feishuSync.enabled()) return send(res, 400, { error: '飞书未配置：请在 sync.config.json 填入 app_id / app_secret（参考 sync.config.json.example）' });
+      try {
+        const obj = JSON.parse(buf);
+        const r = await feishuSync.report(obj);
+        return send(res, 200, { ok: true, docUrl: r.docUrl, fileUrl: r.fileUrl, size: r.size, dryRun: !!r.dryRun });
+      } catch (e) { return send(res, 502, { error: e.message }); }
+    });
+    return;
+  }
+  if (req.method === 'GET' && pathname === '/api/sync/versions') {
+    (async () => {
+      if (!feishuSync) return send(res, 500, { error: 'feishu-sync.js 未找到' });
+      if (!feishuSync.enabled()) return send(res, 400, { error: '飞书未配置' });
+      try { const vs = await feishuSync.listVersions(); return send(res, 200, { versions: vs }); }
+      catch (e) { return send(res, 502, { error: e.message }); }
+    })();
+    return;
+  }
+  if (req.method === 'POST' && pathname === '/api/sync/restore') {
+    let buf = '';
+    req.on('data', (c) => { buf += c; });
+    req.on('end', async () => {
+      if (!feishuSync) return send(res, 500, { error: 'feishu-sync.js 未找到' });
+      if (!feishuSync.enabled()) return send(res, 400, { error: '飞书未配置' });
+      try {
+        const { versionId } = JSON.parse(buf);
+        const txt = await feishuSync.getVersion(versionId);
+        return send(res, 200, { json: txt });
+      } catch (e) { return send(res, 502, { error: e.message }); }
+    });
+    return;
+  }
+
+  // —— 飞书配置表单接口（读取时永不回传 app_secret 明文，只回传是否已设置的标记）——
+  if (req.method === 'GET' && pathname === '/api/sync/config') {
+    if (!feishuSync) return send(res, 500, { error: 'feishu-sync.js 未找到' });
+    const c = feishuSync.readConfig() || {};
+    return send(res, 200, {
+      configured: !!(c.app_id && c.app_secret),
+      config: {
+        app_id: c.app_id || '',
+        domain: c.domain || '',
+        folder_token: c.folder_token || '',
+        doc_title: c.doc_title || '',
+        file_name: c.file_name || '',
+        dryRun: !!c.dryRun,
+        hasSecret: !!c.app_secret
+      }
+    });
+  }
+  if (req.method === 'POST' && pathname === '/api/sync/config') {
+    let buf = '';
+    req.on('data', (c) => { buf += c; if (buf.length > 1024 * 1024) req.destroy(); });
+    req.on('end', () => {
+      if (!feishuSync) return send(res, 500, { error: 'feishu-sync.js 未找到' });
+      let body;
+      try { body = JSON.parse(buf); } catch (e) { return send(res, 400, { error: 'JSON 解析失败' }); }
+      const cur = feishuSync.readConfig() || {};
+      const patch = {
+        app_id: String(body.app_id || '').trim(),
+        domain: String(body.domain || '').trim(),
+        folder_token: String(body.folder_token || '').trim(),
+        doc_title: String(body.doc_title || '').trim(),
+        file_name: String(body.file_name || '').trim()
+      };
+      // Secret 为空表示「不修改」：保留已有值，避免每次保存都得重填
+      const secret = String(body.app_secret || '').trim();
+      if (secret) patch.app_secret = secret;
+      if (!patch.app_id) return send(res, 400, { error: 'App ID 不能为空' });
+      if (!patch.app_secret) {
+        if (cur.app_secret) patch.app_secret = cur.app_secret; // 留空 = 沿用已保存的 Secret
+        else return send(res, 400, { error: 'App Secret 不能为空（首次配置必填）' });
+      }
+      if (body.dryRun === true || body.dryRun === false) patch.dryRun = body.dryRun;
+      try {
+        feishuSync.writeConfig(patch);
+        return send(res, 200, { ok: true, configured: !!(patch.app_id && patch.app_secret) });
+      } catch (e) { return send(res, 500, { error: '写入 sync.config.json 失败: ' + e.message }); }
+    });
+    return;
+  }
+
   // —— 静态文件（GET / HEAD）——
   if (req.method !== 'GET' && req.method !== 'HEAD') {
     return send(res, 405, { error: 'Method Not Allowed' });
@@ -88,8 +324,10 @@ const server = http.createServer((req, res) => {
   });
 });
 
-server.listen(PORT, () => {
+// 仅监听本机回环地址，避免同网段可读到 data/resume.json / 飞书凭证（修复原先监听 0.0.0.0 的隐患）
+server.listen(PORT, '127.0.0.1', () => {
   console.log('简历编辑器已启动 → http://localhost:' + PORT);
   console.log('· 编辑器内的每次编辑会自动写回 data/resume.json（实时保存，刷新不丢）');
   console.log('· 若用 file:// 或 python -m http.server 打开，浏览器无法写回，编辑仅存本浏览器本地');
+  console.log('· 飞书同步：工具栏「飞书同步」菜单 → 上报 / 恢复 / 同步配置（配置表单写入 sync.config.json）');
 });

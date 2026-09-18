@@ -2,8 +2,30 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- 必须带 viewport-fit：缺它时 env(safe-area-inset-*) 在 iOS / Android edge-to-edge 下恒为 0，
+     P1 加的刘海与底部手势条留白会全部失效（变死代码） -->
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<!-- 移动端浏览器工具条着色，由 js/theme.js 跟随主题更新（桌面端无害） -->
+<meta name="theme-color" content="#f0f0f0">
 <title>简历编辑器（拖拽排版 / 纯文本编辑）</title>
+
+<!-- 首屏防闪：在样式与业务脚本之前就把主题属性落到 <html> 上，避免深色首帧发白。
+     key 必须与 js/theme.js 里的 MODE_KEY / PAPER_KEY 保持一致；
+     纸张默认跟随夜间（除非手动存过 '0' 关闭）。 -->
+<script>
+(function(){
+  try{
+    var m = localStorage.getItem('resume-theme-mode');
+    var p = localStorage.getItem('resume-theme-paper') !== '0';
+    var dark = (m === 'dark') ||
+      (m !== 'light' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    if(dark){
+      document.documentElement.setAttribute('data-theme','dark');
+      if(p) document.documentElement.setAttribute('data-paper','dark');
+    }
+  }catch(e){}
+})();
+</script>
 
 <link rel="stylesheet" href="css/style.css">
 
@@ -14,28 +36,67 @@
 </head>
 <body>
 
-<div class="app">
+<div class="app mv-preview">
   <div class="preview-pane">
     <div class="toolbar">
       <h1>简历实时预览</h1>
       <span class="tip">拖拽左侧板块/条目可重排顺序</span>
-      <button onclick="ResumeEditor.toggleGuides()" id="guideBtn">显示分页线</button>
-      <button onclick="ResumeEditor.exportJSON()">导出数据</button>
-      <button onclick="document.getElementById('importFile').click()">导入数据</button>
-      <button onclick="ResumeEditor.loadRepoData()" title="从仓库根目录 data/resume.json 重新加载（需通过本地服务器打开）">从仓库 data/resume.json 重载</button>
-      <input type="file" id="importFile" accept=".json,application/json" style="display:none" onchange="ResumeEditor.importJSON(this)">
-      <button onclick="ResumeEditor.undo()" id="undoBtn" title="撤销 (Ctrl/Cmd+Z)">撤销</button>
-      <button onclick="ResumeEditor.redo()" id="redoBtn" title="重做 (Ctrl/Cmd+Shift+Z / Ctrl+Y)">重做</button>
       <span class="filename-wrap" title="导出文件的默认文件名前缀">
         <label for="filenameBase">文件名</label>
         <input type="text" id="filenameBase" placeholder="姓名_简历" onchange="ResumeEditor.setFileNameBase(this.value)">
       </span>
-      <button onclick="ResumeEditor.exportPDF()" title="html2canvas 截图拼合，生成图片版 PDF 预览">PDF 预览</button>
-      <button onclick="ResumeEditor.exportLongImage()" title="导出页面完整长图，与预览完全一致">导出（图片版）</button>
-      <button onclick="ResumeEditor.exportSingleFileHTML()" title="导出仅含简历本身的独立 HTML 文件，可直接双击打开">导出单文件 HTML</button>
+
+      <div class="menu">
+        <button class="menu-btn" onclick="ResumeEditor.toggleMenu(this)">文件 <span class="caret">▾</span></button>
+        <div class="menu-list">
+          <button onclick="document.getElementById('importFile').click()" title="导入此前导出的 JSON 数据">导入数据</button>
+          <button onclick="ResumeEditor.exportJSON()" title="把当前简历数据导出为 JSON 文件">导出数据</button>
+          <button onclick="ResumeEditor.loadRepoData()" title="从仓库根目录 data/resume.json 重新加载（需通过本地服务器打开）">从仓库重载</button>
+          <button onclick="ResumeEditor.clearSaved()" title="清空本地保存，回到内置初始数据">重置为初始数据</button>
+        </div>
+      </div>
+
+      <div class="menu">
+        <button class="menu-btn" onclick="ResumeEditor.toggleMenu(this)">导出 <span class="caret">▾</span></button>
+        <div class="menu-list">
+          <button onclick="ResumeEditor.exportPDF()" title="html2canvas 截图拼合，生成图片版 PDF 预览">PDF 预览 / 下载</button>
+          <button onclick="ResumeEditor.exportLongImage()" title="导出页面完整长图，与预览完全一致">导出（图片版）</button>
+          <button onclick="ResumeEditor.exportSingleFileHTML()" title="导出仅含简历本身的独立 HTML 文件，可直接双击打开">导出单文件 HTML</button>
+        </div>
+      </div>
+
+      <div class="menu">
+        <button class="menu-btn" onclick="ResumeEditor.toggleMenu(this)">飞书同步 <span class="caret">▾</span></button>
+        <div class="menu-list">
+          <button onclick="ResumeEditor.reportToFeishu()" id="feishuReportBtn" title="经本地服务把当前数据双写到飞书（文档 + 云盘文件，均带版本历史）">上报到飞书</button>
+          <button onclick="ResumeEditor.openFeishuRestore()" title="列出飞书中的历史版本并恢复">从飞书恢复</button>
+          <button onclick="ResumeEditor.openFeishuConfig()" title="配置飞书自建应用凭证（App ID / Secret 等）">同步配置…</button>
+        </div>
+      </div>
+
+      <div class="menu">
+        <button class="menu-btn" onclick="ResumeEditor.toggleMenu(this)">视图 <span class="caret">▾</span></button>
+        <div class="menu-list">
+          <button onclick="ResumeEditor.toggleGuides()" id="guideBtn">显示分页线</button>
+          <button onclick="ResumeEditor.toggleEditorPane()" id="paneToggleBtn" title="收起/展开右侧编辑面板 (Ctrl/Cmd+B)">收起编辑面板</button>
+          <button onclick="ResumeEditor.toggleTheme()" id="themeDarkItem" title="切换编辑器界面的夜间模式（导出的纸张始终是白纸）"><span class="check"> </span>夜间模式</button>
+          <button onclick="ResumeEditor.setThemeMode('auto')" id="themeAutoItem" title="跟随操作系统的深色 / 浅色设置"><span class="check"> </span>主题跟随系统</button>
+          <button onclick="ResumeEditor.togglePaperTheme()" id="themePaperItem" title="让预览里的简历纸张也变暗（导出 / 打印仍是白纸）"><span class="check"> </span>简历纸张也变暗</button>
+        </div>
+      </div>
+
+      <button onclick="ResumeEditor.undo()" id="undoBtn" title="撤销 (Ctrl/Cmd+Z)">撤销</button>
+      <button onclick="ResumeEditor.redo()" id="redoBtn" title="重做 (Ctrl/Cmd+Shift+Z / Ctrl+Y)">重做</button>
+      <button onclick="ResumeEditor.toggleTheme()" id="themeBtn" title="切换夜间模式（工具栏）"><span id="themeBtnLabel">夜间模式</span></button>
+      <span class="autosave" id="feishuStatus"></span>
       <span class="autosave" id="autosave"></span>
-      <button class="link-btn" onclick="ResumeEditor.clearSaved()">重置为初始数据</button>
+      <input type="file" id="importFile" accept=".json,application/json" style="display:none" onchange="ResumeEditor.importJSON(this)">
     </div>
+    <!-- 编辑面板收起/展开把手：贴预览区右缘，点击切换；收起后简历预览占满居中 -->
+    <button class="pane-tab" id="paneTab" onclick="ResumeEditor.toggleEditorPane()" title="收起编辑面板 (Ctrl/Cmd+B)">
+      <span class="pane-tab-arrow" id="paneTabArrow">›</span>
+      <span class="pane-tab-label">编辑面板</span>
+    </button>
     <div class="preview-frame" id="preview"></div>
   </div>
 
@@ -69,6 +130,41 @@
         <div class="hint">左侧预览中可用鼠标拖拽板块/条目重排顺序；右侧只修改纯文本，无需写代码。每行字段均提供「上间距 / 下间距」微调，数值会与上方「间距配置」中的全局默认值叠加，只影响当前这一行。</div>
         <div class="editor-scroll" id="editor"></div>
       </div>
+    </div>
+  </div>
+
+  <!-- 手机底部 Tab 导航：预览 / 编辑 / 同步（桌面隐藏） -->
+  <nav class="mobile-tabbar">
+    <button data-mv="preview" class="active" onclick="ResumeEditor.setMobileView('preview')">预览</button>
+    <button data-mv="edit" onclick="ResumeEditor.setMobileView('edit')">编辑</button>
+    <button data-mv="sync" onclick="ResumeEditor.setMobileView('sync')">同步</button>
+  </nav>
+
+  <!-- 手机「同步 / 工具」聚合页：暴露桌面工具栏文件/导出/飞书同步菜单功能 -->
+  <div class="sync-pane">
+    <div class="sync-inner">
+      <h2 class="sync-title">同步 / 工具</h2>
+      <span class="autosave" id="feishuStatusMobile"></span>
+
+      <div class="sync-group">飞书同步</div>
+      <button onclick="ResumeEditor.reportToFeishu()">上报到飞书</button>
+      <button onclick="ResumeEditor.openFeishuRestore()">从飞书恢复</button>
+      <button onclick="ResumeEditor.openFeishuConfig()">同步配置…</button>
+
+      <div class="sync-group">导出</div>
+      <button onclick="ResumeEditor.exportPDF()">导出 PDF 预览</button>
+      <button onclick="ResumeEditor.exportLongImage()">导出图片版</button>
+      <button onclick="ResumeEditor.exportSingleFileHTML()">导出单文件 HTML</button>
+
+      <div class="sync-group">数据</div>
+      <button onclick="document.getElementById('importFile').click()">导入数据</button>
+      <button onclick="ResumeEditor.exportJSON()">导出数据</button>
+      <button onclick="ResumeEditor.loadRepoData()">从仓库重载</button>
+      <button onclick="ResumeEditor.clearSaved()">重置为初始数据</button>
+
+      <div class="sync-group">外观</div>
+      <button onclick="ResumeEditor.toggleTheme()"><span id="themeBtnLabelMobile">夜间模式</span></button>
+      <button onclick="ResumeEditor.togglePaperTheme()">简历纸张也变暗</button>
     </div>
   </div>
 </div>
@@ -105,9 +201,77 @@
   </div>
 </div>
 
+<!-- 从飞书恢复版本：列出云盘文件 resume.json 的历史版本，点击恢复 -->
+<div class="pdf-modal" id="feishuRestoreModal">
+  <div class="pdf-modal-box" style="width:560px;height:auto;max-height:80%;">
+    <div class="pdf-modal-bar">
+      <span class="t">从飞书恢复版本</span>
+      <span class="sp"></span>
+      <button class="close" onclick="ResumeEditor.closeFeishuRestore()">关闭</button>
+    </div>
+    <div class="pdf-modal-body" style="padding:12px;background:#fff;color:#1a1a1a;overflow:auto;">
+      <div id="feishuVersions" style="display:flex;flex-direction:column;gap:8px;"></div>
+    </div>
+  </div>
+</div>
+
+<!-- 飞书同步配置表单：经本地服务读写 gitignored 的 sync.config.json，凭证不进浏览器存储/简历数据 -->
+<div class="pdf-modal" id="feishuConfigModal">
+  <div class="pdf-modal-box" style="width:520px;height:auto;max-height:85%;">
+    <div class="pdf-modal-bar">
+      <span class="t">飞书同步配置</span>
+      <span class="sp"></span>
+      <button class="close" onclick="ResumeEditor.closeFeishuConfig()">关闭</button>
+    </div>
+    <div class="pdf-modal-body" style="padding:16px 20px;background:#fff;color:#1a1a1a;overflow:auto;">
+      <div class="field">
+        <label>App ID *（飞书自建应用，形如 cli_xxx）</label>
+        <input id="cfgAppId" placeholder="cli_xxxxxxxxxxxx">
+      </div>
+      <div class="field">
+        <label>App Secret *（已设置时留空表示不修改）</label>
+        <input id="cfgAppSecret" type="password" placeholder="首次配置必填">
+      </div>
+      <div class="field">
+        <label>飞书域名（用于生成文档/文件链接，如 xxx.feishu.cn）</label>
+        <input id="cfgDomain" placeholder="feishu.cn">
+      </div>
+      <div class="field">
+        <label>云盘目标文件夹 folder_token（存到根目录填 0）</label>
+        <input id="cfgFolder" placeholder="0">
+      </div>
+      <div class="field">
+        <label>备份文档标题（飞书文档 docx 的标题）</label>
+        <input id="cfgDocTitle" placeholder="简历数据备份">
+      </div>
+      <div class="field">
+        <label>云盘文件名（版本化上传的 JSON 文件）</label>
+        <input id="cfgFileName" placeholder="resume.json">
+      </div>
+      <div class="field" style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+        <input type="checkbox" id="cfgDryRun" style="width:auto;">
+        <label for="cfgDryRun" style="margin:0;">dry-run 模式（走完整链路但不真实写入飞书，用于先验证流程）</label>
+      </div>
+      <div style="font-size:11.5px;color:#6b6b6b;line-height:1.6;border-top:1px solid #e5e5e5;padding-top:10px;margin-top:6px;">
+        所需权限 scope：<b>docx:document</b>、<b>drive:drive</b>（或 drive:file），并完成租户授权。
+        配置保存在本机 gitignored 的 sync.config.json，凭证不会进入浏览器存储或简历数据文件。
+      </div>
+      <div style="margin-top:14px;">
+        <button class="form-btn" id="cfgSaveBtn" onclick="ResumeEditor.saveFeishuConfig()">保存配置</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 
 <!-- 本项目代码：data.js 必须在 app.js 之前加载；放在 body 末尾，确保 DOM 就绪 -->
+<!-- 主题（日间 / 夜间）：必须最先加载，保证首帧就是正确的明暗 -->
+<script src="js/theme.js"></script>
 <script src="js/data.js"></script>
+<!-- P0 数据门面：必须在 app.js 之前加载，保证 window.ResumeStore 先于 app.js 可用 -->
+<script src="js/store/resume-store.js"></script>
+<!-- P2 原生桥：仅在 Tauri 壳内注入 window.__RESUME_NATIVE__，浏览器下不做任何事 -->
+<script src="js/store/native-bridge.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>

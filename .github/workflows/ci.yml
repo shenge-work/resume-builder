@@ -11,8 +11,12 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
       - name: 运行核心逻辑测试
         run: npm test
-      - name: 验证单文件版可构建且 dist/根目录两份字节一致
+      - name: 构建单文件版（离线分发用）
         run: npm run build
+      - name: 校验前端资源完整性（防止新增模块漏接线 / 漏打包 / 隐私目录泄漏）
+        run: |
+          npm run desktop:assets
+          node tools/verify-frontend-assets.js

@@ -175,6 +175,10 @@ CI（`.github/workflows/ci.yml`）在每次 push / PR 自动运行上述两项�
 - 本次上线内容（P0/P1/P2 全量）：见 [CHANGELOG.md](./CHANGELOG.md)。
 - 后续优化方向：见 [ROADMAP.md](./ROADMAP.md)。
 
+> ⏸ **关于「AI 辅助写简历」**：仓库内 [docs/DESIGN.md](./docs/DESIGN.md) 存有一份完整的技术设计方案
+> （选型调研、功能设计、UI 设计、目录结构），但**那只是未来演进方向，当前尚未实施** ——
+> 本工具目前仍是纯前端、无 AI 能力，请以本文描述的功能为准。
+
 ---
 
 ## 🤝 贡献

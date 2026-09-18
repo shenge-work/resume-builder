@@ -1,0 +1,167 @@
+# 桌面版构建说明（Tauri 2.x）
+
+本项目的桌面版把现有「零构建」Web 前端（`index.html` + `css/` + `js/`）套进 Tauri 2.x 原生壳，
+一份代码产出 **Windows msi/NSIS** 与 **macOS dmg**（Linux 上还可产出 AppImage/deb）。
+
+- 前端仍**没有打包器**：`<script>` 顺序直加载，Tauri 侧开启 `withGlobalTauri`，
+  于是 JS 只用 `window.__TAURI__.core.invoke` 就能调 Rust 命令，**不需要任何 npm 前端依赖**。
+- 飞书（以及其它第三方）调用全部经 Rust 原生层转发：绕开浏览器 CORS，且**凭证只活在 Rust 进程内**。
+
+---
+
+## 1. 目录与文件
+
+| 路径 | 作用 |
+|---|---|
+| `src-tauri/` | Tauri 工程（Rust）：`Cargo.toml`、`build.rs`、`tauri.conf.json`、`src/*.rs`、`icons/` |
+| `src-tauri/src/config.rs` | `sync.config.json` / `sync.state.json` 读写 + `tenant_access_token` 内存缓存 |
+| `src-tauri/src/feishu.rs` | 飞书 HTTP 传输层（通用 JSON 转发 / multipart 上传 / 版本下载并解析） |
+| `js/store/native-bridge.js` | 前端桥：检测到 `window.__TAURI__` 才注入 `window.__RESUME_NATIVE__` |
+| `tools/build-desktop-frontend.js` | 把前端资源白名单复制到 `dist-desktop/`（Tauri 的 `frontendDist`） |
+| `tools/gen-icons.js` | 重新生成 `src-tauri/icons/` 下的灰阶占位图标 |
+| `.github/workflows/build-desktop.yml` | 三平台矩阵出包 CI |
+
+`dist-desktop/`、`src-tauri/target/`、`sync.config.json`、`sync.state.json` **均不入库**（见 `.gitignore`）。
+
+---
+
+## 2. 前置依赖
+
+| 平台 | 需要安装 |
+|---|---|
+| 通用 | **Rust 工具链**（`rustup` + stable，≥ 1.77.2）、**Node ≥ 16.7**（本仓库脚本用 `fs.cpSync`）、`npm install`（装 `@tauri-apps/cli`） |
+| macOS | **Xcode Command Line Tools**：`xcode-select --install`（提供 clang 与链接器） |
+| Windows | **WebView2 Runtime**（Win11 自带；Win10 由安装包自动下载 bootstrapper，见 `tauri.conf.json` 的 `bundle.windows.webviewInstallMode`）+ MSVC 生成工具（安装 Rust 时选 `x86_64-pc-windows-msvc`） |
+| Linux | `libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf build-essential curl wget file libssl-dev libgtk-3-dev libayatana-appindicator3-dev` |
+
+Rust 安装：<https://rustup.rs> → `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`
+
+---
+
+## 3. 本地开发与构建
+
+```bash
+npm install                 # 装 @tauri-apps/cli（唯一 devDependency）
+
+npm run desktop:dev         # 复制前端资源 → 起 Tauri 开发窗口（热改 js/css 后重启生效）
+npm run desktop:assets      # 只做资源复制 → dist-desktop/
+npm run desktop:build       # 产出当前平台的安装包
+npm run icons:gen           # 需要时重新生成占位图标
+```
+
+产物位置（`tauri build` 之后）：
+
+```
+src-tauri/target/release/bundle/
+├── dmg/*.dmg            # macOS
+├── msi/*.msi            # Windows
+├── nsis/*-setup.exe     # Windows
+├── appimage/*.AppImage  # Linux
+└── deb/*.deb            # Linux
+```
+
+只想出某一种包：
+
+```bash
+npm run desktop:build -- --bundles dmg
+npm run desktop:build -- --bundles msi,nsis
+npm run desktop:build -- --bundles appimage,deb
+```
+
+> 首次构建会编译整个 Rust 依赖树，耗时较长属正常现象。之后走缓存会快很多。
+
+---
+
+## 4. CI 出包与下载
+
+`.github/workflows/build-desktop.yml` 在 `push`（main 分支、前端/Rust/配置有变动）、`pull_request`
+和手动 `workflow_dispatch` 时运行，三平台并行：
+
+| runner | 产出 bundle | artifact 名 |
+|---|---|---|
+| `macos-latest` | dmg | `resume-studio-macos` |
+| `windows-latest` | msi + nsis | `resume-studio-windows` |
+| `ubuntu-latest` | AppImage + deb | `resume-studio-linux` |
+
+流程：`checkout` → 安装 Linux 系统依赖（仅 ubuntu）→ `setup-node@v4` (22) →
+`dtolnay/rust-toolchain@stable` → `swatinem/rust-cache@v2` → `npm install` →
+`npm run desktop:build -- --bundles <matrix.bundles>` → `actions/upload-artifact@v4`（`if-no-files-found: error`）。
+
+**下载方式**：GitHub 仓库页 → **Actions** → 选中对应 workflow run → 页面底部 **Artifacts** 区下载对应 zip。
+安装包默认保留 14 天。
+
+### ⚠️ macOS 上无法产出 Windows msi
+Tauri 不支持跨平台交叉打包 Windows 安装包（msi/NSIS 依赖 Windows 的 WiX/NSIS 工具链）。
+**要出 Windows 包，必须在 Windows 机器上 `npm run desktop:build`，或直接跑上面的 CI（`windows-latest`）。**
+同理，macOS 的 dmg 只能在 macOS 上产出。
+
+---
+
+## 5. 凭证放哪里（安全）
+
+桌面版把飞书凭证放在**系统应用配置目录**（`tauri::path::app_config_dir()`）：
+
+| 平台 | 路径 |
+|---|---|
+| macOS | `~/Library/Application Support/com.resumestudio.app/sync.config.json` |
+| Windows | `%APPDATA%\com.resumestudio.app\sync.config.json` |
+| Linux | `~/.config/com.resumestudio.app/sync.config.json` |
+
+- 首次点击「保存配置」时由 Rust 自动创建该目录与文件；同目录还有 `sync.state.json`
+  （保存 `file_token` / `document_id`，浏览器模式下的 `sync.state.json` 在桌面端由 Rust 托管）。
+- 字段与 `tools/feishu-sync.js`、`sync.config.json.example` 一致：
+  `app_id` / `app_secret` / `domain` / `folder_token` / `doc_title` / `file_name` / `fileUploadMode` / `dryRun`。
+- **`app_secret` 永不返回给前端**：`feishu_config_load` 由 Rust 剥离后再返回（只给 `configured` / `hasSecret` 标志位），
+  前端页面拿不到明文；配置表单里 Secret 留空即表示「不修改」。
+- 仓库根目录的 `sync.config.json` 是**浏览器模式**（`npm start` 本地服务）用的那份，已在 `.gitignore` 里；
+  两份都**绝不要提交**，也不要把 `sync.config.json.example` 填成真实值。
+
+---
+
+## 6. 命令契约（前端 ↔ Rust）
+
+前端 `js/store/native-bridge.js` 只用这些命令；参数统一包在单个结构体里以避免命名歧义。
+
+| 前端调用 | Rust 命令 | 参数 | 返回 |
+|---|---|---|---|
+| `invoke('feishu_request', { req })` | `feishu_request(ApiReq)` | `{method, path, body}` | 飞书响应的 `data` |
+| `invoke('feishu_upload', { req })` | `feishu_upload(UploadReq)` | `{method, path, fields, file_b64, file_field}` | 飞书响应的 `data` |
+| `invoke('feishu_restore_data', { versionId })` | `feishu_restore_data(String)` | 版本 ID | 解析后的简历 JSON 对象 |
+| `invoke('feishu_config_load')` | `feishu_config_load()` | — | 配置对象（无 `app_secret`）或 `null` |
+| `invoke('feishu_config_save', { cfg })` | `feishu_config_save(Value)` | 合并补丁 | `{configured: bool}` |
+| `invoke('state_load')` | `state_load()` | — | `{file_token, document_id}` 或 `null` |
+| `invoke('state_save', { state })` | `state_save(Value)` | 合并补丁 | 完整状态对象 |
+
+要点：
+- `file_b64` / `file_field` 使用 **snake_case**（结构体字段名未做 camelCase 重命名）；`versionId` 是单参数命令，
+  依 Tauri 约定用 camelCase 传。
+- `tenant_access_token` 在 Rust 内存中缓存，按 `expire` **提前 5 分钟**过期；保存配置会立即作废缓存。
+- 通用校验：飞书响应 `code != 0` 一律返回 `飞书接口错误 {code}: {msg}`。
+- 复用 **rustls**（`reqwest` 关闭默认特性、开启 `rustls-tls`），Windows/Linux 上不依赖系统 openssl。
+
+---
+
+## 7. 常见报错排查
+
+| 现象 | 原因与处理 |
+|---|---|
+| `frontendDist ../dist-desktop not found` / `index.html not found` | 没先跑资源复制。执行 `npm run desktop:assets`，或直接用 `npm run desktop:dev` / `desktop:build`（两者会先自动复制） |
+| 在 `src-tauri/` 里直接 `cargo check` / `cargo build` 报「frontendDist 不存在」 | 编译期 `generate_context!` 会校验该目录存在。先 `npm run desktop:assets` 再进 `src-tauri/` 编译；正常流程请用 `npm run desktop:build` |
+| `icon ... not found` / 打包报 icon 错误 | `src-tauri/icons/` 缺文件或 `tauri.conf.json` 的 `bundle.icon` 列了不存在的图标。跑 `npm run icons:gen` 重新生成 |
+| `failed to find openssl` / `openssl-sys` 编译失败 | 本项目用 rustls 不该出现；若出现说明某依赖重新开启了默认特性。检查 `Cargo.toml` 的 `reqwest` 是否保留 `default-features = false` + `rustls-tls`，并清缓存重编（`cargo clean` 后重试） |
+| `libwebkit2gtk-4.0-dev` 找不到 / `webkit2gtk` 版本不符 | Tauri 2 需要 **webkit2gtk-4.1**。Ubuntu 22.04 请用 `libwebkit2gtk-4.1-dev`；更老的发行版需升级系统或用 CI 的 `ubuntu-latest` |
+| Linux 打包报 `patchelf not found` 或 appindicator 相关错误 | 安装依赖：`libappindicator3-dev`、`libayatana-appindicator3-dev`、`patchelf` |
+| Windows 上弹出 `WebView2` 缺失 | 安装包默认走 `downloadBootstrapper` 自动补装；离线环境请预装 WebView2 Runtime |
+| 桌面端点「上报到飞书」提示未配置 | 桌面端读的是 **app config dir** 的 `sync.config.json`（见第 5 节），不是仓库根目录那份；在「飞书同步 → 同步配置…」里保存一次即可 |
+| 桌面端上传/下载都失败但提示是 CORS | 桌面版不应有 CORS（请求由 Rust 发出）。若真出现，说明前端误直连了飞书 —— 检查是否漏加载 `js/store/native-bridge.js` |
+| 浏览器（`npm start`）里「上报到飞书」报「需在安装包（原生壳）中启用」 | **这是预期行为**：纯浏览器模式没有原生桥。浏览器模式请继续用本地 Node 服务（`tools/feishu-sync.js`）那条路 |
+
+---
+
+## 8. 与浏览器模式的关系（零回归）
+
+- `js/store/native-bridge.js` 检测不到 `window.__TAURI__.core.invoke` 时**立刻 return**，
+  不注入任何全局变量；`ResumeStore` 在浏览器里仍抛同一条友好错误：
+  `飞书同步需在安装包（原生壳）中启用；当前浏览器模式仅本地保存`。
+- `tools/serve.js`、`tools/feishu-sync.js` 保留不动，`npm start` 的工作流（含 `data/resume.json` 实时写回）不受影响。
+- `js/app.js`、`css/style.css`、`js/store/resume-store.js` 在本次改造中未做任何修改。

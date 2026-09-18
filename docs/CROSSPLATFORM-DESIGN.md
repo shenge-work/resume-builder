@@ -1,0 +1,235 @@
+# 跨平台简历编辑器 · 技术设计与架构方案
+
+> 目标：让简历编辑器能**打包成安卓 APK、Windows 安装包、macOS 安装包**，
+> 手机和电脑**都能编辑同一份简历**，并**以飞书为数据源、随时保存到远端**，UI 在各类屏幕上都自适应。
+>
+> 本文基于项目**真实代码**设计（非空想）：
+> 现状是「纯 Web 前端（HTML/CSS/原生 JS）+ 本地 Node 写服务 `tools/serve.js`」，
+> 飞书双写逻辑在零依赖的 `tools/feishu-sync.js`，当前 UI 是固定两栏、仅有 `@media print`、无移动端响应式。
+
+---
+
+## 0. 现状要点（设计的事实基础）
+
+| 项 | 现状 | 对跨平台的影响 |
+|---|---|---|
+| 前端 | `index.html` + `css/style.css` + `js/data.js` + `js/app.js`（IIFE，零依赖） | ✅ 纯 Web，天然可被任何原生壳的 webview 承载 |
+| 实时写回 | `app.js` 里 `fetch('/api/resume', POST)` → `serve.js` 写 `data/resume.json` | ⚠️ 假设本机跑着 Node 服务；**手机上没有 `npm start`，此路不通** |
+| 飞书同步 | `app.js` 调 `fetch('/api/sync', …)` → `serve.js` → `feishu-sync.js` 双写（docx + 版本化云盘文件） | ✅ 飞书已是远端数据源；⚠️ 目前是**手动按钮 + 整文件覆盖**，无自动拉取、无冲突合并 |
+| 凭证 | `sync.config.json`（gitignored，明文）留在服务端 | ⚠️ 手机端无「服务端」，需改存 OS 钥匙串 |
+| 离线兜底 | `localStorage`（`resume_builder_data_v1`） | 可升级为 `IndexedDB`，更适合大文档与多设备 |
+| UI 布局 | `.app{display:flex}` 两栏，编辑栏固定 `460px`；工具栏 `flex-wrap` | ⚠️ **无任何移动端 `@media`**，手机上编辑栏会挤压预览、触控目标过小 |
+| 打印/PDF | 原生打印（矢量，桌面推荐）+ html2canvas/jsPDF（图片版） | ⚠️ 移动端 webview 不一定有系统打印对话框，图片版需作为主路径 |
+
+**结论**：核心资产（HTML/CSS/JS 渲染管线 + 飞书同步逻辑）都能复用；真正的改造集中在三点——
+① 把「数据/同步」从「假设本地 Node 服务」解耦成**可跨端运行的数据适配层**；
+② 让 UI **自适应**手机/平板/桌面；
+③ 给多端「同时改」加上**拉取 + 冲突合并 + 版本历史兜底**。
+
+---
+
+## 1. 技术栈评估
+
+### 1.1 候选对比
+
+| 方案 | 能否一个代码库出 4 端包 | 包体积 | 改造量 | 对本项目适配度 | 团队门槛 |
+|---|---|---|---|---|---|
+| **Tauri 2.x**（Web 前端 + Rust 后端） | ✅ Win / macOS / Linux / **Android / iOS** 全覆盖 | **极小（≈8–15MB）** | 中：需把 `feishu-sync.js` 与写回逻辑移植为 Rust command | ⭐⭐⭐⭐ 复用 100% 前端 | 需学 Rust（sync 层） |
+| **Capacitor + Electron** | ✅ Capacitor→安卓/iOS；Electron→Win/Mac（**两套壳**） | Electron 偏大（≈80–180MB） | 低：前端零改动；Electron 内可直接跑 `serve.js` | ⭐⭐⭐⭐ 前端零改动，但维护两套壳 | 纯 JS |
+| **Flutter** | ✅ 全平台单一 Dart 代码库 | 小 | **极大**：A4 分页/打印/拖拽/PDF 全部用 Dart 重写 | ⭐⭐ 浪费现有 HTML/CSS 投资 | 需学 Dart |
+| **React Native (Expo) + Web** | 🟡 移动+Web；桌面弱（需 RN-Windows/macOS） | 小 | 大：UI 重写到 RN 组件 | ⭐⭐ 同样废弃现有管线 | RN 生态 |
+
+### 1.2 选型结论
+
+- **首选：Tauri 2.x**。理由：一个 Rust 核心 + 一份 Web 前端，直接产出安卓 APK、Windows msi/exe、macOS dmg；安装包最小；飞书调用改在 Rust 原生层后**不再有浏览器 CORS 限制**（现在 `feishu-sync.js` 走 Node 也是为绕开 CORS，思路一致）。
+- **备选（不想碰 Rust）：Capacitor + Electron**。前端**一行不改**，Electron 主进程里直接 `require('./tools/serve.js')` 把现有能力跑起来；代价是维护 Capacitor、Electron 两套壳，且桌面安装包偏大。
+- **不推荐：Flutter / RN**。本项目本质是「文档排版 + 打印 PDF」，HTML/CSS 是天作之合，重写成本高风险大。
+
+> 下文以 **Tauri 2.x** 为主线描述改造；若走 Capacitor+Electron，仅「原生壳」一节不同，数据/同步层与 UI 自适应完全一致。
+
+---
+
+## 2. 关键判断：保留 Web 前端，只换「壳」
+
+简历是**固定版面（A4）的文档**，需要：精确分页、打印成可选中文字的 PDF、拖拽重排。这些用 HTML/CSS 实现最自然（项目已验证），而原生 UI 框架（Flutter/RN）要做同样品质的排版与打印反而费力。
+
+因此策略是 **「Web 内核 + 原生壳」**，而非重写：
+- 前端继续是现有 `index.html / style.css / app.js`（只加响应式、加一层数据门面）。
+- 原生壳（Tauri）负责：文件系统写回、网络（飞书）、凭证钥匙串、打包签名。
+- 桌面端 `serve.js` 退化为「纯浏览器/PWA 模式」的可选回退，核心同步改走原生壳。
+
+---
+
+## 3. 需要改造的架构
+
+### 3.1 当前架构的瓶颈（一句话）
+
+> 前端把「存盘」和「飞书同步」都写死成了 `fetch('/api/...')` 本地 HTTP 调用；
+> 手机上没有这个本地服务，且同步是手动整覆盖、无冲突处理。
+
+### 3.2 目标分层架构
+
+```
+┌──────────────────────── 任意设备（安卓 / Win / Mac） ───────────────────────┐
+│                                                                            │
+│   ┌─────────────── 响应式 Web UI（现有前端 + 自适应改造） ───────────────┐   │
+│   │  预览(A4自适应缩放)  │  编辑面板  │  同步状态条 / 保存到飞书按钮      │   │
+│   └───────────────────────────┬────────────────────────────────────────┘   │
+│                                 │  经 SyncAdapter 门面（不再直接 fetch /api）│
+│   ┌───────────────────────────▼────────────────────────────────────────┐   │
+│   │           数据同步适配层 ResumeStore（新增，纯 JS）                  │   │
+│   │  load() / save() / pull() / push() / listVersions() / restore()     │   │
+│   │  Coordinator：打开即 pull → 编辑防抖 push → 冲突 3-way merge         │   │
+│   │   ├─ LocalStore   （App 数据目录写回，替代 /api/resume）            │   │
+│   │   ├─ FeishuStore  （远端数据源，替代 /api/sync，含版本历史）        │   │
+│   │   └─ BrowserStore （IndexedDB 离线兜底，替代 localStorage）          │   │
+│   └───────────────────────────┬────────────────────────────────────────┘   │
+│                                 │  invoke('save_resume' / 'feishu_*')        │
+│   ┌───────────────────────────▼────────────────────────────────────────┐   │
+│   │   原生壳 Tauri（Rust）：文件系统 / HTTPS / OS 钥匙串 / 打包签名      │   │
+│   │   · 移植 feishu-sync.js → Rust command（reqwest + serde）            │   │
+│   │   · 凭证存钥匙串（tauri-plugin-keyring），不再明文 sync.config.json  │   │
+│   └───────────────────────────────────────────────────────────────────┘   │
+│                                 │  HTTPS（原生层，无 CORS 问题）             │
+└────────────────────────────────────────┬──────────────────────────────────┘
+                                         ▼
+                             飞书 open.feishu.cn
+                       （docx 版本历史 + 云盘文件版本化）
+```
+
+### 3.3 关键改造：ResumeStore 数据门面（纯 JS，跨端通用）
+
+把 `app.js` 里散落的 `fetch('/api/resume')`、`fetch('/api/sync')` 收口到一个**统一接口**，让 UI 不关心「数据到底存在哪」：
+
+```js
+// js/store/store.js（新增，零依赖）
+const ResumeStore = {
+  async load()  { /* 启动：优先 FeishuStore.pull，否则 LocalStore，否则 BrowserStore */ },
+  async save(payload) { /* 防抖写 LocalStore + 触发 FeishuStore.push */ },
+  async pull()  { /* 从飞书拉最新，做冲突合并 */ },
+  async push(payload) { /* 推到飞书，返回新版本号 */ },
+  async listVersions() { /* 飞书版本列表 */ },
+  async restore(versionId) { /* 回滚到某版本 */ }
+};
+```
+
+- `LocalStore`：桌面用 Tauri 命令写 App 数据目录；浏览器/PWA 回退写 `IndexedDB`。
+- `FeishuStore`：封装飞书双写（docx + 版本化云盘文件），逻辑与现有 `feishu-sync.js` 等价，只是运行位置从 Node 移到原生壳。
+- `BrowserStore`：`IndexedDB`（替代 `localStorage`，容量与结构更好，支持多设备离线）。
+
+> **对现有代码的最小侵入**：`app.js` 中 `fetch('/api/resume'…)`（line 1070）、`reportToFeishu`/`openFeishuRestore`/`saveFeishuConfig`（line 1227–1348）改为调用 `ResumeStore.*`；内部逻辑（渲染、`recordHistory`、撤销栈）**完全不动**。现有 `serve.js` 保留为「纯浏览器/PWA 模式」回退。
+
+### 3.4 多端「同时修改」怎么解决（最重要也最易低估）
+
+用户要的是「手机和电脑都能改、随时存远端」。有两种强度：
+
+| 方案 | 强度 | 实现 | 何时需要 |
+|---|---|---|---|
+| **v1 字段级合并 + 飞书版本历史兜底** ✅ 推荐先做 | 异步多端编辑（不同设备不同时间改，或改不同字段） | 打开即 `pull` 最新；保存时 `pull` 最新基线与本地做**字段级 deep-merge**；同字段冲突取「最后写入」并保留历史；飞书文件版本历史 = 可回滚保险 | 简历是个人维护、两设备不会真同时敲同一个字 |
+| v2 Yjs CRDT 协同 | 光标级实时共编 | 内置 Y.Doc，经飞书或轻量同步服务交换更新 | 真要两人同屏同时改同一段（简历场景极少） |
+
+**v1 的 3-way merge 关键细节**：保存前记录 `baseVersion`（本次编辑开始时飞书的文件版本 id）。推送时：
+1. `pull` 飞书当前最新 `theirs`；
+2. 以 `base → ours` 的本地改动，应用到 `base → theirs`：只改本地动过的字段；双方都改的同一字段 → 本地胜出并标记「已合并，历史可查」；
+3. 上传为新版本。飞书版本历史保证任何误合并都能回滚。
+
+> 这样「手机改了一段、电脑改了另一段」能无损合并；只有「同一句话两人各改一版」才需要人工择一——而这用飞书历史即可解决，无需上 CRDT。
+
+### 3.5 飞书凭证与隐私
+
+- 原生壳用 **OS 钥匙串**（`tauri-plugin-keyring` / Android Keystore / macOS Keychain）存 App ID/Secret，**取代明文 `sync.config.json`**。
+- 飞书调用在**原生层**发起（Rust `reqwest`），不经过浏览器 → 没有 CORS 限制，也符合现有「凭证绝不进浏览器」的红线。
+- 沿用既有权限 scope：`docx:document`、`drive:drive`（或 `drive:file`）+ 租户授权。
+
+### 3.6 改造范围小结
+
+| 现有文件 | 改动 |
+|---|---|
+| `index.html` / `css/style.css` / `js/app.js` | 加响应式 + 把 `fetch('/api/*')` 换 `ResumeStore`（逻辑不动） |
+| `js/data.js` | 不动（仍是种子数据） |
+| `tools/feishu-sync.js` | 逻辑平移为 Tauri Rust command（或 Capacitor 原生插件） |
+| `tools/serve.js` | 降级为「纯浏览器/PWA 模式」回退，核心同步交给原生壳 |
+| `tools/build-single.js` | 仍产出离线单文件版（无同步，提示用安装包） |
+| 新增 | `js/store/*`、`src-tauri/`（Rust 壳）、`tauri.conf.json` |
+
+---
+
+## 4. 页面与自适应设计
+
+### 4.1 断点（移动优先）
+
+| 形态 | 宽度 | 布局 |
+|---|---|---|
+| 手机（竖） | < 640px | **单栏**：底部 Tab 切换「预览 / 编辑 / 同步」；全屏 |
+| 平板（竖） | 640–1024px | 单栏（同手机）或窄两栏 |
+| 平板（横）/ 小窗 | 1024–1280px | **两栏**：预览 + 编辑并排 |
+| 桌面 | > 1280px | 两栏，编辑栏可拖拽宽度（沿用现状） |
+
+### 4.2 三形态线框（见配图）
+
+- **手机**：顶部精简工具条（标题 + 「保存到飞书」悬浮按钮）；底部三个 Tab；预览页 A4 按视口宽度等比缩放居中；编辑页全屏表单，触控目标 ≥ 44px。
+- **平板（横）**：预览占左、编辑占右，复用桌面两栏但间距收紧。
+- **桌面**：保持现状两栏，编辑栏 `460px` 起、可拖拽。
+
+### 4.3 关键适配点
+
+1. **A4 预览缩放**：用 `width: clamp(...)` + `transform: scale()` 让 A4 页在手机宽度内完整可见；打印/导出时还原 1:1 保证 PDF 不失真。
+2. **触控优先**：`@media (pointer:coarse)` 把按钮/输入框调到 ≥44px；拖拽重排在手機上改为「长按进入排序模式 + 上下箭」。
+3. **安全区**：`env(safe-area-inset-*)` 避开刘海/底部手势条；底部 Tab 固定。
+4. **PDF 导出**：桌面走原生打印（矢量）；**移动端 webview 优先用 html2canvas 图片版**（系统打印对话框在移动端不稳），导出按钮按端自动选路径。
+5. **导航改革**：桌面下拉菜单（`文件/导出/飞书同步/视图`）在手机上合并为底部 Tab + 一个「⋯」更多页，避免 `flex-wrap` 挤成一团。
+6. **黑白灰约束**：沿用既有明度阶梯（`#fff/#f5f5f5/#ebebeb/#d9d9d9/#999/#666/#1a1a1a`），不引入新颜色。
+
+### 4.4 黑白灰与可读性
+
+严格保持现状的「黑/白/灰」规范：层次靠明度、边框粗细（0.5/1/2px）、字重（400/500）、留白、动效（灰阶骨架 + `▍` 光标），不用彩色。
+
+---
+
+## 5. 打包与发布
+
+| 平台 | 命令 / 产物 | 注意 |
+|---|---|---|
+| **Android** | `npm run tauri android build` → `app-arm64-release.apk` / `.aab` | 需 Android SDK + 签名密钥（keystore）；上架用 aab |
+| **Windows** | Tauri → `.msi`（WiX）或 `.exe`（NSIS） | 可选代码签名证书去掉 SmartScreen 警告 |
+| **macOS** | Tauri → `.app` / `.dmg` | 分发需 Apple 开发者账号**公证**（notarization）过 Gatekeeper；个人用可 ad-hoc 签名 |
+| **更新** | `tauri-plugin-updater` 或飞书/wiki 放版本说明 | 安装包约 10–20MB，远小于 Electron |
+
+> 凭证与飞书配置在首次启动引导里填，存钥匙串；不再有 `sync.config.json` 明文文件。
+
+---
+
+## 6. 分阶段路线（小步快跑，每阶段可停）
+
+| 阶段 | 内容 | 产出 | 估时 |
+|---|---|---|---|
+| **P0 数据门面** | 抽 `ResumeStore`（Local/Browser/Feishu 三实现），`app.js` 改走门面；浏览器+PWA 模式照常工作 | 同步逻辑可单测、与 UI 解耦 | 1–2 天 |
+| **P1 响应式 UI** | 加断点、底部 Tab、A4 缩放、触控目标；**纯浏览器即可验证** | 手机/平板/桌面自适应可用 | 2–3 天 |
+| **P2 桌面原生壳** | 起 `src-tauri`，`invoke` 接 save/feishu；打包 Win msi + Mac dmg | 桌面安装包可用 | 2–3 天 |
+| **P3 安卓壳** | `tauri android` 构建 APK；钥匙串存凭证；移动端 PDF 走图片版 | 安卓 APK 可用 | 2–3 天 |
+| **P4 冲突合并** | 3-way merge + 打开即 pull + 版本回滚 UI | 多端同时改不丢数据 | 2–3 天 |
+| **P5 发布加固** | 签名/公证、更新通道、引导页、文档 | 可对外分发 | 1–2 天 |
+
+每阶段保持 `npm test` 与 `npm run build` 通过。
+
+---
+
+## 7. 风险与对策
+
+| 风险 | 对策 |
+|---|---|
+| 移动端 webview ≠ 桌面 Chrome（拖拽、打印差异） | P1 就定「移动端用箭头排序 + 图片版 PDF」；用真机/模拟器测 |
+| 飞书调用从 Node 移植 Rust 有工作量 | 逻辑已清晰（250 行 https 调用）；或用 Capacitor+Electron 备选避免 Rust |
+| 多端同字段冲突 | v1 字段合并 + 飞书版本历史兜底；真需共编再上 Yjs |
+| 凭证安全 | 钥匙串替代明文；沿用「不进浏览器」红线 |
+| 安装包分发/签名合规 | macOS 公证、Android 签名密钥妥善保管 |
+
+---
+
+## 8. 结论与下一步
+
+- **架构主线**：Web 内核（复用 100% 现有前端） + Tauri 原生壳（出 4 端包、最小体积）+ ResumeStore 数据门面（解耦同步、支持飞书为数据源）+ 字段级合并（多端同改不丢）。
+- **UI 主线**：移动优先、底部 Tab、A4 自适应缩放、黑白灰不变。
+- **推荐先做的第一步**：P0（抽 `ResumeStore`）+ P1（响应式），这两步**纯浏览器就能完成并验证**，不依赖任何原生环境，风险最低、价值最高。
+
+> 下一步可选：① 我直接动手实现 P0+P1（抽数据门面 + 响应式改造）；② 先搭 Tauri 桌面骨架跑通 Win/Mac；③ 若不想写 Rust，改走 Capacitor+Electron 备选并细化。你定方向。
