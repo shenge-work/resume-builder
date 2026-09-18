@@ -332,8 +332,8 @@ jobs:
           name: resume-studio-android-apk
           path: src-tauri/gen/android/app/build/outputs/apk/**/*.apk
           if-no-files-found: error
-          # artifact 不可变，且 overwrite 默认 false：重跑时上次 attempt 的同名 artifact 仍在，
-          # 上传会直接失败。理由详见 release.yml 里 release-meta 那段注释。
+          # 零成本防御，**非修复真实缺陷** —— 实测重跑时 GitHub 会自行清理上次 attempt 的
+          # 同名 artifact。理由与实验过程见 release.yml 里 release-meta 那段注释。
           overwrite: true
           retention-days: 14
 

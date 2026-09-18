@@ -196,12 +196,15 @@ jobs:
         with:
           name: release-meta
           path: ${{ runner.temp }}/release-meta
-          # ⚠️ artifact 一旦创建即不可变，而 `overwrite` 默认是 false —— 同名时上传直接失败。
-          # 「重跑」（Re-run all jobs）会新建一次 attempt，但**上一次 attempt 的 artifact 仍然在**，
-          # 于是每个上传步骤都会撞名。偏偏「重跑」正是构建偶发失败时最自然的操作。
+          # ⚠️ 更正（2026-09-19 对照实验）：先前以为「重跑时上次 attempt 的 artifact 仍在 →
+          # 同名上传必失败」，**已实测推翻**。拿一个修复前的 run 调 /rerun 后观察：
+          # artifact 数量不变（3 个）、ID 全变（10566995630 → 10570285494）、创建时间变成重跑时刻
+          # ⇒ GitHub **在重跑时会删掉上一次 attempt 的 artifact**，撞名不会发生。
+          # 所以 `overwrite: true` 不是修某个真实缺陷，而是一条**零成本防御**（官方文档保证
+          # 「artifact 不存在时不失败」，只在同名已存在时才先删再传）。
           overwrite: true
-          # 保留期要覆盖「publish 被单独重跑」的时间窗。原先设成 1 天：次日重跑 publish 时
-          # release-meta 已过期，download-artifact 拿不到 notes.md，发版会失败在「缺更新说明」。
+          # 保留期从 1 天放宽到 14 天，与其余四处一致：避免「隔一段时间再单独重跑 publish」
+          # 时 release-meta 已过期、download-artifact 拿不到 notes.md。
           retention-days: 14
 
   # ─────────────────────────────────────────────────────────────
