@@ -290,9 +290,12 @@ PDF 还要过系统打印对话框。本任务补齐这三块，全部不依赖�
 | T7 遗留收口（7d 打印边距跟随 + 7e 补两项检查） | 2026-09-19 | ✅ 通过 | **7d**：打印 / 静默 PDF 的 `@page` 边距改为跟随「页面边距」设置（`app.js` 动态规则 + `render-resume.js` 注入），实测同一份简历 14mm → 797,963 B/4 页、30/25mm → 800,804 B/5 页，`MediaBox` 仍为 A4；`null` 不再被当成 0mm。**7e**：体检补 `empty-sections`(error) 与 `subtitle-missing`(info)，正反两面均有断言。测试 117 → **125/125** 全绿，新增 4 条页边距回归断言防止重构丢失 |
 | T7 导出测试补齐（7f） | 2026-09-19 | ✅ 通过 | 新增 `test/cases-export.js`（自带独立 zip 解析器，不复用被测实现的 CRC/解压逻辑）+ 接入运行器 → 测试 125 → **203/203** 全绿；`verify:assets` 通过 10 引用、`npm run build` 单文件版 md5 `f9f855a4605051d02b83012c1f2e868a`（与改动前一致，证明测试改动未触碰产物）。**变异测试 14/15 抓住**（唯一漏网为等价变异），并据此修掉 2 个真实测试盲区（本地头压缩标记未校验、skills 分隔符用例只有一条长句） |
 | T5 P4 冲突合并 | — | ⏳ 未开始 | 无 `baseVersion` 记录、无 3-way merge、无「打开即 pull」；**且本文件尚未为 T5 定义 AC 章节**（违反「先定 AC 再执行」流程，需先补） |
-| CI 运维加固 + Android 签名凭据 | 2026-09-19 | ✅ 通过（AC1–AC8；**最后一步「填 Secret」需人工**） | action 升到最新稳定（`checkout@v7` / `setup-node@v7` / `setup-java@v6` / `upload-artifact@v7`，并纠正上轮「升到 v5 即可」的过期建议）；本机装 Temurin 17.0.20.1 生成 **PKCS12** 上传密钥库（RSA 4096 / SHA256withRSA / 10000 天 / alias `resume-studio`）；base64 `openssl -A` 单行 5.8 KB，**解码后字节一致且可被 keytool 打开**；CI 侧补 `storeType=PKCS12`（消除 JKS/PKCS12 歧义）；**无 Android SDK 也复刻跑通了签名步骤**（解码 → `keystore.properties` → Gradle 补丁，大括号平衡、证书可导出）；修掉 3 处 identifier 文档漂移（`ANDROID-BUILD.md` ×2、`DESKTOP-BUILD.md` ×3）并补 5 条签名排错 |
-| Android 构建根因修复（`tauri` script） | 2026-09-19 | ✅ 通过（CI 闭环，run 35388942760） | `Build Android` 此前必在 `Execution failed for task ':app:rustBuildArm64Debug'` 失败；根因是 **`package.json` 缺 `"tauri": "tauri"`**（`tauri android init` 按启动方式把 `npm run -- tauri android android-studio-script` 烘焙进 `BuildTask.kt`）。A/B 对照坐实（有 script → `tauri-cli 2.11.4`；删掉 → 与 CI 日志逐字相同）。修复后 **15 个步骤全绿、9 分 7 秒**，产出 `android-apk` **145.97 MB** + `android-aab` **143.13 MB**；同推 `Build Desktop` / `CI` 亦 success，三端五包齐全（win 4.04 / mac 2.14 / linux 75.71 MB）。当前为 **debug 签名**（secret 未配） |
-| T6 P5 发布加固 | — | ⏳ 未开始 | 凭证仍**明文**存 `app_config_dir()/sync.config.json`（钥匙串未接）；**壳内文件落盘命令缺失**（导出全走 `<a download>`，macOS WKWebView / Android WebView 极可能静默失败且从未真机验证）；自动更新/签名/公证/引导页未做 |
+| CI 运维加固 + Android 签名凭据 | 2026-09-19 | ✅ 通过（AC1–AC8 全闭环） | action 升到最新稳定（`checkout@v7` / `setup-node@v7` / `setup-java@v6` / `upload-artifact@v7`，并纠正上轮「升到 v5 即可」的过期建议）；本机装 Temurin 17.0.20.1 生成 **PKCS12** 上传密钥库（RSA 4096 / SHA256withRSA / 10000 天 / alias `resume-studio`）；base64 `openssl -A` 单行 5.8 KB，**解码后字节一致且可被 keytool 打开**；CI 侧补 `storeType=PKCS12`（消除 JKS/PKCS12 歧义）；**无 Android SDK 也复刻跑通了签名步骤**（解码 → `keystore.properties` → Gradle 补丁，大括号平衡、证书可导出）；修掉 3 处 identifier 文档漂移（`ANDROID-BUILD.md` ×2、`DESKTOP-BUILD.md` ×3）并补 5 条签名排错 |
+| Android 构建根因修复（`tauri` script） | 2026-09-19 | ✅ 通过（CI 闭环，run 35388942760） | `Build Android` 此前必在 `Execution failed for task ':app:rustBuildArm64Debug'` 失败；根因是 **`package.json` 缺 `"tauri": "tauri"`**（`tauri android init` 按启动方式把 `npm run -- tauri android android-studio-script` 烘焙进 `BuildTask.kt`）。A/B 对照坐实（有 script → `tauri-cli 2.11.4`；删掉 → 与 CI 日志逐字相同）。修复后 **15 个步骤全绿、9 分 7 秒**，产出 `android-apk` **145.97 MB** + `android-aab` **143.13 MB**；同推 `Build Desktop` / `CI` 亦 success，三端五包齐全（win 4.04 / mac 2.14 / linux 75.71 MB） |
+| Signing secrets 写入（原为人工待办） | 2026-09-19 | ✅ 通过 | 根因是 token 的 `Secrets` 权限只有 **read**（官方文档：写入需 **write**）→ 改权限后脚本一次写入 **`HTTP 201` × 4**；`ANDROID_KEY_BASE64` 5940 B / `ALIAS` 13 B / 两个口令各 32 B 且 **sha256 相同**（符合 PKCS12 要求）。**教训：`GET` 返回 200 不代表有写权限**，read/write 是两项独立授权 |
+| APK 签名证书自动断言 | 2026-09-19 | ✅ 已加（本地已验证，待 CI 复跑确认） | 新增「校验 APK 签名证书」步骤：apksigner 优先 / keytool 兜底，指纹归一化后与 `EXPECTED_SHA256` 硬比对，不符则 `exit 1`；`signed=false` 时只 warning 不阻断。本地三项验证：期望指纹与密钥库真实值**逐位一致**、解析管道对两种输出格式均成立、YAML 与全部 `run` 块 `bash -n` 通过 |
+| **壳内「导出不落盘」根因定位** | 2026-09-19 | ✅ 已定论（方案就绪，未实施） | 见下方专节与 [docs/EXPORT-NATIVE-SAVE.md](./EXPORT-NATIVE-SAVE.md)。四种方案（`blob:`/`data:` × 有/无下载处理器）**全部实测失败**；`window.print()` 在 WKWebView 里是**静默空操作** → 桌面端 PDF 的三条路（静默导出 / 打印兜底 / 预览下载）**全是死的** |
+| T6 P5 发布加固 | — | ⏳ 未开始 | 凭证仍**明文**存 `app_config_dir()/sync.config.json`（钥匙串未接）；**壳内文件落盘命令缺失** —— 且已**实证**在 WKWebView 下静默失败（见 [EXPORT-NATIVE-SAVE.md](./EXPORT-NATIVE-SAVE.md)，该项已单列进 ROADMAP 高优先级）；自动更新/签名/公证/引导页未做 |
 
 ---
 
@@ -315,7 +318,7 @@ PDF 还要过系统打印对话框。本任务补齐这三块，全部不依赖�
 |---|---|---|---|
 | 1 | **Windows msi / Android APK 由 CI 产出中** | 状态已推进：改造内容**已推送**（`7260dc9` → `bda7316` → `b371306` → `d1f5fce`）。`CI #5` 实测 **Success（9s）**；`Build Desktop #1` 与 `Build Android #1` 实测**已在 Actions 中运行** | 用户原始诉求「PC 安装包 + 安卓安装包」**由 CI 补齐中**；Android 的**签名凭据已生成备好**（见文末「CI 运维加固与 Android 签名凭据」），未配 secret 前出的是 debug 包 |
 | 2 | ~~**T7 三件套运行时不可达**~~ ✅ **本次已解决** | 已修：`index.html` 引入两模块 + UI 入口；`tools/serve.js` 补 `POST /api/pdf`；`test/cases-audit.js` 接入运行器（原缺口：`test/run.js` 硬编码只读 `cases.js`，且缺 `cases-audit.js` 需要的 `ctx.assert` → 294 行测试从未执行） | 已从「写了但运行时不可达」变为**真实生效**：测试 49 → 117 条全绿 |
-| 3 | **壳内导出落盘未验证** | 全项目无任何原生 save-file 命令（桥仅 6 个 `feishu*` + 2 个 `state*`） | 安装包内点「下载 PDF/图片/HTML/JSON」在 WKWebView/Android WebView 下**可能静默不落盘** |
+| 3 | **壳内导出落盘：已确认是缺陷**（不再是「可能」） | 已实证：四种方案（`blob:`/`data:` × 有/无下载处理器）**全部不落盘**；点 PDF 导出还会把编辑器界面**顶掉**；`window.print()` 在 WKWebView 里是**静默空操作** → 桌面端 **PDF 三条路全死**。源码证据：WebKit bug 216918 + `wry-0.55.1/src/wkwebview/mod.rs:572` + Tauri 2.11.5 无 `on_download` | 安装包内「导出 PDF / 长图 / 单文件 HTML / 数据 JSON」**四个功能全部不可用**。方案与 AC 见 [docs/EXPORT-NATIVE-SAVE.md](./EXPORT-NATIVE-SAVE.md)，**待实施**（阻塞：`js/app.js` 正被「多份简历库」改动） |
 | 4 | **T5 冲突合并未做且无 AC** | 无 `baseVersion`；`docs/ACCEPTANCE.md` 无 T5 章节 | 「手机和电脑同时改」的**不丢数据**保证尚未实现（当前只有「后写覆盖 + 飞书版本历史可回滚」） |
 | 5 | **T6 凭证仍明文** | `src-tauri/src/config.rs:24` `CONFIG_FILE = "sync.config.json"`，落在 `app_config_dir()` | `app_secret` 明文落盘（T3 只保证「不进浏览器」，未保证「加密存储」） |
 | 6 | ~~**单文件构建清单是硬编码**~~ ✅ **本次已解决** | `tools/build-single.js` 的 `files` 数组已补入 `export-extra.js` / `audit.js`；并修正了「剩余外部引用」长期误报 1 个的统计正则 | 单文件版不再静默缺功能；构建输出可如实反映残留引用 |
@@ -627,58 +630,64 @@ BUILD FAILED in 1m 59s
 > 可直接装真机验证，但**不能上架**。体积偏大（145 MB）也是 debug 通用包的正常表现：
 > 未做 ABI 拆分，4 个架构的 Rust 产物全打在一起。将来配好 release 签名后可考虑 `--split-per-abi`。
 
-### 需要人工完成的一步（API 路径被权限挡住）
+### 4 个 signing secrets：已写入（曾经卡在权限上，现已解决）
 
-**把 4 个值填进仓库 Secrets**：`Settings → Secrets and variables → Actions → New repository secret`。
-值取自 `android-signing/`：
+**结论：已通过 API 成功写入 4 个 secret，`HTTP 201` × 4。** 值取自 `android-signing/`：
 
-| Secret 名 | 取值 |
-|---|---|
-| `ANDROID_KEY_BASE64` | `android-signing/resume-studio-upload.keystore.base64` 的**全部内容**（5940 字节单行） |
-| `ANDROID_KEY_ALIAS` | `resume-studio` |
-| `ANDROID_KEY_PASSWORD` | 见 `ANDROID-SIGNING-CREDENTIALS.txt` 的 `口令:` |
-| `ANDROID_STORE_PASSWORD` | 同 `ANDROID_KEY_PASSWORD`（PKCS12 下二者必须相等） |
+| Secret 名 | 写入大小 | 校验 |
+|---|---|---|
+| `ANDROID_KEY_BASE64` | 5940 字节 | ✅ 与 `resume-studio-upload.keystore.base64` 文件大小一致 |
+| `ANDROID_KEY_ALIAS` | 13 字节 | ✅ `resume-studio` |
+| `ANDROID_KEY_PASSWORD` | 32 字节 | ✅ |
+| `ANDROID_STORE_PASSWORD` | 32 字节 | ✅ sha256 与上一行**完全相同**（PKCS12 要求相等） |
 
-Secret 一旦创建就**不可再读回**，所以务必先在密码管理器里留一份。
-4 个缺任一个都会静默回退 debug 签名（日志里只有一条 `::notice::`）。
+写入脚本已沉淀为可复用资产：`~/.workbuddy/skills/tauri-wrap-static-webapp/scripts/set-github-secrets.py`。
 
-> **为什么是手工**：GitHub 的 Actions Secrets **写入**要求细粒度 PAT 具备
-> `Secrets` 仓库权限的 **write** 级别（见
-> [REST /actions/secrets 文档](https://docs.github.com/en/rest/actions/secrets)：
-> *"Create or update a repository secret — `Secrets` repository permissions (write)"*），
-> 而 `List repository secrets` 只要求 **read**。
->
-> 实测两只 token 都只授了 **read**（`GET /actions/secrets` 与 `GET .../public-key` 均 200，
-> 但 `PUT /actions/secrets/{name}` 全部返回
-> `403 Resource not accessible by personal access token`，4 个 secret **一个都没写入**）。
-> 换第二只 token 重试仍是同样的 403 —— 说明不是 token 失效，而是**权限级别不够**。
->
-> **值得记一笔的教训**：**`GET` 返回 200 不代表有写权限**。
-> Secrets 的 read 与 write 是**两项独立授权**，不能用「列得出来」推断「写得进去」。
-> 本项目先后两次据此误判（第一次脚本一路 200 直到 `PUT` 才翻车，第二次换 token 仍误以为会通）。
->
-> **两条推进路径**（任选其一）：
-> 1. **改权限后由脚本写入**：到 https://github.com/settings/personal-access-tokens → 点开该 token →
->    `Repository permissions` 里找到 **Secrets** → 由 `Read-only` 改为 **`Read and write`** → Save。
->    之后把加密写入脚本跑一遍即可（脚本逻辑已验证可用，只卡在权限）。
-> 2. **手工填**：`Settings → Secrets and variables → Actions → New repository secret`。
->    值如上表；Secret 一旦创建就**不可再读回**，所以务必先在密码管理器里留一份。
->    4 个缺任一个都会静默回退 debug 签名（日志里只有一条 `::notice::`，很不起眼）。
+> ⚠️ **Secret 一旦创建就不可再读回**。明文留在 `android-signing/`（该目录双重 gitignore，不入库），
+> 请另行在密码管理器里存一份。
 
-**降低手工出错概率的两个小技巧**（5940 字符手工选中很容易多带空格/换行）：
+#### 踩坑记录：为什么折腾了三次才写进去
 
-```bash
-cd android-signing
-pbcopy < resume-studio-upload.keystore.base64   # 然后直接 Cmd+V 填 ANDROID_KEY_BASE64
-pbcopy < ANDROID-SIGNING-CREDENTIALS.txt        # 口令与别名在这份里
-```
+GitHub 的 Actions Secrets **写入**要求细粒度 PAT 具备 `Secrets` 仓库权限的 **write** 级别
+（见 [REST /actions/secrets 文档](https://docs.github.com/en/rest/actions/secrets)：
+*"Create or update a repository secret — `Secrets` repository permissions (write)"*），
+而 `List repository secrets` 只要求 **read**。
 
-> ⚠️ **凭据卫生提醒**：GitHub 的 PAT 一旦出现在聊天记录 / 日志里就应当视为已泄露，
-> 建议配完 secret 后回到 token 设置页 **Regenerate** 一次。仓库侧的 4 个 secret 不受影响
+两只 token 都只授了 **read**：`GET /actions/secrets` 与 `GET .../public-key` 均返回 200，
+但 `PUT /actions/secrets/{name}` 全部返回 `403 Resource not accessible by personal access token`。
+
+**教训（已同步进技能）**：**`GET` 返回 200 不代表有写权限**。
+Secrets 的 read 与 write 是**两项独立授权**，不能用「列得出来」推断「写得进去」。
+本项目先后两次据此误判 —— 第一次脚本一路 200 直到 `PUT` 才翻车，第二次换了 token
+仍误以为会通。**正确做法是先探测写权限，别用读接口的成功反推。**
+
+最终解法：把该 token 的 `Secrets` 权限由 `Read-only` 改为 `Read and write`
+（https://github.com/settings/personal-access-tokens），脚本一次跑通。
+
+> ⚠️ **凭据卫生提醒**：该 PAT 曾以明文出现在聊天记录里，应视为已泄露，
+> 建议用完回到 token 设置页 **Regenerate** 一次。仓库侧的 4 个 secret 不受影响
 > （它们存的是 Android 密钥库，与 token 无关）。
 
 CI 侧消费方式是 `echo "$ANDROID_KEY_BASE64" | base64 -d`，**对尾部换行不敏感**，
 所以只要中间没有多余空白即可。
+
+### 新增自动断言：APK 签名证书校验
+
+签名配置失败是**静默**的 —— Gradle 不会因为 secrets 为空而报错，只会悄悄退回 debug 签名，
+日志里仅有一条不起眼的 `::notice::`。等到上架被 Play 拒绝时才发现，代价很大。
+
+因此在 `build-android.yml` 里新增「校验 APK 签名证书」步骤（位于构建之后、上传 artifact 之前）：
+
+- 定位 release APK（找不到则回退任一 `.apk`）
+- 优先 `apksigner --print-certs`（能验 v2/v3 签名方案），没有则退回 `keytool -printcert -jarfile`
+- 归一化两种工具的指纹格式差异（apksigner 无冒号小写 / keytool 带冒号大写）后比对
+- `signed=true` 且指纹不符 → **`exit 1` 直接失败**
+- `signed=false` → 只发 warning 不阻断（fork / 未配 secrets 的场景仍可跑通）
+
+本地已验证：硬编码的期望指纹与密钥库真实值**逐位一致**；解析管道对两种输出格式均成立；
+YAML（15 步）与全部 `run` 块的 `bash -n` 均通过。
+
+> 换密钥时需同步更新该步骤里的 `EXPECTED_SHA256`。
 
 ### 后续可选项（本轮未做，避免影响在跑的构建）
 
