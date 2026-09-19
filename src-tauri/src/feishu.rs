@@ -162,6 +162,70 @@ pub async fn feishu_upload(app: AppHandle, req: UploadReq) -> Result<Value, Stri
     unwrap_data(&text, &ctx)
 }
 
+/* ============ 命令 4：一键绑定探测（M3） ============
+ * 输入 app_id + app_secret，验证凭证后自动创建「简历数据」文件夹，回填默认项。
+ * 复用 tenant_access_token（凭证验证）+ feishu_request（建文件夹），与 JS 版 probe 语义一致。 */
+#[derive(Debug, Deserialize)]
+pub struct ProbeReq {
+    pub app_id: String,
+    pub app_secret: String,
+}
+
+#[tauri::command]
+pub async fn feishu_probe(_app: AppHandle, req: ProbeReq) -> Result<Value, String> {
+    let app_id = req.app_id.trim().to_string();
+    let app_secret = req.app_secret.trim().to_string();
+    if app_id.is_empty() || app_secret.is_empty() {
+        return Err("App ID 与 App Secret 均必填".to_string());
+    }
+    // 1) 验证凭证：直接用给定凭证换 token（不经缓存，避免读到旧配置的 token）
+    let token = {
+        let res = http_client()
+            .post(format!("{}/auth/v3/tenant_access_token/internal", BASE))
+            .json(&serde_json::json!({ "app_id": app_id, "app_secret": app_secret }))
+            .send()
+            .await
+            .map_err(|e| format!("换取 tenant_access_token 失败：{}", e))?;
+        let status = res.status();
+        let text = res.text().await.map_err(|e| format!("读取响应失败：{}", e))?;
+        if !status.is_success() {
+            return Err(format!("换取 tenant_access_token 失败：HTTP {}", status));
+        }
+        let j: Value = serde_json::from_str(&text)
+            .map_err(|_| "换取 tenant_access_token 失败：响应不是合法 JSON".to_string())?;
+        ensure_ok(&j)?;
+        j.get("tenant_access_token")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| "换取 tenant_access_token 失败：响应缺少 tenant_access_token".to_string())?
+            .to_string()
+    };
+    // 2) 自动创建默认文件夹「简历数据」（根目录）
+    let create_url = format!("{}/drive/v1/files/create_folder", BASE);
+    let folder_res = http_client()
+        .post(create_url.as_str())
+        .bearer_auth(&token)
+        .header("Content-Type", "application/json; charset=utf-8")
+        .json(&serde_json::json!({ "name": "简历数据", "folder_token": "" }))
+        .send()
+        .await
+        .map_err(|e| format!("创建文件夹失败：{}", e))?;
+    let folder_text = check_response(folder_res, "飞书创建文件夹").await?;
+    let folder_data = unwrap_data(&folder_text, "飞书创建文件夹")?;
+    let folder_token = folder_data
+        .get("token")
+        .or_else(|| folder_data.get("folder_token"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("0");
+    // 3) 回填默认项
+    Ok(serde_json::json!({
+        "folder_token": folder_token,
+        "doc_title": "简历数据备份",
+        "file_name": "resume.json",
+        "domain": "feishu.cn",
+        "fileUploadMode": "versioned"
+    }))
+}
+
 /* ============ 命令 3：下载某个版本并在此处 JSON.parse（避免二进制穿过 IPC） ============ */
 async fn download_bytes(http: reqwest::RequestBuilder) -> Result<Vec<u8>, String> {
     let res = http.send().await.map_err(|e| format!("下载失败：{}", e))?;
@@ -189,15 +253,23 @@ fn parse_payload(bytes: &[u8]) -> Result<Value, String> {
 }
 
 #[tauri::command]
-pub async fn feishu_restore_data(app: AppHandle, version_id: String) -> Result<Value, String> {
+pub async fn feishu_restore_data(
+    app: AppHandle,
+    version_id: String,
+    resume_id: Option<String>,
+) -> Result<Value, String> {
     let token_id = version_id.trim();
     if token_id.is_empty() || token_id.contains('/') || token_id.contains(char::is_whitespace) {
         return Err("非法的版本 ID".to_string());
     }
     let state = config::read_state(&app)?
         .ok_or_else(|| "尚未上报过，飞书中没有可用版本".to_string())?;
+    // 按简历 id 取文件 token（与 Node 版 stateKeyFor 一致：file_token_<id> 优先，回退旧单份 file_token）
+    let rid = resume_id.as_deref().unwrap_or("default");
+    let rid_key = format!("file_token_{}", rid);
     let file_token = state
-        .get("file_token")
+        .get(&rid_key)
+        .or_else(|| state.get("file_token"))
         .and_then(|v| v.as_str())
         .map(|s| s.trim())
         .filter(|s| !s.is_empty() && !s.contains('/'))

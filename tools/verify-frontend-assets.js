@@ -102,6 +102,28 @@ function main() {
     warn(`js/ 下有未被 index.html 引用的模块（疑似运行时不可达）：${orphans.join('、')}`);
   }
 
+  /* 2d. views/*.js 必须在 bootstrap.js 注册、在 build-single.js 白名单
+     （新加一个 view 文件，漏任一处都不会报错，而是路由静默 404 或单文件版缺文件） */
+  const viewsDir = path.join(ROOT, 'js', 'views');
+  if (fs.existsSync(viewsDir)) {
+    const bootstrap = fs.readFileSync(path.join(ROOT, 'js/router/bootstrap.js'), 'utf8');
+    const buildSingle = fs.readFileSync(path.join(ROOT, 'tools/build-single.js'), 'utf8');
+    for (const f of fs.readdirSync(viewsDir).filter((x) => x.endsWith('.js'))) {
+      const rel = 'js/views/' + f;
+      const globalName = f
+        .replace(/\.js$/, '')
+        .split('-')
+        .map((s) => s.charAt(0).toUpperCase() + s.slice(1))
+        .join('');
+      if (!bootstrap.includes(globalName)) {
+        fail(`views/${f} 未在 bootstrap.js 注册（找不到全局名 ${globalName}）—— 路由会静默 404`);
+      }
+      if (!buildSingle.includes(rel)) {
+        fail(`views/${f} 未加入 build-single.js files 数组 —— 单文件版会缺这个模块`);
+      }
+    }
+  }
+
   /* ---------- 3. 受保护目录不得进 dist-desktop/ ---------- */
   if (fs.existsSync(DESKTOP)) {
     for (const name of FORBIDDEN) {

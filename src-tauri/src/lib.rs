@@ -14,6 +14,7 @@ pub fn run() {
             feishu::feishu_request,
             feishu::feishu_upload,
             feishu::feishu_restore_data,
+            feishu::feishu_probe,
             config::feishu_config_load,
             config::feishu_config_save,
             config::state_load,

@@ -19,11 +19,16 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const crypto = require('crypto');
 const { spawn } = require('child_process');
 
 const ROOT = path.resolve(__dirname, '..');
 const PORT = process.env.PORT || 8000;
 const DATA_FILE = path.join(ROOT, 'data', 'resume.json');
+
+/* 飞书「个人应用」扫码注册的设备流会话表：begin 时建、poll 时查；纯内存不落盘，
+   凭证仅在 poll 成功瞬间写入 sync.config.json（gitignored）。 */
+const registerSessions = new Map();
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -259,7 +264,7 @@ const server = http.createServer((req, res) => {
       try {
         const obj = JSON.parse(buf);
         const r = await feishuSync.report(obj);
-        return send(res, 200, { ok: true, docUrl: r.docUrl, fileUrl: r.fileUrl, size: r.size, dryRun: !!r.dryRun });
+        return send(res, 200, { ok: true, docUrl: r.docUrl, fileUrl: r.fileUrl, size: r.size, dryRun: !!r.dryRun, authMode: r.authMode });
       } catch (e) { return send(res, 502, { error: e.message }); }
     });
     return;
@@ -268,20 +273,23 @@ const server = http.createServer((req, res) => {
     (async () => {
       if (!feishuSync) return send(res, 500, { error: 'feishu-sync.js 未找到' });
       if (!feishuSync.enabled()) return send(res, 400, { error: '飞书未配置' });
-      try { const vs = await feishuSync.listVersions(); return send(res, 200, { versions: vs }); }
+      try { const vs = await feishuSync.listVersions(new URL(req.url,'http://localhost').searchParams.get('resumeId')); return send(res, 200, { versions: vs }); }
       catch (e) { return send(res, 502, { error: e.message }); }
     })();
     return;
   }
   if (req.method === 'POST' && pathname === '/api/sync/restore') {
     let buf = '';
-    req.on('data', (c) => { buf += c; });
+    req.on('data', (c) => { buf += c; if (buf.length > 1024 * 1024) req.destroy(); });
     req.on('end', async () => {
       if (!feishuSync) return send(res, 500, { error: 'feishu-sync.js 未找到' });
       if (!feishuSync.enabled()) return send(res, 400, { error: '飞书未配置' });
       try {
-        const { versionId } = JSON.parse(buf);
-        const txt = await feishuSync.getVersion(versionId);
+        const body = JSON.parse(buf);
+        const { versionId } = body;
+        if (!versionId) return send(res, 400, { error: '缺少 versionId' });
+        // resumeId 决定从哪份简历的云盘文件取版本（缺省 'default'，兼容单份简历）
+        const txt = await feishuSync.getVersion(versionId, body.resumeId || 'default');
         return send(res, 200, { json: txt });
       } catch (e) { return send(res, 502, { error: e.message }); }
     });
@@ -289,6 +297,26 @@ const server = http.createServer((req, res) => {
   }
 
   // —— 飞书配置表单接口（读取时永不回传 app_secret 明文，只回传是否已设置的标记）——
+  // —— 飞书一键绑定：验证凭证 + 自动建「简历数据」文件夹 + 回填默认项（M3）——
+  if (req.method === 'POST' && pathname === '/api/sync/probe') {
+    let buf = '';
+    req.on('data', (c) => { buf += c; if (buf.length > 1024 * 1024) req.destroy(); });
+    req.on('end', async () => {
+      if (!feishuSync) return send(res, 500, { error: 'feishu-sync.js 未找到' });
+      let body;
+      try { body = JSON.parse(buf); } catch (e) { return send(res, 400, { error: 'JSON 解析失败' }); }
+      // 表单留空时回退用已保存的 sync.config.json 凭证（扫码注册后表单 Secret 本就为空，但仍可探测）
+      const saved = feishuSync.readConfig() || {};
+      const appId = String(body.app_id || '').trim() || saved.app_id || '';
+      const appSecret = String(body.app_secret || '').trim() || saved.app_secret || '';
+      if (!appId || !appSecret) return send(res, 400, { error: 'App ID 与 App Secret 均必填（或先在配置中保存过凭证）' });
+      try {
+        const r = await feishuSync.probe(appId, appSecret);
+        return send(res, 200, { ok: true, ...r });
+      } catch (e) { return send(res, 502, { error: e.message }); }
+    });
+    return;
+  }
   if (req.method === 'GET' && pathname === '/api/sync/config') {
     if (!feishuSync) return send(res, 500, { error: 'feishu-sync.js 未找到' });
     const c = feishuSync.readConfig() || {};
@@ -337,6 +365,212 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  // —— 飞书扫码授权（OAuth 授权码模式）——
+  // 扫码拿到的是 user_access_token（带 drive/docx scope），以「用户身份」读写用户自己的云盘/文档。
+  // 凭证只存本机 sync.oauth.json（gitignored），绝不进浏览器；浏览器只与本服务通信。
+  const feishuOauth = (() => { try { return require('./feishu-oauth.js'); } catch (e) { return null; } })();
+  if (req.method === 'POST' && pathname === '/api/feishu/oauth/start') {
+    let discarded = 0; // 本接口不再接收 body，只丢弃
+    req.on('data', (c) => { discarded += c.length; if (discarded > 1024) req.destroy(); });
+    req.on('end', () => {
+      if (!feishuOauth) return send(res, 500, { error: 'feishu-oauth.js 未找到' });
+      try {
+        const r = feishuOauth.buildAuthorizeUrl({ redirect_uri: undefined });
+        return send(res, 200, { ok: true, authorizeUrl: r.url, state: r.state, redirect_uri: r.redirect_uri });
+      } catch (e) { return send(res, 400, { error: e.message }); }
+    });
+    return;
+  }
+  if (req.method === 'GET' && pathname === '/api/feishu/oauth/callback') {
+    // 飞书授权成功后的回调：收 code，换 user_access_token 存本机，然后回一个可自动关闭的页面
+    const u = new URL(req.url, 'http://localhost');
+    const code = u.searchParams.get('code') || '';
+    const state = u.searchParams.get('state') || '';
+    const redirectUri = 'http://127.0.0.1:' + PORT + '/api/feishu/oauth/callback';
+    (async () => {
+      if (!feishuOauth) return send(res, 500, { error: 'feishu-oauth.js 未找到' });
+      if (!code) {
+        const err = u.searchParams.get('error') || '未收到授权码';
+        return send(res, 400, { error: '授权失败：' + err });
+      }
+      try {
+        await feishuOauth.exchangeCode(code, redirectUri);
+        // 回调页：极简、自动提示成功（凭证已落本机，页面不展示任何 token）
+        return send(res, 200,
+          '<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><title>授权成功</title></head>' +
+          '<body style="font-family:sans-serif;background:#fff;color:#1a1a1a;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;">' +
+          '<div style="text-align:center;"><h2 style="margin:0 0 8px;">✓ 飞书授权成功</h2>' +
+          '<p style="color:#6b6b6b;margin:0 0 16px;">已绑定你的飞书账号，可关闭本页返回编辑器。</p>' +
+          '<script>setTimeout(function(){try{window.close();}catch(e){}} ,1500);<\/script>' +
+          '</div></body></html>', 'text/html; charset=utf-8');
+      } catch (e) {
+        return send(res, 502, { error: '换取用户凭证失败：' + e.message });
+      }
+    })();
+    return;
+  }
+  if (req.method === 'GET' && pathname === '/api/feishu/oauth/status') {
+    if (!feishuOauth) return send(res, 500, { error: 'feishu-oauth.js 未找到' });
+    return send(res, 200, { status: feishuOauth.status() });
+  }
+  // 解除扫码授权：删除本机 sync.oauth.json，同步链路回退应用身份（tenant token）
+  if (req.method === 'POST' && pathname === '/api/feishu/oauth/revoke') {
+    if (!feishuOauth) return send(res, 500, { error: 'feishu-oauth.js 未找到' });
+    feishuOauth.clearOauth();
+    return send(res, 200, { ok: true });
+  }
+
+  // —— 飞书「个人应用」扫码注册（Device Flow）——
+  // 用户用手机飞书扫码 → 飞书为其创建一个 PersonalAgent（个人应用）并授权 →
+  // 本服务轮询拿到 client_id / client_secret（即 app_id / app_secret）自动写入 sync.config.json。
+  // 与 OAuth 授权码模式（拿到 user_access_token）不同，这里拿到的是「应用身份」凭证，
+  // 同步链路 getAuth() 在无非 user OAuth 时即回退到该 tenant token。
+  const feishuRegister = (() => { try { return require('./feishu-register.js'); } catch (e) { return null; } })();
+  // begin：发起设备授权，建会话，返回二维码 URL + user_code
+  if (req.method === 'POST' && pathname === '/api/feishu/register/begin') {
+    req.on('data', (c) => { if (c.length > 1024) req.destroy(); }); // 本接口不读 body
+    req.on('end', async () => {
+      if (!feishuRegister) return send(res, 500, { error: 'feishu-register.js 未找到' });
+      try {
+        const r = await feishuRegister.beginRegistration({});
+        const token = crypto.randomBytes(16).toString('hex');
+        registerSessions.set(token, {
+          device_code: r.device_code,
+          domain: r.domain,
+          larkDomain: r.larkDomain,
+          domainSwitched: false,
+          interval: r.interval,           // 秒
+          expires_in: r.expires_in,       // 秒
+          createdAt: Date.now(),
+          lastPollAt: 0,
+          lastResult: { status: 'waiting' }
+        });
+        return send(res, 200, { ok: true, token, qrUrl: r.qrUrl, userCode: r.user_code, expireIn: r.expires_in });
+      } catch (e) { return send(res, 502, { error: e.message }); }
+    });
+    return;
+  }
+  // poll：用 token 轮询扫码终态；成功时把 app_id / app_secret 写入 sync.config.json 并自动探测绑定
+  if (req.method === 'GET' && pathname === '/api/feishu/register/poll') {
+    if (!feishuRegister) return send(res, 500, { error: 'feishu-register.js 未找到' });
+    const token = u.searchParams.get('token') || '';
+    const sess = registerSessions.get(token);
+    if (!sess) return send(res, 404, { error: '会话不存在或已过期，请重新发起扫码' });
+    // 过期判定：超出 expires_in + 60s 缓冲即视为过期
+    if (Date.now() - sess.createdAt > (sess.expires_in + 60) * 1000) {
+      registerSessions.delete(token);
+      return send(res, 200, { status: 'expired' });
+    }
+    // 节流：尊重飞书返回的 interval（min），避免前端快轮询把飞书打爆；slow_down 时 interval 已 +5s
+    const minGap = Math.max(sess.interval - 1, 1) * 1000;
+    if (sess.lastResult.status === 'success' || sess.lastResult.status === 'failed' || sess.lastResult.status === 'expired') {
+      return send(res, 200, sess.lastResult); // 终态直接返回缓存，不再打飞书
+    }
+    if (Date.now() - sess.lastPollAt < minGap) {
+      return send(res, 200, sess.lastResult); // 未到间隔，返回上次结果
+    }
+    (async () => {
+      try {
+        const r = await feishuRegister.pollRegistration(sess.device_code, sess);
+        sess.lastPollAt = Date.now();
+        if (r.status === 'slow_down') { sess.interval += 5; sess.lastResult = { status: 'waiting' }; return send(res, 200, { status: 'waiting' }); }
+        if (r.status === 'waiting') { sess.lastResult = r; return send(res, 200, r); }
+        if (r.status === 'success') {
+          sess.lastResult = { status: 'success', appId: r.client_id, appSecret: r.client_secret };
+          registerSessions.delete(token); // 凭证已落盘，会话作废
+          // 1) 写入应用身份凭证（合并进 sync.config.json，不覆盖其它字段）
+          if (feishuSync) feishuSync.writeConfig({ app_id: r.client_id, app_secret: r.client_secret });
+          // 2) 自动探测绑定：验证凭证 + 建默认文件夹 + 回填 domain/doc 默认值（失败不致命，可手动重试）
+          let probe = null;
+          if (feishuSync) {
+            try { probe = await feishuSync.probe(r.client_id, r.client_secret); }
+            catch (e) { probe = { error: e.message }; }
+          }
+          return send(res, 200, {
+            status: 'success',
+            appId: r.client_id,
+            appSecret: r.client_secret,
+            probe: probe
+          });
+        }
+        // failed / expired
+        sess.lastResult = r;
+        registerSessions.delete(token);
+        return send(res, 200, r);
+      } catch (e) {
+        return send(res, 502, { error: e.message });
+      }
+    })();
+    return;
+  }
+  // cancel：提前作废会话（用户主动关闭二维码）
+  if (req.method === 'POST' && pathname === '/api/feishu/register/cancel') {
+    const token = u.searchParams.get('token') || '';
+    if (token) registerSessions.delete(token);
+    return send(res, 200, { ok: true });
+  }
+
+  // —— PDF 简历解析：接收 PDF 字节（base64），用 vendored pdf.js 提取文本并尽力结构化 ——
+  if (req.method === 'POST' && pathname === '/api/pdf/parse') {
+    const pdfParse = (() => { try { return require('./pdf-parse.js'); } catch (e) { return null; } })();
+    let buf = '';
+    req.on('data', (c) => { buf += c; if (buf.length > 30 * 1024 * 1024) req.destroy(); }); // PDF 上限 30MB
+    req.on('end', async () => {
+      if (!pdfParse) return send(res, 500, { error: 'pdf-parse.js 未找到' });
+      let body;
+      try { body = JSON.parse(buf); } catch (e) { return send(res, 400, { error: 'JSON 解析失败' }); }
+      const b64 = body && (body.base64 || body.data);
+      if (!b64) return send(res, 400, { error: '缺少 base64 PDF 数据' });
+      let bytes;
+      try { bytes = Buffer.from(b64, 'base64'); } catch (e) { return send(res, 400, { error: 'base64 解码失败' }); }
+      if (bytes.slice(0, 5).toString('latin1') !== '%PDF-') {
+        return send(res, 400, { error: '文件不是合法的 PDF' });
+      }
+      try {
+        const r = await pdfParse.parsePdfToResume(bytes);
+        return send(res, 200, {
+          ok: true,
+          resume: r.resume,
+          pageCount: r.pdf.pageCount,
+          textLength: (r.pdf.text || '').length
+        });
+      } catch (e) {
+        return send(res, 502, { error: 'PDF 解析失败：' + (e.message || e).toString().slice(0, 300) });
+      }
+    });
+    return;
+  }
+
+  // —— AI 转发层（SSE 透传 OpenAI 兼容协议；Key 只在本服务内存与 ai.config.json，不进浏览器）——
+  const aiProxy = (() => { try { return require('./ai-proxy.js'); } catch (e) { return null; } })();
+  if (req.method === 'GET' && pathname === '/api/ai/status') {
+    if (!aiProxy) return send(res, 500, { error: 'ai-proxy.js 未找到' });
+    return send(res, 200, aiProxy.status());
+  }
+  if (req.method === 'POST' && pathname === '/api/ai/test') {
+    if (!aiProxy) return send(res, 500, { error: 'ai-proxy.js 未找到' });
+    (async () => {
+      try { const r = await aiProxy.test(); return send(res, 200, r); }
+      catch (e) { return send(res, 502, { ok: false, error: e.message }); }
+    })();
+    return;
+  }
+  if (req.method === 'POST' && pathname === '/api/ai/chat') {
+    if (!aiProxy) return send(res, 500, { error: 'ai-proxy.js 未找到' });
+    let buf = '';
+    req.on('data', (c) => { buf += c; if (buf.length > 2 * 1024 * 1024) req.destroy(); }); // AI 请求体上限 2MB
+    req.on('end', async () => {
+      let body;
+      try { body = JSON.parse(buf); } catch (e) { return send(res, 400, { error: 'JSON 解析失败' }); }
+      try { await aiProxy.chat(req, res, body); }
+      catch (e) {
+        if (!res.headersSent) return send(res, 502, { error: e.message });
+        try { res.end(); } catch (_) {}
+      }
+    });
+    return;
+  }
+
   // —— 静态文件（GET / HEAD）——
   if (req.method !== 'GET' && req.method !== 'HEAD') {
     return send(res, 405, { error: 'Method Not Allowed' });
@@ -347,11 +581,35 @@ const server = http.createServer((req, res) => {
   if (filePath !== ROOT && !filePath.startsWith(ROOT + path.sep)) {
     return send(res, 403, { error: 'Forbidden' });
   }
+  /* 数据隔离加固：本服务既是静态服务器又持有敏感文件，必须拒绝把它们当静态资源吐出去。
+     仅本机回环可访问时普通网页读不到响应体，但本机其他进程 / 页面仍可 fetch 到，
+     因此凭证类文件（sync.config.json / sync.oauth.json / sync.state.json / ai.config.json）
+     一律 403；隐藏文件（.git / .workbuddy / 各类 dotfile）也拒绝。
+     data/resume.json 是编辑器实时读写的私有数据源，保留可访问（gitignored、不进公开仓库）。 */
+  const SENSITIVE_BASENAMES = new Set(['sync.config.json', 'sync.state.json', 'sync.oauth.json', 'ai.config.json', 'keystore.properties']);
+  const relPath = path.relative(ROOT, filePath);
+  const relNorm = relPath.split(path.sep).join('/');
+  if (SENSITIVE_BASENAMES.has(path.basename(relNorm))) {
+    return send(res, 403, { error: 'Forbidden' });
+  }
+  if (relNorm.split('/').some(seg => seg.startsWith('.'))) {
+    return send(res, 403, { error: 'Forbidden' });
+  }
   fs.readFile(filePath, (err, content) => {
     if (err) return send(res, 404, { error: 'Not Found' });
     const ext = path.extname(filePath).toLowerCase();
-    if (req.method === 'HEAD') { res.writeHead(200, { 'Content-Type': MIME[ext] || 'application/octet-stream' }); return res.end(); }
-    send(res, 200, content, MIME[ext] || 'application/octet-stream');
+    /* 静态资源一律禁用缓存：本机开发服务器没有性能顾虑，但没有 Cache-Control / ETag 时
+       浏览器会命中启发式缓存，导致「代码改了、刷新后界面没变」，让人误判改动没落地。
+       加上 no-store 后，改完 css/js 普通刷新即可生效（无需强制刷新）。 */
+    const headers = {
+      'Content-Type': MIME[ext] || 'application/octet-stream',
+      'Cache-Control': 'no-store, no-cache, must-revalidate',
+      Pragma: 'no-cache',
+      Expires: '0'
+    };
+    if (req.method === 'HEAD') { res.writeHead(200, headers); return res.end(); }
+    res.writeHead(200, headers);
+    res.end(content);
   });
 });
 

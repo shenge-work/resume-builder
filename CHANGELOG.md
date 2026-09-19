@@ -5,7 +5,7 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
-> **发版规则（与 CI 联动，改动前请先读 `docs/RELEASE.md`）**
+> **发版规则（与 CI 联动，改动前请先读 `docs/发版说明.md`）**
 >
 > 1. 版本号以 `src-tauri/tauri.conf.json` 的 `version` 为**唯一权威**，`package.json` 必须与之一致
 >    （发版流水线会校验，不一致直接失败）。
@@ -18,7 +18,46 @@
 
 ## [Unreleased]
 
-暂无。
+### 新增
+
+- **上传 PDF / JSON 简历到简历库**：左抽屉新增「上传」按钮（`.pdf` / `.json`）。
+  JSON 直接导入为一份新简历；PDF 经本地服务用 vendored pdf.js（`vendor/pdf.min.js`，Apache 2.0，
+  仅服务端使用、不进前端产物）提取文本，尽力识别姓名 / 邮箱 / 手机号 / 学历线索，
+  正文整篇保留进「导入原文（请校对整理）」板块供继续编辑 —— 解析只做「识别 + 保留原文」，不臆造结构。
+- **飞书扫码授权（OAuth 授权码模式）**：「飞书同步 → 同步配置」新增「扫码授权」——
+  后端预配置应用身份，前端无需填写 App ID，一键打开飞书授权页，手机扫码授权后服务端以授权码换取
+  user_access_token（含 `drive:drive` / `docx:document` scope），凭证存本机
+  gitignored 的 `sync.oauth.json`，绝不进浏览器；支持过期自动用 refresh_token 刷新、
+  一键解除授权。
+- **飞书「扫码注册个人应用」（Device Flow，拿到 App ID / App Secret）**：新增「方式二 · 扫码注册个人应用」——
+  借鉴 channel-hub 的 `LarkPersonalQrcodeService`，复刻飞书官方 SDK 的 RegisterApp 设备流（RFC 8628）。
+  点「扫码注册个人应用」→ 后端向 `accounts.feishu.cn/oauth/v1/app/registration` 发起 `begin` 拿到设备码与二维码 URL
+  → 浏览器用 vendored `qrcode-generator.js` 渲染二维码 → 手机飞书扫码确认 → 飞书后台自动创建一个 PersonalAgent（个人应用）
+  并以 `poll` 轮询（尊重飞书返回的 `interval` 节流、`slow_down` / 过期 / 域名切换均处理）；
+  成功即拿到 `client_id` / `client_secret`，后端自动写入 `sync.config.json` 并探测绑定云盘文件夹，**无需在开放平台手动抄写凭证**。
+  至此「应用身份」也由扫码获取，与「用户身份」扫码授权形成两种方式并存。
+- 测试从 311 条增至 **329 条**（新增飞书设备流注册用例 11 条：addons 编码往返 + poll 各状态映射；配置弹窗 UI / 路由冒烟断言若干）。当前以 `npm test` 实测为准。
+- **同步链路优先使用扫码身份**：「上报到飞书 / 从飞书恢复」现在优先以**扫码授权的用户身份**
+  读写你自己的云盘/文档（未扫码时自动回退应用身份）；上报结果会标注所用身份。
+  两套身份的云盘文件/文档 token 在本地 state 中分键隔离，互不串写。
+
+### 变更
+
+- **简历卡片操作收进「⋯」菜单**：重命名 / 复制 / 删除不再平铺在卡片上（鼠标扫过卡片时极易误点，
+  尤其「删除」），改为点卡片右上角的「⋯」弹出菜单。菜单挂在 `body` 上的固定层
+  （抽屉列表是 `overflow:auto`，绝对定位子元素会被裁切），自动避开视口越界；
+  点空白 / Esc / 滚动 / 改窗口大小都会关闭；触屏设备（无 hover）「⋯」常显。
+  点「⋯」不会顺带打开或切换该份简历（点击与回车均 `stopPropagation`）。
+- **移除右缘重复的「简历」把手**：`railResumeTab` 与抽屉自身的折叠按钮 / 左缘展开把手功能重复，
+  已删除；抽屉仍保留自身两个收展入口，手机上仍可从「同步 → 我的简历」打开。
+- 测试从 267 条增至 **295 条**（新增 PDF 解析纯函数 16 条 + 扫码授权 URL 6 条 + 认证分键 3 条等）。
+- 测试从 295 条增至 **308 条**（本次新增：卡片操作菜单 7 条 + 右缘把手移除 2 条；其余为同批扫码授权预配置用例）。
+- **右缘标签改为与编辑面板同款推展、且多选一**：「工具菜单」不再是垂直居中的浮动小卡片，
+  改为 `.app` 的 flex 兄弟列（通栏到底、宽 460，平板 380），展开时把预览推窄、纸张自动重新居中缩放，
+  位置与编辑面板完全一致；面板之间、面板与编辑面板之间互斥（展开任一方即收起另一方）。
+  涉及 `index.html`、`css/style.css`、`js/app.js`。
+- 测试从 308 条增至 **311 条**（新增：面板↔编辑面板互斥 2 条 + 推展布局结构 3 条）。
+- **飞书扫码授权：应用身份改为后端预配置**，前端无需填写 App ID / App Secret，直接点「扫码授权」即可；管理员仍可通过「方式二 · 自动探测并绑定」首次配置应用身份。调整 `tools/feishu-oauth.js`、`tools/serve.js`、`js/app.js`、`index.html`、`test/cases-oauth.js`。
 
 ---
 
@@ -83,7 +122,7 @@
   ④ 顺着 ③ 的错误修法无条件插了一整块 import，而模板**第一行本来就是** `import java.util.Properties`
   → 重复 import → `Conflicting import, imported name 'Properties' is ambiguous`。
   现在补丁改为**逐条「先查再插」**，并按官方文档把 `signingConfigs` 插进 `android{}` 内
-  （`buildTypes` 之前）而非末尾追加第二个 `android{}`。详见 `docs/ANDROID-BUILD.md` 第 5.4 / 8 节。
+  （`buildTypes` 之前）而非末尾追加第二个 `android{}`。详见 `docs/Android版构建说明.md` 第 5.4 / 8 节。
 
 ### 变更
 

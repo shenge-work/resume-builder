@@ -114,21 +114,32 @@
   }
 
   /* ============ 业务编排：移植自 tools/feishu-sync.js ============ */
+  /* 状态键按「简历 id」分键（与 Node 版 stateKeyFor 一致），兼容旧的无 id 单份键：
+     读：file_token_<id> / document_id_<id> 优先，缺省回退 file_token / document_id；
+     写：总是写 file_token_<id> / document_id_<id>，多份简历互不覆盖。 */
+  function stateKey(base, resumeId) {
+    return base + '_' + (resumeId || 'default');
+  }
+  function readStateKey(st, base, resumeId) {
+    return st[stateKey(base, resumeId)] || st[base] || null;
+  }
+
   /* docx：确保文档存在 → 清空原有 block → 写入一个 code block（内含完整 JSON） */
-  function ensureDoc(cfg) {
+  function ensureDoc(cfg, resumeId) {
     return readState().then(function (st) {
-      if (st.document_id) return st.document_id;
+      var existing = readStateKey(st, 'document_id', resumeId);
+      if (existing) return existing;
       return fapi('POST', '/docx/v1/documents', { title: cfg.doc_title || '简历数据备份' })
         .then(function (d) {
           var id = d && d.document && d.document.document_id;
           if (!id) throw new Error('创建飞书文档失败：返回缺少 document_id');
-          return writeState({ document_id: id }).then(function () { return id; });
+          return writeState({ [stateKey('document_id', resumeId)]: id }).then(function () { return id; });
         });
     });
   }
 
-  function writeDoc(jsonStr, cfg) {
-    return ensureDoc(cfg).then(function (docId) {
+  function writeDoc(jsonStr, cfg, resumeId) {
+    return ensureDoc(cfg, resumeId).then(function (docId) {
       return fapi('GET', '/docx/v1/documents/' + docId + '/blocks/' + docId + '/children?page_size=50')
         .then(function (list) {
           var items = (list && list.items) || [];
@@ -155,7 +166,7 @@
   }
 
   /* 云盘文件 resume.json：默认版本化上传（upload_prepare → upload_part → upload_finish） */
-  function writeFile(jsonStr, cfg) {
+  function writeFile(jsonStr, cfg, resumeId) {
     var bytes = utf8Bytes(jsonStr);
     var mode = cfg.fileUploadMode || 'versioned';
     if (mode === 'new') {
@@ -165,7 +176,7 @@
       }, bytes).then(function (d) {
         var token = d && d.file_token;
         if (!token) throw new Error('上传飞书文件失败：返回缺少 file_token');
-        return writeState({ file_token: token }).then(function () { return token; });
+        return writeState({ [stateKey('file_token', resumeId)]: token }).then(function () { return token; });
       });
     }
     return readState().then(function (st) {
@@ -174,7 +185,8 @@
         parent_folder_token: cfg.folder_token || '0',
         size: bytes.length
       };
-      if (st.file_token) prepareBody.file_token = st.file_token; // 带 token 即在同一文件上新开版本
+      var existingToken = readStateKey(st, 'file_token', resumeId);
+      if (existingToken) prepareBody.file_token = existingToken; // 带 token 即在同一文件上新开版本
       return fapi('POST', '/drive/v1/files/upload_prepare', prepareBody);
     }).then(function (prepare) {
       if (!prepare || !prepare.upload_id) throw new Error('上传准备失败：返回缺少 upload_id');
@@ -190,17 +202,18 @@
     }).then(function (fin) {
       var token = fin && fin.file_token;
       if (!token) throw new Error('上传飞书文件失败：返回缺少 file_token');
-      return writeState({ file_token: token }).then(function () { return token; });
+      return writeState({ [stateKey('file_token', resumeId)]: token }).then(function () { return token; });
     });
   }
 
   /* ============ 对外 6 个桥方法 ============ */
   var api = {
-    /* 推到飞书：docx + 云盘双写，返回 {ok,docUrl,fileUrl,size,dryRun?} */
+    /* 推到飞书：docx + 云盘双写，按 payload.id 分键存储，返回 {ok,docUrl,fileUrl,size,dryRun?} */
     feishuPush: function (payload) {
       return loadConfig().then(function (cfg) {
         if (!cfg) throw new Error('飞书未配置：请在「飞书同步 → 同步配置…」中填写 App ID / App Secret');
         var jsonStr = JSON.stringify(payload, null, 2);
+        var resumeId = (payload && payload.id) || 'default';
         if (cfg.dryRun) {
           return {
             ok: true, dryRun: true,
@@ -209,7 +222,7 @@
             size: jsonStr.length
           };
         }
-        return Promise.all([writeDoc(jsonStr, cfg), writeFile(jsonStr, cfg)]).then(function (r) {
+        return Promise.all([writeDoc(jsonStr, cfg, resumeId), writeFile(jsonStr, cfg, resumeId)]).then(function (r) {
           return {
             ok: true,
             docUrl: openUrl(cfg, 'doc', r[0]),
@@ -220,28 +233,29 @@
       });
     },
 
-    /* 拉最新：取版本列表第一版 → 恢复该版本 */
-    feishuPull: function () {
-      return api.feishuListVersions().then(function (versions) {
+    /* 拉最新：取该简历版本列表第一版 → 恢复该版本 */
+    feishuPull: function (resumeId) {
+      return api.feishuListVersions(resumeId).then(function (versions) {
         if (!versions || !versions.length) throw new Error('飞书中还没有可用版本，请先「上报到飞书」');
-        return api.feishuRestore(versions[0].version_id);
+        return api.feishuRestore(versions[0].version_id, resumeId);
       });
     },
 
-    /* 版本列表（无 file_token → 空数组） */
-    feishuListVersions: function () {
+    /* 版本列表（该简历无 file_token → 空数组） */
+    feishuListVersions: function (resumeId) {
       return readState().then(function (st) {
-        if (!st.file_token) return [];
-        return fapi('GET', '/drive/v1/files/' + st.file_token + '/versions').then(function (d) {
+        var token = readStateKey(st, 'file_token', resumeId);
+        if (!token) return [];
+        return fapi('GET', '/drive/v1/files/' + token + '/versions').then(function (d) {
           return (d && d.items) || [];
         });
       });
     },
 
     /* 恢复指定版本：由 Rust 下载二进制并在 Rust 内 JSON.parse，返回 {data,fonts,spacing} */
-    feishuRestore: function (versionId) {
+    feishuRestore: function (versionId, resumeId) {
       if (!versionId) return Promise.reject(new Error('缺少版本 ID'));
-      return invoke('feishu_restore_data', { versionId: versionId }).then(function (obj) {
+      return invoke('feishu_restore_data', { versionId: versionId, resumeId: resumeId }).then(function (obj) {
         if (!obj || typeof obj !== 'object') throw new Error('飞书版本内容不是合法的简历 JSON');
         return obj;
       });
@@ -257,6 +271,11 @@
       return cfgSave(cfg || {}).then(function (r) {
         return { configured: !!(r && r.configured) };
       });
+    },
+
+    /* 一键绑定探测：验证凭证 + 自动建「简历数据」文件夹，返回默认项（M3） */
+    feishuProbe: function (req) {
+      return invoke('feishu_probe', { req: req || {} });
     }
   };
 
@@ -284,5 +303,6 @@
     F.restore = function (versionId) { return guard(api.feishuRestore, [versionId]); };
     F.loadConfig = function () { return guard(api.feishuLoadConfig, []); };
     F.saveConfig = function (cfg) { return guard(api.feishuSaveConfig, [cfg]); };
+    F.probe = function (req) { return guard(api.feishuProbe, [req]); };
   })();
 })(typeof window !== 'undefined' ? window : this);

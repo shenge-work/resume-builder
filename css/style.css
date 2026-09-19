@@ -199,7 +199,7 @@
   *{box-sizing:border-box;}
   html,body{margin:0;padding:0;height:100%;overflow:hidden;background:var(--ui-bg);}
   body{font-family:"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Source Han Sans SC",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--ui-text);}
-  .app{display:flex;height:100vh;}
+  .app{display:flex;height:100vh;position:relative;}
 
   /* 左侧预览区 */
   .preview-pane{flex:1;display:flex;flex-direction:column;min-width:0;background:var(--ui-bg);position:relative;}
@@ -213,24 +213,25 @@
   .pane-tab .pane-tab-arrow{font-size:13px;line-height:1;font-family:monospace;}
   .pane-tab .pane-tab-label{writing-mode:vertical-rl;font-size:11px;letter-spacing:3px;color:var(--ui-tab-label);}
 
-  /* ===== 浮动面板（side-panel）：从右缘向左浮出，同一时间只开一个 ===== */
+  /* ===== 右缘推展面板（side-panel）：与 .editor-pane 同款 —— .app 的 flex 兄弟列、通栏到底、宽 460，
+     展开时把预览推窄（纸张重排 + 自动重新居中缩放），不是浮动小卡片；同一时间只开一个且与编辑面板互斥 ===== */
   .side-panel{
-    position:absolute;right:34px;top:50%;z-index:59;width:252px;
-    max-height:calc(100% - 24px);
-    background:var(--ui-panel);border:1px solid var(--ui-border);border-radius:8px;
-    box-shadow:0 8px 28px var(--ui-menu-shadow);
-    display:none;flex-direction:column;overflow:hidden;
-    transform:translateY(-50%) translateX(8px);opacity:0;
-    transition:transform .15s ease,opacity .15s ease;
+    flex-shrink:0;width:0;display:flex;flex-direction:column;overflow:hidden;
+    background:var(--ui-panel);border-left:1px solid transparent;
+    transition:width .25s ease,border-color .25s ease;
   }
-  .side-panel.open{display:flex;transform:translateY(-50%) translateX(0);opacity:1;}
+  .side-panel.open{width:460px;border-left-color:var(--ui-border);}
+  /* 收起态不占位、不留 1px 透明边框（否则与编辑面板展开时的贴边位置差 1px） */
+  .side-panel:not(.open){border-left-width:0;}
+  /* 展开动画期间内容不被压缩，仅被 overflow 裁剪（同 .editor-pane .panel 的处理） */
+  .side-panel-head,.side-panel-body{min-width:460px;}
   .side-panel-head{
     display:flex;align-items:center;gap:8px;padding:10px 12px;flex-shrink:0;
     background:var(--ui-panel-head);border-bottom:1px solid var(--ui-border-soft);
   }
   .side-panel-title{font-size:12.5px;font-weight:700;color:var(--ui-text);white-space:nowrap;}
   .side-panel-head .autosave{font-size:11px;color:var(--ui-faint);font-weight:400;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-  .side-panel-body{overflow-y:auto;padding:8px 8px 10px;display:flex;flex-direction:column;gap:2px;}
+  .side-panel-body{flex:1;min-height:0;overflow-y:auto;padding:8px 8px 10px;display:flex;flex-direction:column;gap:2px;}
   /* 内容超高时由 body 滚动，行高本身不许被 flex 压扁（否则按钮被压成 12px 高的碎条） */
   .side-panel-body > *{flex-shrink:0;}
   .side-group{
@@ -253,6 +254,98 @@
     border:1px solid var(--ui-input-border);border-radius:4px;background:var(--ui-input-bg);color:var(--ui-text);
   }
   .side-panel .filename-wrap input::placeholder{color:var(--ui-placeholder);}
+
+  /* ===== 多简历：左抽屉（简历列表，桌面常驻可收缩） ===== */
+  .resume-drawer{
+    position:relative;z-index:58;width:252px;flex-shrink:0;
+    background:var(--ui-panel);border-right:1px solid var(--ui-border);
+    display:flex;flex-direction:column;overflow:hidden;
+    transition:width .2s ease;
+  }
+  .resume-drawer.open{width:252px;}
+  .resume-drawer:not(.open){width:0;border-right:none;}
+  /* 抽屉收起时完全隐藏内部内容，避免残影 */
+  .resume-drawer:not(.open) .resume-drawer-head,
+  .resume-drawer:not(.open) .resume-drawer-list{opacity:0;pointer-events:none;}
+  .resume-drawer-head{
+    display:flex;align-items:center;justify-content:space-between;gap:8px;
+    padding:12px 14px;flex-shrink:0;background:var(--ui-panel-head);border-bottom:1px solid var(--ui-border-soft);
+    min-width:252px;
+  }
+  .resume-drawer-title{font-size:13px;font-weight:700;color:var(--ui-text);white-space:nowrap;}
+  .resume-drawer-head-right{display:flex;align-items:center;gap:6px;flex-shrink:0;}
+  .resume-drawer-new{
+    height:28px;padding:0 12px;font-size:12px;font-weight:500;white-space:nowrap;
+    background:var(--ui-solid-bg);color:var(--ui-solid-text);border:none;border-radius:5px;cursor:pointer;
+  }
+  .resume-drawer-new:hover{background:var(--ui-solid-hover);}
+  /* 上传按钮用描边次级样式，与「新建」实心主按钮区分 */
+  .resume-drawer-new.ghost{
+    background:transparent;color:var(--ui-text);border:1px solid var(--ui-border-soft);
+  }
+  .resume-drawer-new.ghost:hover{background:var(--ui-btn-hover);}
+  .resume-drawer-collapse{
+    height:28px;width:28px;padding:0;font-size:15px;line-height:1;
+    background:transparent;color:var(--ui-muted);border:1px solid var(--ui-border-soft);border-radius:5px;cursor:pointer;
+    display:flex;align-items:center;justify-content:center;flex-shrink:0;
+  }
+  .resume-drawer-collapse:hover{background:var(--ui-btn-hover);color:var(--ui-text);}
+  .resume-drawer-list{flex:1;overflow-y:auto;overflow-x:hidden;padding:8px;display:flex;flex-direction:column;gap:4px;min-width:252px;}
+  .resume-item{
+    position:relative;display:flex;flex-direction:column;gap:2px;padding:10px 12px;border-radius:6px;
+    border:1px solid transparent;cursor:pointer;text-align:left;background:transparent;
+  }
+  .resume-item:hover{background:var(--ui-btn-hover);}
+  .resume-item.active{border-color:var(--ui-focus-border);background:var(--ui-btn-hover);}
+  /* 右侧留出「⋯」的位置，标题过长时不与按钮重叠 */
+  .resume-item-title{font-size:12.5px;font-weight:500;color:var(--ui-text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-right:22px;}
+  .resume-item-meta{font-size:11px;color:var(--ui-faint);display:flex;align-items:center;gap:6px;}
+  /* 「⋯」更多操作入口：默认隐身，悬停卡片 / 选中卡片 / 键盘聚焦时才出现。
+     重命名 / 复制 / 删除一律收进它弹出的菜单，不再平铺在卡片上（防误点）。 */
+  .resume-item-more{
+    position:absolute;top:6px;right:6px;width:24px;height:24px;padding:0;
+    display:flex;align-items:center;justify-content:center;
+    font-size:13px;line-height:1;letter-spacing:1px;color:var(--ui-muted);
+    background:transparent;border:1px solid transparent;border-radius:4px;cursor:pointer;
+    opacity:0;transition:opacity .12s ease,background .12s ease,color .12s ease,border-color .12s ease;
+  }
+  .resume-item:hover .resume-item-more,
+  .resume-item.active .resume-item-more,
+  .resume-item:focus-within .resume-item-more,
+  .resume-item-more:focus-visible,
+  .resume-item-more.on{opacity:1;}
+  .resume-item-more:hover,.resume-item-more.on{
+    background:var(--ui-btn-hover);color:var(--ui-text);border-color:var(--ui-border-soft);
+  }
+  /* 触屏设备没有 hover：常显，保证入口可被发现 */
+  @media (hover:none){ .resume-item-more{opacity:1;} }
+
+  /* 卡片操作菜单：固定层，挂在 body 上（抽屉 overflow:hidden 会裁切绝对定位的子元素） */
+  .resume-item-menu{
+    position:fixed;z-index:400;display:none;flex-direction:column;gap:1px;
+    min-width:104px;padding:4px;background:var(--ui-panel);
+    border:1px solid var(--ui-border);border-radius:6px;
+    box-shadow:0 8px 24px var(--ui-menu-shadow);
+  }
+  .resume-item-menu.show{display:flex;}
+  .resume-item-menu button{
+    height:28px;padding:0 10px;font-size:12px;text-align:left;white-space:nowrap;
+    background:transparent;color:var(--ui-text);border:none;border-radius:4px;cursor:pointer;
+  }
+  .resume-item-menu button:hover{background:var(--ui-btn-hover);}
+  .resume-item-menu .menu-sep{height:1px;margin:3px 4px;background:var(--ui-border-soft);}
+  .resume-drawer-empty{padding:16px 12px;font-size:12px;color:var(--ui-faint);line-height:1.6;}
+
+  /* ===== 抽屉收起时的左缘展开把手（贴预览区左缘） ===== */
+  .resume-drawer-expand{
+    display:none;position:absolute;left:0;top:50%;transform:translateY(-50%);z-index:58;
+    width:18px;height:56px;padding:0;font-size:13px;line-height:1;color:var(--ui-tab-text);
+    background:var(--ui-tab-bg);border:1px solid var(--ui-tab-border);border-left:none;border-radius:0 6px 6px 0;
+    cursor:pointer;box-shadow:2px 0 8px var(--ui-tab-shadow);
+  }
+  .resume-drawer-expand:hover{background:var(--ui-tab-hover);}
+  /* 抽屉收起时显示展开把手 */
+  .resume-drawer:not(.open) ~ .resume-drawer-expand{display:block;}
 
   /* ===== 表单保存按钮（配置弹层用） ===== */
   .form-btn{height:34px;padding:0 20px;font-size:13px;font-weight:600;background:var(--ui-solid-bg);color:var(--ui-solid-text);border:none;border-radius:4px;cursor:pointer;}
@@ -412,7 +505,7 @@
     html,body{height:auto;overflow:visible;background:#fff;}
     /* 隐藏全部编辑/工具 UI，只输出简历本身（文字可选中、体积小） */
     .side-rail,.side-panel,.editor-pane,.pdf-modal,.page-guide,.autosave,.pane-tab,
-    .mobile-tabbar,.sync-pane{display:none !important;}
+    .mobile-tabbar,.sync-pane,.resume-drawer,.resume-drawer-expand{display:none !important;}
     .app{display:block;height:auto;}
     .preview-pane{display:block;background:#fff;}
     .preview-frame{overflow:visible;padding:0;height:auto;}
@@ -502,11 +595,27 @@
       cursor:pointer;text-align:left;
     }
     .sync-pane button:active{background:var(--ui-btn-hover);}
+
+    /* 多简历抽屉在手机上全屏滑出（覆盖桌面常驻布局） */
+    .resume-drawer{
+      position:fixed;left:0;top:0;bottom:0;width:86%;max-width:320px;z-index:300;
+      transform:translateX(-100%);transition:transform .2s ease;
+      border-right:1px solid var(--ui-border);box-shadow:4px 0 18px var(--ui-menu-shadow);
+    }
+    .resume-drawer.open{width:86%;max-width:320px;transform:translateX(0);}
+    .resume-drawer:not(.open){width:86%;max-width:320px;transform:translateX(-100%);}
+    .resume-drawer:not(.open) .resume-drawer-head,
+    .resume-drawer:not(.open) .resume-drawer-list{opacity:1;pointer-events:auto;}
+    .resume-drawer-expand{display:none !important;}
+    .resume-drawer-head,.resume-drawer-list{min-width:0;}
   }
 
   /* —— 平板：沿用桌面两栏，仅允许编辑栏稍窄（桌面逻辑不被破坏） —— */
   @media (min-width:641px) and (max-width:1024px){
     .editor-pane{width:380px;}
+    /* 右缘推展面板同步收窄，保持与编辑面板同宽同位 */
+    .side-panel.open{width:380px;}
+    .side-panel-head,.side-panel-body{min-width:380px;}
   }
 
   /* —— 触控指针（手机/平板）：放大触控目标，避免过小 —— */

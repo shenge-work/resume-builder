@@ -47,15 +47,48 @@ const css = read('css/style.css');
 const LINK = '<link rel="stylesheet" href="css/style.css">';
 if (!html.includes(LINK)) { console.error('index.html 中未找到样式表引用：' + LINK); process.exit(1); }
 html = html.replace(LINK, '<style>' + css + '</style>');
+/* P0 多页面骨架样式：内联在 style.css 之后，被其覆盖 */
+const layoutCss = read('css/layout.css');
+const LAYOUT_LINK = '<link rel="stylesheet" href="css/layout.css">';
+if (!html.includes(LAYOUT_LINK)) { console.error('index.html 中未找到样式表引用：' + LAYOUT_LINK); process.exit(1); }
+html = html.replace(LAYOUT_LINK, '<style>' + layoutCss + '</style>');
+
+/* AI 面板样式：内联在 layout.css 之后 */
+const aiCss = read('css/ai.css');
+const AI_LINK = '<link rel="stylesheet" href="css/ai.css">';
+if (!html.includes(AI_LINK)) { console.error('index.html 中未找到样式表引用：' + AI_LINK); process.exit(1); }
+html = html.replace(AI_LINK, '<style>' + aiCss + '</style>');
 
 /* 2) JS 内联（顺序必须与 index.html 一致） */
 const files = [
   ['vendor/html2canvas.min.js', 'html2canvas 1.4.1'],
   ['vendor/jspdf.umd.min.js', 'jsPDF 2.5.1'],
+  ['vendor/qrcode-generator.js', 'qrcode-generator 1.4.4（飞书扫码注册二维码渲染）'],
   ['js/theme.js', 'js/theme.js（日间 / 夜间主题）'],
   ['js/store/resume-store.js', 'js/store/resume-store.js（P0 数据门面）'],
+  ['js/store/resume-library.js', 'js/store/resume-library.js（M1 多简历仓库）'],
   ['js/store/native-bridge.js', 'js/store/native-bridge.js（P2 原生桥）'],
+  ['js/store/datasource.js', 'js/store/datasource.js（M4 数据源契约与注册表）'],
+  ['js/store/adapter-local.js', 'js/store/adapter-local.js（M4 本地适配器）'],
+  ['js/store/adapter-feishu.js', 'js/store/adapter-feishu.js（M4 飞书适配器）'],
+  ['js/router/router.js', 'js/router/router.js（P0 微型 hash 路由）'],
+  ['js/router/layout.js', 'js/router/layout.js（P0 全局 rail / view-root）'],
+  ['js/views/library-view.js', 'js/views/library-view.js（P0 简历库占位页）'],
+  ['js/views/editor-view.js', 'js/views/editor-view.js（P0 编辑器视图包装）'],
+  ['js/views/settings-view.js', 'js/views/settings-view.js（P2 设置页）'],
+  ['js/views/history-view.js', 'js/views/history-view.js（P2 历史版本页）'],
+  ['js/views/tracker-view.js', 'js/views/tracker-view.js（P3 投递追踪）'],
+  ['js/views/templates-view.js', 'js/views/templates-view.js（排版预设页）'],
+  ['js/views/portfolio-view.js', 'js/views/portfolio-view.js（个人官网预览页）'],
+  ['js/render/resume-render.js', 'js/render/resume-render.js（简历渲染引擎拆分）'],
+  ['js/export/export-pdf.js', 'js/export/export-pdf.js（PDF / 长图 / 单文件 HTML 导出）'],
+  ['js/feishu/feishu-sync.js', 'js/feishu/feishu-sync.js（飞书同步 / 扫码授权 / 注册）'],
+  ['js/ui/pane-mobile.js', 'js/ui/pane-mobile.js（面板 / 移动端 UI）'],
+  ['js/ai/presets.js', 'js/ai/presets.js（AI 厂商预设）'],
+  ['js/ai/provider.js', 'js/ai/provider.js（AI 调用层 + SSE 解析）'],
+  ['js/ai/ui/panel.js', 'js/ai/ui/panel.js（AI 面板壳）'],
   ['js/app.js', 'js/app.js'],
+  ['js/router/bootstrap.js', 'js/router/bootstrap.js（P0 路由启动）'],
   ['js/export-extra.js', 'js/export-extra.js（T7 DOCX / 纯文本 / Markdown / 静默 PDF 导出）'],
   ['js/audit.js', 'js/audit.js（T7 投递体检）']
 ];

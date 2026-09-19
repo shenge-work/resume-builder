@@ -131,31 +131,88 @@
   // 原生桥：若存在 window.__RESUME_NATIVE__ 且含对应方法，则委托；否则浏览器模式不可用
   var NATIVE = (global.__RESUME_NATIVE__ && typeof global.__RESUME_NATIVE__ === 'object') ? global.__RESUME_NATIVE__ : null;
 
+  /* 浏览器模式 HTTP 后端：直连本地 serve.js 的 /api/sync*（凭证仍在服务端，不进浏览器）。
+     仅当「无原生壳 + 有 fetch」时启用；file:// 或静态服务器下 fetch 失败则走下面的 reject 分支。 */
+  function httpJson(method, path, body) {
+    return fetch(path, {
+      method: method,
+      headers: { 'Content-Type': 'application/json' },
+      body: body === undefined ? undefined : JSON.stringify(body)
+    }).then(function (r) {
+      return r.json().then(function (j) {
+        if (!r.ok) throw new Error(j && j.error ? j.error : ('HTTP ' + r.status));
+        return j;
+      });
+    });
+  }
+  /* 版本列表 / 恢复 / 拉取均按「简历 id」定位远端文件；缺省 'default'（兼容单份简历）。
+     resumeId 来自 ResumeLibrary 的简历 id，经 reportToFeishu 的 payload.id 写入
+     sync.state.json 的 file_token_<id> 键，两边必须一致才能读到同一份数据。 */
+  function syncQS(resumeId) {
+    return resumeId ? ('?resumeId=' + encodeURIComponent(resumeId)) : '';
+  }
+
   var FeishuStore = {
     available: !!NATIVE,  // 纯浏览器无原生壳 → false
     push: function (payload) {
       if (NATIVE && typeof NATIVE.feishuPush === 'function') return Promise.resolve(NATIVE.feishuPush(payload));
+      if (typeof fetch === 'function') {
+        return httpJson('POST', '/api/sync', payload).then(function (j) {
+          return { ok: true, docUrl: j.docUrl, fileUrl: j.fileUrl, size: j.size, dryRun: !!j.dryRun, authMode: j.authMode };
+        });
+      }
       return Promise.reject(new Error(FEISHU_UNAVAILABLE_MSG));
     },
-    pull: function () {
-      if (NATIVE && typeof NATIVE.feishuPull === 'function') return Promise.resolve(NATIVE.feishuPull());
+    pull: function (resumeId) {
+      if (NATIVE && typeof NATIVE.feishuPull === 'function') return Promise.resolve(NATIVE.feishuPull(resumeId));
+      if (typeof fetch === 'function') {
+        // 浏览器 HTTP 后端：等价「取该简历最新版本并恢复」
+        return httpJson('GET', '/api/sync/versions' + syncQS(resumeId)).then(function (j) {
+          var vs = j.versions || [];
+          if (!vs.length) throw new Error('飞书中还没有可用版本，请先「上报到飞书」');
+          return httpJson('POST', '/api/sync/restore', { versionId: vs[0].version_id, resumeId: resumeId }).then(function (r) {
+            try { return JSON.parse(r.json); } catch (e) { return r.json; }
+          });
+        });
+      }
       return Promise.reject(new Error(FEISHU_UNAVAILABLE_MSG));
     },
-    listVersions: function () {
-      if (NATIVE && typeof NATIVE.feishuListVersions === 'function') return Promise.resolve(NATIVE.feishuListVersions());
+    listVersions: function (resumeId) {
+      if (NATIVE && typeof NATIVE.feishuListVersions === 'function') return Promise.resolve(NATIVE.feishuListVersions(resumeId));
+      if (typeof fetch === 'function') {
+        return httpJson('GET', '/api/sync/versions' + syncQS(resumeId)).then(function (j) { return j.versions || []; });
+      }
       return Promise.reject(new Error(FEISHU_UNAVAILABLE_MSG));
     },
-    restore: function (versionId) {
-      if (NATIVE && typeof NATIVE.feishuRestore === 'function') return Promise.resolve(NATIVE.feishuRestore(versionId));
+    restore: function (versionId, resumeId) {
+      if (NATIVE && typeof NATIVE.feishuRestore === 'function') return Promise.resolve(NATIVE.feishuRestore(versionId, resumeId));
+      if (typeof fetch === 'function') {
+        return httpJson('POST', '/api/sync/restore', { versionId: versionId, resumeId: resumeId }).then(function (r) {
+          try { return JSON.parse(r.json); } catch (e) { return r.json; }
+        });
+      }
       return Promise.reject(new Error(FEISHU_UNAVAILABLE_MSG));
     },
     loadConfig: function () {
-      // 浏览器模式：无配置（等价于非本地服务打开时的行为）；原生壳可委托
+      // 浏览器模式：优先直连本地服务读取；无服务（file:// 等）返回 null
       if (NATIVE && typeof NATIVE.feishuLoadConfig === 'function') return Promise.resolve(NATIVE.feishuLoadConfig());
+      if (typeof fetch === 'function') {
+        return httpJson('GET', '/api/sync/config').then(function (j) { return j.config || null; }).catch(function () { return null; });
+      }
       return Promise.resolve(null);
     },
     saveConfig: function (cfg) {
       if (NATIVE && typeof NATIVE.feishuSaveConfig === 'function') return Promise.resolve(NATIVE.feishuSaveConfig(cfg));
+      if (typeof fetch === 'function') {
+        return httpJson('POST', '/api/sync/config', cfg).then(function (j) { return { configured: !!j.configured }; });
+      }
+      return Promise.reject(new Error(FEISHU_UNAVAILABLE_MSG));
+    },
+    probe: function (req) {
+      if (NATIVE && typeof NATIVE.feishuProbe === 'function') return Promise.resolve(NATIVE.feishuProbe(req));
+      if (typeof fetch === 'function') {
+        return httpJson('POST', '/api/sync/probe', req);
+      }
       return Promise.reject(new Error(FEISHU_UNAVAILABLE_MSG));
     }
   };
@@ -176,21 +233,21 @@
         LocalServerStore.save(payload)
       ]);
     },
-    /* 从飞书拉最新（可用时）；浏览器模式抛出友好 Error */
-    pull: function () {
-      return FeishuStore.pull();
+    /* 从飞书拉最新（可用时）；resumeId 缺省 'default'；浏览器模式抛出友好 Error */
+    pull: function (resumeId) {
+      return FeishuStore.pull(resumeId);
     },
     /* 推到飞书（可用时），返回 {ok,docUrl,dryRun}；不可用抛友好 Error */
     push: function (payload) {
       return FeishuStore.push(payload);
     },
-    /* 返回飞书版本数组；不可用抛友好 Error */
-    listVersions: function () {
-      return FeishuStore.listVersions();
+    /* 返回某份简历的飞书版本数组；不可用抛友好 Error */
+    listVersions: function (resumeId) {
+      return FeishuStore.listVersions(resumeId);
     },
     /* 返回该版本的 {data,fonts,spacing} 载荷对象；不可用抛友好 Error */
-    restore: function (versionId) {
-      return FeishuStore.restore(versionId);
+    restore: function (versionId, resumeId) {
+      return FeishuStore.restore(versionId, resumeId);
     },
     /* 返回飞书配置对象或 null */
     loadConfig: function () {
@@ -199,6 +256,10 @@
     /* 保存飞书配置，返回 {configured:boolean} */
     saveConfig: function (cfg) {
       return FeishuStore.saveConfig(cfg);
+    },
+    /* 一键绑定探测：验证凭证 + 自动建文件夹，返回默认项 */
+    probe: function (req) {
+      return FeishuStore.probe(req);
     }
   };
 

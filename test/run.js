@@ -73,12 +73,64 @@ const ctx = {
 };
 ctx.window = ctx; // 自引用，模拟全局
 
+/* ---------- 内存版 indexedDB 桩（供 ResumeLibrary 测试用） ----------
+   只实现 resume-library.js 用到的能力：open / objectStore(get|put|delete)、单 store、单库。 */
+function makeIDB() {
+  const dbStore = new Map(); // key -> value
+  function makeRequest(ok, result, err) {
+    const r = { result, error: err, onsuccess: null, onerror: null };
+    setTimeout(() => { if (ok && r.onsuccess) r.onsuccess(); else if (!ok && r.onerror) r.onerror(); }, 0);
+    return r;
+  }
+  function makeStore() {
+    return {
+      get(key) { return makeRequest(true, dbStore.has(key) ? dbStore.get(key) : undefined); },
+      put(val, key) { dbStore.set(key, val); return makeRequest(true); },
+      delete(key) { dbStore.delete(key); return makeRequest(true); },
+    };
+  }
+  function makeTx() {
+    return { objectStore() { return makeStore(); } };
+  }
+  function makeDB() {
+    return {
+      objectStoreNames: { contains() { return true; } },
+      transaction() { return makeTx(); },
+      close() {},
+      createObjectStore() { return {}; },
+    };
+  }
+  return {
+    open(name, version) {
+      const req = { result: makeDB(), onupgradeneeded: null, onsuccess: null, onerror: null };
+      setTimeout(() => { if (req.onupgradeneeded) req.onupgradeneeded(); if (req.onsuccess) req.onsuccess(); }, 0);
+      return req;
+    },
+  };
+}
+ctx.indexedDB = makeIDB();
+
 /* ---------- 加载源码 ---------- */
 const dataCode = fs.readFileSync(path.join(ROOT, 'js', 'data.js'), 'utf8');
 const appCode = fs.readFileSync(path.join(ROOT, 'js', 'app.js'), 'utf8');
+const storeCode = fs.readFileSync(path.join(ROOT, 'js', 'store', 'resume-store.js'), 'utf8');
+const renderCode = fs.readFileSync(path.join(ROOT, 'js', 'render', 'resume-render.js'), 'utf8');
+const exportPdfCode = fs.existsSync(path.join(ROOT, 'js', 'export', 'export-pdf.js'))
+  ? fs.readFileSync(path.join(ROOT, 'js', 'export', 'export-pdf.js'), 'utf8') : '';
+const feishuSyncCode = fs.existsSync(path.join(ROOT, 'js', 'feishu', 'feishu-sync.js'))
+  ? fs.readFileSync(path.join(ROOT, 'js', 'feishu', 'feishu-sync.js'), 'utf8') : '';
 const caseCode = fs.readFileSync(path.join(ROOT, 'test', 'cases.js'), 'utf8');
+const paneMobileCode = fs.existsSync(path.join(ROOT, 'js', 'ui', 'pane-mobile.js'))
+  ? fs.readFileSync(path.join(ROOT, 'js', 'ui', 'pane-mobile.js'), 'utf8') : '';
+
 const cssCode = fs.readFileSync(path.join(ROOT, 'css', 'style.css'), 'utf8');
 const htmlCode = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+const settingsViewCode = fs.readFileSync(path.join(ROOT, 'js', 'views', 'settings-view.js'), 'utf8');
+const historyViewCode = fs.readFileSync(path.join(ROOT, 'js', 'views', 'history-view.js'), 'utf8');
+const nativeBridgeCode = fs.readFileSync(path.join(ROOT, 'js', 'store', 'native-bridge.js'), 'utf8');
+const layoutCssCode = fs.readFileSync(path.join(ROOT, 'css', 'layout.css'), 'utf8');
+const serveCode = fs.readFileSync(path.join(ROOT, 'tools', 'serve.js'), 'utf8');
+const feishuSyncToolCode = fs.readFileSync(path.join(ROOT, 'tools', 'feishu-sync.js'), 'utf8');
 
 vm.createContext(ctx);
 
@@ -86,9 +138,11 @@ vm.createContext(ctx);
 const fileResults = [];
 const F = (name, cond) => fileResults.push({ name, pass: !!cond });
 
-/* ---------- 第一步：加载 data + app（app 内部为 IIFE，仅挂 window.ResumeEditor）---------- */
+/* ---------- 第一步：加载 data + resume-store + app（app 依赖前两者，仅挂 window.ResumeEditor）----------
+   注意：resume-store.js 是零依赖 IIFE，挂 window.ResumeStore；app.js 的 pushRepo 会引用它，
+   测试里必须按真实 index.html 的加载顺序先加载 store，否则防抖保存的 setTimeout 触发时会 ReferenceError。 */
 try {
-  vm.runInContext(dataCode + '\n' + appCode, ctx, { filename: 'resume-bundle.js' });
+  vm.runInContext(dataCode + '\n' + renderCode + '\n' + exportPdfCode + '\n' + feishuSyncCode + '\n' + paneMobileCode + '\n' + storeCode + '\n' + appCode, ctx, { filename: 'resume-bundle.js' });
 } catch (e) {
   fileResults.push({ name: '加载期异常: ' + (e && e.message ? e.message : e), pass: false });
 }
@@ -108,7 +162,122 @@ try {
   fileResults.push({ name: '运行期异常: ' + (e && e.message ? e.message : e), pass: false });
 }
 
-/* ---------- 第三步：js/audit.js 的内容体检用例 ----------
+/* ---------- 第三步：js/store/resume-library.js 的多简历仓库用例 ----------
+   与 audit 同构：CommonJS 由 Node 侧 require，断言走 ctx.assert。
+   ResumeLibrary 依赖 indexedDB，上面已注入内存桩。 */
+try {
+  const libCode = fs.readFileSync(path.join(ROOT, 'js', 'store', 'resume-library.js'), 'utf8');
+  vm.runInContext(libCode, ctx, { filename: 'resume-library.js' });
+} catch (e) {
+  fileResults.push({ name: '加载期异常（js/store/resume-library.js）: ' + (e && e.message ? e.message : e), pass: false });
+}
+
+const libCases = require(path.join(ROOT, 'test', 'cases-library.js'));
+const libCtx = {
+  ResumeLibrary: ctx.ResumeLibrary,
+  pickResumeSource: (ctx.ResumeEditor && ctx.ResumeEditor.pickResumeSource) || null,
+  assert(cond, msg) { fileResults.push({ name: 'library › ' + msg, pass: !!cond }); },
+};
+let libChain = Promise.resolve();
+for (const c of libCases) {
+  libChain = libChain.then(() => c.fn(libCtx))
+    .catch((e) => { fileResults.push({ name: 'library › ' + c.name + '（抛错: ' + (e && e.message ? e.message : e) + '）', pass: false }); });
+}
+
+/* ---------- 第四步：js/store/datasource.js 的注册表用例（M4）----------
+   在 vm 上下文加载（和浏览器同路径），每个用例前 _reset 保证隔离。 */
+try {
+  const dsCode = fs.readFileSync(path.join(ROOT, 'js', 'store', 'datasource.js'), 'utf8');
+  vm.runInContext(dsCode, ctx, { filename: 'datasource.js' });
+} catch (e) {
+  fileResults.push({ name: '加载期异常（js/store/datasource.js）: ' + (e && e.message ? e.message : e), pass: false });
+}
+
+const dsCases = require(path.join(ROOT, 'test', 'cases-datasource.js'));
+const dsCtx = {
+  Registry: ctx.ResumeDataSourceRegistry,
+  assert(cond, msg) { fileResults.push({ name: 'datasource › ' + msg, pass: !!cond }); },
+};
+for (const c of dsCases) {
+  if (ctx.ResumeDataSourceRegistry) ctx.ResumeDataSourceRegistry._reset();
+  try { c.fn(dsCtx); }
+  catch (e) { fileResults.push({ name: 'datasource › ' + c.name + '（抛错: ' + (e && e.message ? e.message : e) + '）', pass: false }); }
+}
+if (ctx.ResumeDataSourceRegistry) ctx.ResumeDataSourceRegistry._reset();
+
+/* ---------- 第四步：tools/feishu-sync.js 的一键绑定默认项用例（M3）----------
+   feishu-sync.js 是纯 Node CommonJS 模块（module.exports），可直接 require；
+   buildProbeDefaults 是纯函数（不触发网络），其余函数惰性依赖 https/fs，require 时安全。 */
+const feishuSync = require(path.join(ROOT, 'tools', 'feishu-sync.js'));
+const feishuCases = require(path.join(ROOT, 'test', 'cases-feishu.js'));
+const feishuCtx = {
+  buildProbeDefaults: feishuSync.buildProbeDefaults,
+  authStateKey: feishuSync.authStateKey,
+  assert(cond, msg) { fileResults.push({ name: 'feishu › ' + msg, pass: !!cond }); },
+};
+for (const c of feishuCases) {
+  try { c.fn(feishuCtx); }
+  catch (e) { fileResults.push({ name: 'feishu › ' + c.name + '（抛错: ' + (e && e.message ? e.message : e) + '）', pass: false }); }
+}
+
+/* ---------- PDF 解析：extractName/extractContact/buildResumeData 纯函数用例 ----------
+   pdf-parse.js 是纯 Node CommonJS 模块；其纯函数不触发 pdf.js 加载，require 时安全。
+   （parsePdfToResume/extractText 才需要 vendor/pdf.min.js，这里只测纯函数。） */
+const pdfParse = require(path.join(ROOT, 'tools', 'pdf-parse.js'));
+const pdfCases = require(path.join(ROOT, 'test', 'cases-pdfparse.js'));
+const pdfCtx = {
+  extractName: pdfParse.extractName,
+  extractContact: pdfParse.extractContact,
+  buildResumeData: pdfParse.buildResumeData,
+  assert(cond, msg) { fileResults.push({ name: 'pdfparse › ' + msg, pass: !!cond }); },
+};
+for (const c of pdfCases) {
+  try { c.fn(pdfCtx); }
+  catch (e) { fileResults.push({ name: 'pdfparse › ' + c.name + '（抛错: ' + (e && e.message ? e.message : e) + '）', pass: false }); }
+}
+
+/* ---------- 飞书扫码授权：buildAuthorizeUrl 纯函数用例 ----------
+   feishu-oauth.js 是纯 Node CommonJS 模块；buildAuthorizeUrl 是纯函数（不触发网络）。
+   测试里用临时 mock 覆盖 sync.config.json 读取，不依赖本机真实配置。 */
+const feishuOauth = require(path.join(ROOT, 'tools', 'feishu-oauth.js'));
+const oauthCases = require(path.join(ROOT, 'test', 'cases-oauth.js'));
+const OAUTH_CFG_PATH = path.join(ROOT, 'sync.config.json');
+function withMockConfig(mock, fn) {
+  const orig = fs.readFileSync;
+  fs.readFileSync = function (p, ...args) {
+    if (path.resolve(p) === OAUTH_CFG_PATH) return JSON.stringify(mock);
+    return orig.apply(fs, [p, ...args]);
+  };
+  try { return fn(); }
+  finally { fs.readFileSync = orig; }
+}
+const oauthCtx = {
+  buildAuthorizeUrl: (opts) => withMockConfig({ app_id: 'cli_test123', app_secret: 'secret' }, () => feishuOauth.buildAuthorizeUrl(opts)),
+  // 无 app_id 且无配置时的抛错场景（mock 空配置，不依赖本机 sync.config.json）
+  buildAuthorizeUrlWithoutConfig: function () {
+    return withMockConfig({}, () => feishuOauth.buildAuthorizeUrl({}));
+  },
+  assert(cond, msg) { fileResults.push({ name: 'oauth › ' + msg, pass: !!cond }); },
+};
+for (const c of oauthCases) {
+  try { c.fn(oauthCtx); }
+  catch (e) { fileResults.push({ name: 'oauth › ' + c.name + '（抛错: ' + (e && e.message ? e.message : e) + '）', pass: false }); }
+}
+
+/* ---------- 飞书「个人应用」扫码注册：纯函数用例（Device Flow）----------
+   feishu-register.js 是纯 Node CommonJS 模块；encodeAddons / mapPollStatus 是纯函数（不触发网络）。 */
+const feishuRegister = require(path.join(ROOT, 'tools', 'feishu-register.js'));
+const registerCases = require(path.join(ROOT, 'test', 'cases-feishu-register.js'));
+const registerCtx = {
+  feishuRegister: feishuRegister,
+  assert(cond, msg) { fileResults.push({ name: 'feishu-register › ' + msg, pass: !!cond }); },
+};
+for (const c of registerCases) {
+  try { c.fn(registerCtx); }
+  catch (e) { fileResults.push({ name: 'feishu-register › ' + c.name + '（抛错: ' + (e && e.message ? e.message : e) + '）', pass: false }); }
+}
+
+/* ---------- 第四步：js/audit.js 的内容体检用例 ----------
    注意：test/cases-audit.js 此前**从未被执行过**——本运行器原先硬编码只读 cases.js。
    它是 CommonJS（module.exports = [{name, fn}]），由 Node 侧 require 后逐条跑，
    断言走 ctx.assert(cond, msg)，与上面的 __ok 通道不同名，故在此单独适配。 */
@@ -186,18 +355,150 @@ F('体检面板容器存在（#auditBody）', /id="auditBody"/.test(htmlClean));
    而界面上完全看不出来，所以必须在测试里钉住。 */
 const renderResumeCode = fs.readFileSync(path.join(ROOT, 'tools', 'render-resume.js'), 'utf8');
 F('app.js 定义并调用 syncPrintPageMargin（浏览器打印路径）',
-  /function syncPrintPageMargin\(\)/.test(appCode) && /syncPrintPageMargin\(\);/.test(appCode));
+  /function syncPrintPageMargin\(\)/.test(appCode + renderCode) && /syncPrintPageMargin\(\);/.test(appCode + renderCode));
+
+/* ---------- 右缘标签互斥（多选一）：浮动面板 ↔ 编辑面板，展开任一方即收起另一方 ---------- */
+F('互斥：浮动面板展开时收起编辑面板（setSidePanelOpen→setPaneCollapsed(true)）',
+  /if \(open\) \{[\s\S]{0,200}setPaneCollapsed\(true, persist\)/.test(appCode + paneMobileCode));
+F('互斥：编辑面板展开时收起浮动面板（setPaneCollapsed→close .side-panel.open）',
+  /if \(!collapsed\) \{[\s\S]{0,160}\.side-panel\.open[\s\S]{0,120}setSidePanelOpen\(p\.id, false, persist\)/.test(appCode + paneMobileCode));
+/* ---------- 右缘面板与编辑面板同款推展（不是居中浮动小卡片）---------- */
+F('工具菜单已移出 preview-pane、与编辑面板同级（.app 的 flex 兄弟列）',
+  (() => {
+    const iPrev = htmlClean.indexOf('class="preview-pane"');
+    const iEdit = htmlClean.indexOf('class="editor-pane"');
+    const iPanel = htmlClean.indexOf('id="toolsPanel"');
+    return iPrev > -1 && iEdit > iPrev && iPanel > iEdit &&
+      htmlClean.slice(iPrev, iEdit).indexOf('id="toolsPanel"') === -1;
+  })());
+F('右缘面板为 flex 推展列（width:0→460），不再 position:absolute 浮动',
+  /\.side-panel\{[^}]*flex-shrink:0;width:0;[^}]*\}[\s\S]{0,140}\.side-panel\.open\{width:460px/.test(cssCode) &&
+  !/\.side-panel\{[^}]*position:absolute/.test(cssCode));
+F('右缘面板高度通栏（无 top:50% 居中定位残留）',
+  !/\.side-panel\.open\{[^}]*translateY\(-50%\)/.test(cssCode) && !/\.side-panel\{[^}]*top:50%/.test(cssCode));
 F('app.js 空值不被当成 0mm（null / undefined / 空串显式回退）',
-  /v === null \|\| v === undefined \|\| v === ''/.test(appCode));
+  /v === null \|\| v === undefined \|\| v === ''/.test(appCode + renderCode));
 F('render-resume.js 注入动态 @page（静默导出路径）', /pageMarginRule/.test(renderResumeCode));
 F('css/style.css 保留 A4 默认 @page（无 JS 环境下的兜底）', /@page\{\s*size:A4/.test(cssCode));
 
-/* ---------- 报告 ---------- */
-const all = ctx.__results.concat(fileResults);
-let pass = 0, fail = 0;
-for (const r of all) {
-  if (r.pass) { pass++; console.log('  ✓ ' + r.name); }
-  else { fail++; console.log('  ✗ ' + r.name); }
-}
-console.log('\n结果: pass=' + pass + ' fail=' + fail + ' total=' + all.length);
-process.exit(fail > 0 ? 1 : 0);
+/* ---------- 文件级冒烟断言：M1/M2 多简历接线（防「写了但没接」）---------- */
+F('index.html 引入 js/store/resume-library.js', /<script src="js\/store\/resume-library\.js"><\/script>/.test(htmlClean));
+F('resume-library.js 排在 app.js 之前（app 依赖其暴露的 ResumeLibrary）',
+  htmlClean.indexOf('js/store/resume-library.js') < htmlClean.indexOf('js/app.js'));
+F('index.html 含简历抽屉容器（#resumeDrawer）', /id="resumeDrawer"/.test(htmlClean));
+F('index.html 抽屉默认常驻（class 含 open）', /class="resume-drawer open"/.test(htmlClean));
+F('index.html 含抽屉折叠/展开把手', /id="resumeDrawerCollapse"/.test(htmlClean) && /id="resumeDrawerExpand"/.test(htmlClean));
+F('打印时隐藏简历抽屉与展开把手', /\.resume-drawer,\.resume-drawer-expand\{display\s*:\s*none/.test(cssCode));
+
+/* ---------- 文件级冒烟断言：卡片操作收进「⋯」菜单（防平铺按钮回归）----------
+   失效面：重命名 / 复制 / 删除一旦又被平铺在卡片上，鼠标扫过卡片就会误点（尤其删除），
+   而界面上看不出「本该收在菜单里」，所以必须钉住。
+   同时钉住「点 ⋯ 不冒泡」——这是本次改动的核心意图：点更多按钮不能顺带打开简历。 */
+F('卡片含「⋯」更多操作入口', /class="resume-item-more"/.test(appCode));
+F('「⋯」点击不冒泡（不会顺带打开/切换简历）',
+  /event\.stopPropagation\(\);ResumeEditor\.toggleResumeItemMenu\(/.test(appCode));
+F('「⋯」按键不冒泡（焦点在按钮上按回车不触发卡片打开）',
+  /onkeydown="event\.stopPropagation\(\)"/.test(appCode));
+F('操作菜单开关已定义',
+  /function toggleResumeItemMenu\(/.test(appCode) && /function closeResumeItemMenu\(/.test(appCode));
+F('操作菜单已暴露给 HTML 入口',
+  /toggleResumeItemMenu: toggleResumeItemMenu/.test(appCode) &&
+  /closeResumeItemMenu: closeResumeItemMenu/.test(appCode));
+F('卡片上不再平铺操作按钮（resume-item-actions 已移除）',
+  !/resume-item-actions/.test(appCode) && !/resume-item-actions/.test(cssCode));
+F('操作菜单样式存在（.resume-item-menu.show 可见）',
+  /\.resume-item-menu\.show\{display\s*:\s*flex/.test(cssCode));
+
+/* ---------- 文件级冒烟断言：右缘重复的「简历」把手已移除 ----------
+   失效面：railResumeTab 是抽屉收展的第二个入口，与抽屉自身的折叠按钮 / 左缘把手重复；
+   删掉后必须保证抽屉自身的两个入口还在，否则抽屉再也收不起来（不可逆的可用性事故）。 */
+F('右缘不再有重复的「简历」把手（railResumeTab / railResumeArrow 已移除）',
+  !/railResumeTab/.test(htmlClean) && !/railResumeArrow/.test(appCode));
+F('抽屉仍保留自身的收展入口',
+  /class="resume-drawer-collapse"/.test(htmlClean) &&
+  /resume-drawer-expand"/.test(htmlClean) &&
+  /onclick="ResumeEditor\.toggleResumeDrawer\(\)"/.test(htmlClean));
+
+/* ---------- 文件级冒烟断言：飞书「个人应用」扫码注册（Device Flow）----------
+   失效面：把"手动填 app_id/app_secret"误改回旧形态，或扫码注册函数没接进 UI/路由。 */
+F('index.html 引入 vendor/qrcode-generator.js（二维码渲染）',
+  /<script src="vendor\/qrcode-generator\.js"><\/script>/.test(htmlClean));
+F('build-single.js 也将 qrcode-generator.js 内联（单文件版可用）',
+  /vendor\/qrcode-generator\.js/.test(fs.readFileSync(path.join(ROOT, 'tools', 'build-single.js'), 'utf8')));
+F('飞书设置页含「扫码注册个人应用」入口（regStartBtn）',
+  /id="regStartBtn"/.test(settingsViewCode) && /onclick="ResumeEditor\.startFeishuRegister\(\)"/.test(settingsViewCode));
+F('飞书设置页含二维码展示容器（regQr）与状态位（regStatus/regResult）',
+  /id="regQr"/.test(settingsViewCode) && /id="regStatus"/.test(settingsViewCode) && /id="regResult"/.test(settingsViewCode));
+F('app.js 暴露 startFeishuRegister / cancelFeishuRegister（接入 UI）',
+  /startFeishuRegister: startFeishuRegister/.test(appCode) &&
+  /cancelFeishuRegister: cancelFeishuRegister/.test(appCode));
+F('serve.js 提供注册设备流路由 begin/poll/cancel',
+  /\/api\/feishu\/register\/begin/.test(serveCode) &&
+  /\/api\/feishu\/register\/poll/.test(serveCode) &&
+  /\/api\/feishu\/register\/cancel/.test(serveCode));
+F('serve.js 注册成功后把凭证写入 sync.config.json（writeConfig）',
+  /feishuSync\.writeConfig\(\{ app_id: r\.client_id, app_secret: r\.client_secret \}\)/.test(serveCode));
+
+/* ---------- 文件级冒烟断言：飞书同步加固（多文件上传 / 同步拉取 / 进度 / 隔离）---------- */
+F('上传文件选择器支持多选（multiple）',
+  /id="resumeImportFile"[^>]*multiple/.test(htmlClean));
+F('抽屉内含批量上传进度面板（#uploadProgress）',
+  /id="uploadProgress"/.test(htmlClean) && /id="uploadProgressFill"/.test(htmlClean));
+F('feishu-sync.js 多文件导入按 files 循环处理（非 files[0]）',
+  /Array\.prototype\.slice\.call\(\(input && input\.files\)/.test(feishuSyncCode));
+F('上传走 XHR 上传进度（upload.onprogress）',
+  /xhr\.upload\.onprogress/.test(feishuSyncCode));
+F('设置页含「拉取最新」入口（setPullBtn）',
+  /id="setPullBtn"/.test(settingsViewCode) && /ResumeEditor\.pullFromFeishu\(\)/.test(settingsViewCode));
+F('移动端同步面板含拉取 / 历史 / 消息通知入口',
+  /ResumeEditor\.pullFromFeishu\(\)/.test(htmlClean) &&
+  /ResumeRouter\.navigate\('\/history'\)/.test(htmlClean) &&
+  /ResumeNotifier\.togglePanel\(\)/.test(htmlClean));
+F('app.js 暴露 pullFromFeishu / startAutoSync 并在启动后调用',
+  /pullFromFeishu: pullFromFeishu/.test(appCode) &&
+  /startAutoSync\(\)/.test(appCode));
+F('历史版本页按激活简历 id 拉版本、恢复中按钮置灰',
+  /listVersions\(resumeId\)/.test(historyViewCode) && /恢复中/.test(historyViewCode));
+F('历史版本页含加载 spinner',
+  /<span class="spinner"><\/span>/.test(historyViewCode) && /正在拉取飞书版本/.test(historyViewCode));
+F('serve.js 恢复接口透传 resumeId（getVersion(versionId, body.resumeId)）',
+  /getVersion\(versionId, body\.resumeId \|\| 'default'\)/.test(serveCode));
+F('serve.js 静态服务屏蔽敏感文件（sync.config/oauth/state）',
+  /SENSITIVE_BASENAMES/.test(serveCode) && /sync\.config\.json/.test(serveCode));
+F('后端 getVersion 接收 resumeId 参数（修复 ReferenceError）',
+  /async function getVersion\(versionId, resumeId\)/.test(feishuSyncToolCode));
+F('后端版本列表改从云盘文件 file_token 取（不再用 docx obj_type）',
+  /stateKeyFor\('file_token'/.test(feishuSyncToolCode) &&
+  !/versions\?obj_type=docx/.test(feishuSyncToolCode));
+F('原生桥按简历分键（file_token_<id>）',
+  /stateKey\('file_token', resumeId\)/.test(nativeBridgeCode));
+F('CSS 含 spinner / 上传进度条 / 通知面板样式',
+  /\.spinner/.test(layoutCssCode) && /\.upload-progress-fill/.test(layoutCssCode) &&
+  /\.notif-panel/.test(layoutCssCode) && /\.notif-badge/.test(layoutCssCode));
+
+/* ---------- 文件级冒烟断言：自动双向同步 + 消息通知中心 ---------- */
+F('index.html 引入 js/ui/notifier.js（消息通知中心）',
+  /<script src="js\/ui\/notifier\.js"><\/script>/.test(htmlClean));
+F('工具面板头含通知铃铛（#notifBell）',
+  /id="notifBell"/.test(htmlClean));
+F('自动同步引擎存在（startAutoSync / autoSyncTick）',
+  /function startAutoSync\(\)/.test(feishuSyncCode) && /function autoSyncTick\(\)/.test(feishuSyncCode));
+F('自动同步按内容哈希去重（stableHash）',
+  /function stableHash\(/.test(feishuSyncCode) && /localHash !== cur\.lastPushedHash/.test(feishuSyncCode));
+F('自动同步把异常送消息通知（ResumeNotifier.notify error）',
+  /safeNotify\('error'/.test(feishuSyncCode) && /ResumeNotifier/.test(feishuSyncCode));
+F('通知模块暴露 notify / unreadCount / togglePanel',
+  /notify: notify/.test(fs.readFileSync(path.join(ROOT, 'js', 'ui', 'notifier.js'), 'utf8')) &&
+  /unreadCount: unreadCount/.test(fs.readFileSync(path.join(ROOT, 'js', 'ui', 'notifier.js'), 'utf8')));
+
+/* ---------- 报告（等异步的 library 用例跑完再输出） ---------- */
+libChain.then(() => {
+  const all = ctx.__results.concat(fileResults);
+  let pass = 0, fail = 0;
+  for (const r of all) {
+    if (r.pass) { pass++; console.log('  ✓ ' + r.name); }
+    else { fail++; console.log('  ✗ ' + r.name); }
+  }
+  console.log('\n结果: pass=' + pass + ' fail=' + fail + ' total=' + all.length);
+  process.exit(fail > 0 ? 1 : 0);
+});

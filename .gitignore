@@ -30,6 +30,10 @@ yarn-error.log*
 # 飞书同步：凭证与私有状态（不入库）
 sync.config.json
 sync.state.json
+sync.oauth.json
+
+# AI 转发层：含 API Key，绝不入库
+ai.config.json
 
 # Android 签名材料（上传密钥库 / 口令 / base64 文本，绝不入库）
 # 目录内另有一层 .gitignore（内容为 `*`）做双保险

@@ -160,7 +160,7 @@ module.exports = [
 
   /* ---- 空数据 ---- */
   /* 注：实现的 id 为 required-name / required-contact / empty-sections（不是 name / contact / sections）；
-     「零板块」与「头衔为空」曾记为功能缺口，现已补齐（见 ACCEPTANCE.md 的 7e）。 */
+     「零板块」与「头衔为空」曾记为功能缺口，现已补齐（见 跨平台改造-验收标准与验收记录.md 的 7e）。 */
   { name: '空数据：必填三项以 error 命中（含零板块）', fn: function(ctx){
     const A = ctx.ResumeAudit;
     const r = A.run(emptyData());
