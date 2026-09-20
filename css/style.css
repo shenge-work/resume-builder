@@ -307,6 +307,8 @@
   .resume-item.active{border-color:var(--ui-focus-border);background:var(--ui-btn-hover);}
   /* 右侧留出「⋯」的位置，标题过长时不与按钮重叠 */
   .resume-item-title{font-size:12.5px;font-weight:500;color:var(--ui-text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-right:22px;}
+  /* 派生版（JD 定制版）血缘标注：紧贴标题的小徽标，一眼可辨是母简历还是定制版 */
+  .resume-item-kind{font-style:normal;font-size:10px;font-weight:600;color:var(--accent, #4f6ef7);background:color-mix(in srgb, var(--accent, #4f6ef7) 12%, transparent);border-radius:3px;padding:1px 5px;margin-left:5px;vertical-align:1px;}
   .resume-item-meta{font-size:11px;color:var(--ui-faint);display:flex;align-items:center;gap:6px;}
   /* 「⋯」更多操作入口：默认隐身，悬停卡片 / 选中卡片 / 键盘聚焦时才出现。
      重命名 / 复制 / 删除一律收进它弹出的菜单，不再平铺在卡片上（防误点）。 */

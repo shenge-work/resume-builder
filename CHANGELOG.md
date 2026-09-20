@@ -47,6 +47,16 @@
 
 ### 新增
 
+- **简历血缘（Resume Matcher master→tailored 模型，`js/store/resume-library.js`）**：多简历库补上「母简历 ↔ JD 派生版」的显式血缘。
+  - meta 新增 `parentId`（母简历 id）/ `kind`（`master` | `derived`，缺省 `master`）/ `jobId`（关联 JD）/ `jdText`（JD 原文），
+    全部可选、向后兼容；`create`/`save`/`patchMeta` 三处白名单透传。
+  - 新增 `derive({parentId,title,payload?,jobId?,jdText?})` 显式派生入口（复制母简历 + 落血缘）与
+    `children(parentId)` 反向查询（列出某母简历的全部派生版）。
+  - `resumeDeriveFromJd`（A4 的「生成定制版」）改走 `derive`，派生时记 `parentId`/`kind:'derived'`/`jobId`/`jdText`，
+    使 JD 不再只存 localStorage（换设备/清缓存即丢），而是随简历库持久化、可回溯到母简历与对应岗位。
+  - 抽屉列表对派生版显示「定制版」小徽标（`.resume-item-kind`），一眼可辨。
+  - 测试 `test/cases-library.js`（18 条）+ 五轮变异测试全抓到（丢 parentId / kind 缺省错 / save 漏 jobId / children 不过滤 / 缺 parentId 不抛错）。
+
 - **分享页导出（A6，只读 + 水印，`js/export/export-pdf.js`）**：补上「简历做完发不出去」的短板。
   在「导出单文件 HTML」同源管线上新增「导出分享页」——产出带**斜置「仅查看」半透明水印**的只读静态页，
   内容与主简历一致、不含任何编辑控件、可本地打开或丢静态托管（GitHub Pages / Vercel）发给他人。

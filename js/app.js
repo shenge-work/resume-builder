@@ -331,7 +331,9 @@ async function resumeDuplicate(id){
 
 /* 基于当前 JD 匹配结果，生成一份「JD 定制版」派生简历（不覆盖主简历）。
    流程：复制主简历 → 用 jd-derive 的 buildDerivedPayload 把缺失/弱覆盖关键词
-   整理成「JD 定制待补」技能分组插入 → 落盘 → 激活。可撤销（进历史栈）。 */
+   整理成「JD 定制待补」技能分组插入 → 落盘 → 激活。可撤销（进历史栈）。
+   血缘（Resume Matcher master→tailored 模型）：派生版 kind='derived'、parentId 指向母简历、
+   jobId 关联本次 JD、jdText 存 JD 原文 —— 投递后可回溯到母简历与对应岗位。 */
 async function resumeDeriveFromJd(){
   if(!_libraryReady || !activeResumeId) return;
   const derive = global.ResumeJdDerive;
@@ -348,10 +350,19 @@ async function resumeDeriveFromJd(){
     const baseTitle = (m && m.title) || data.name || '简历';
     const doc = await global.ResumeLibrary.load(activeResumeId);
     if(!doc || !doc.data){ alert('主简历数据读取失败'); return; }
+    const jdText = jd ? jd.getJd() : '';
     // 派生：深拷贝 + 插入「JD 定制待补」分组（不改原 doc）
     const derivedPayload = derive.buildDerivedPayload(doc, analysis);
-    const title = derive.deriveTitle(baseTitle, jd ? jd.getJd() : '');
-    const meta = await global.ResumeLibrary.create({ title: title, payload: derivedPayload });
+    const title = derive.deriveTitle(baseTitle, jdText);
+    // 血缘：jobId 稳定锚点（同一次派生会话复用，跨次派生各自独立），jdText 存 JD 原文
+    const jobId = 'jd_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    const meta = await global.ResumeLibrary.derive({
+      parentId: activeResumeId,
+      title: title,
+      payload: derivedPayload,
+      jobId: jobId,
+      jdText: jdText
+    });
     activeResumeId = meta.id;
     openTabs.push(meta.id);
     const loaded = await global.ResumeLibrary.load(meta.id);
@@ -521,8 +532,9 @@ function renderResumeDrawer(){
          操作按钮整体提到外层，破坏布局（白色大块）。外层用 div + role="button"。
          ⚠️「⋯」按钮的 keydown 必须 stopPropagation：焦点在它上面按回车时，
          事件会冒泡到外层卡片，否则会顺带打开这份简历。 */
+      const derived = m.kind === 'derived';
       return '<div class="resume-item'+(active?' active':'')+'" role="button" tabindex="0" data-id="'+esc(m.id)+'" onclick="ResumeEditor.openResume(\''+esc(m.id)+'\')" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();ResumeEditor.openResume(\''+esc(m.id)+'\')}">'
-        + '<span class="resume-item-title">'+(dirty?'● ':'')+esc(m.title)+'</span>'
+        + '<span class="resume-item-title">'+(dirty?'● ':'')+esc(m.title)+(derived?' <em class="resume-item-kind">定制版</em>':'')+'</span>'
         + '<span class="resume-item-meta">'+esc(m.source==='local'?'本地':'云端')+' · '+esc(t)+'</span>'
         + '<button type="button" class="resume-item-more" data-more="'+esc(m.id)+'" title="更多操作（重命名 / 复制 / 删除）" aria-haspopup="menu"'
         +   ' onclick="event.stopPropagation();ResumeEditor.toggleResumeItemMenu(\''+esc(m.id)+'\',this)"'

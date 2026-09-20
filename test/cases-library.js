@@ -187,5 +187,92 @@ module.exports = [
       ctx.assert(pick(null, 123) === 'repo', 'doc 为 null → repo');
       ctx.assert(pick({ savedAt: 'abc', data: {} }, 0) === 'repo', '非法时间戳按 0 处理 → repo');
     }
+  },
+
+  /* ---- 简历血缘（Resume Matcher master→tailored，2026-09-21）----
+     meta 新增 parentId / kind / jobId / jdText，派生版可回溯到母简历并持久化 JD。 */
+  {
+    name: 'create 缺省 kind=master 且不携带血缘字段',
+    fn: (ctx) => {
+      const L = ctx.ResumeLibrary;
+      return L.create({ title: '母简历', payload: { data: { name: 'x', contact: [], sections: [] } } }).then((meta) => {
+        const m = L.getMeta(meta.id);
+        ctx.assert(m.kind === 'master', '缺省 kind=master');
+        ctx.assert(m.parentId === undefined, '缺省无 parentId');
+        ctx.assert(m.jobId === undefined, '缺省无 jobId');
+      });
+    }
+  },
+  {
+    name: 'derive 生成 kind=derived 且 parentId 指向母简历',
+    fn: (ctx) => {
+      const L = ctx.ResumeLibrary;
+      return L.create({ title: '母简历', payload: { data: { name: '母', contact: [], sections: [] } } }).then((master) => {
+        return L.derive({ parentId: master.id, title: '母简历 · 定制', jobId: 'jd_abc', jdText: 'Java 工程师 JD' }).then((d) => {
+          const m = L.getMeta(d.id);
+          ctx.assert(d.id !== master.id, '派生生成新 id');
+          ctx.assert(m.kind === 'derived', '派生版 kind=derived');
+          ctx.assert(m.parentId === master.id, 'parentId 指向母简历');
+          ctx.assert(m.jobId === 'jd_abc', 'jobId 关联 JD');
+          ctx.assert(m.jdText === 'Java 工程师 JD', 'jdText 存 JD 原文');
+        });
+      });
+    }
+  },
+  {
+    name: 'children 列出母简历的全部派生版',
+    fn: (ctx) => {
+      const L = ctx.ResumeLibrary;
+      return L.create({ title: '母A', payload: { data: { name: 'a', contact: [], sections: [] } } }).then((master) => {
+        return L.derive({ parentId: master.id, title: '派生1' })
+          .then(() => L.derive({ parentId: master.id, title: '派生2' }))
+          .then(() => L.children(master.id))
+          .then((kids) => {
+            ctx.assert(kids.length === 2, '母简历有 2 个派生版');
+            ctx.assert(kids.every(k => k.parentId === master.id), '每个派生版 parentId 正确');
+          });
+      });
+    }
+  },
+  {
+    name: 'derive 缺 parentId 抛错（血缘锚点必填）',
+    fn: (ctx) => {
+      const L = ctx.ResumeLibrary;
+      return L.derive({ title: '无母版' }).then(
+        () => { ctx.assert(false, '缺 parentId 应抛错'); },
+        (e) => { ctx.assert(/parentId/.test(String(e && e.message)), '抛错提示 parentId'); }
+      );
+    }
+  },
+  {
+    name: 'save/patchMeta 白名单透传血缘字段',
+    fn: (ctx) => {
+      const L = ctx.ResumeLibrary;
+      let id = null;
+      return L.create({ title: '血缘测试', payload: { data: { name: 'x', contact: [], sections: [] } } }).then((meta) => {
+        id = meta.id;
+        return L.save(id, { data: { name: 'x', contact: [], sections: [] } }, { parentId: 'res_parent', kind: 'derived', jobId: 'jd_x', jdText: 'JD 原文' });
+      }).then(() => {
+        const m = L.getMeta(id);
+        ctx.assert(m.parentId === 'res_parent', 'save 透传 parentId');
+        ctx.assert(m.kind === 'derived', 'save 透传 kind');
+        ctx.assert(m.jobId === 'jd_x', 'save 透传 jobId');
+        ctx.assert(m.jdText === 'JD 原文', 'save 透传 jdText');
+        return L.patchMeta(id, { kind: 'master', jdText: '改了' });
+      }).then(() => {
+        const m = L.getMeta(id);
+        ctx.assert(m.kind === 'master', 'patchMeta 可改 kind');
+        ctx.assert(m.jdText === '改了', 'patchMeta 可改 jdText');
+      });
+    }
+  },
+  {
+    name: 'kind 非法值归一化为 master',
+    fn: (ctx) => {
+      const L = ctx.ResumeLibrary;
+      return L.create({ title: 'k', payload: { data: { name: 'x', contact: [], sections: [] } }, kind: 'bogus' }).then((meta) => {
+        ctx.assert(L.getMeta(meta.id).kind === 'master', '非法 kind 归一化为 master');
+      });
+    }
   }
 ];

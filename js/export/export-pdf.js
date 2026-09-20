@@ -315,7 +315,7 @@ async function exportSharePage(){
   showExportModal('html', url, RB.getFileName('_分享页', 'html'), '分享页预览（只读 · 带水印）');
 }
 
-global.ResumeExport = {
+global.ResumeExport = Object.assign(global.ResumeExport || {}, {
   exportPDF: exportPDF,
   downloadPDFNow: downloadPDFNow,
   closePdfModal: closePdfModal,
@@ -327,5 +327,5 @@ global.ResumeExport = {
   exportSharePage: exportSharePage,
   buildSharePageHtml: buildSharePageHtml,
   buildWatermark: buildWatermark
-};
+});
 })(typeof window !== "undefined" ? window : globalThis);

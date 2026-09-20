@@ -221,10 +221,13 @@
       return null;
     },
 
-    /* 新建简历。opts = { title, fromResumeId?, payload? }
+    /* 新建简历。opts = { title, fromResumeId?, payload?, parentId?, kind?, jobId?, jdText? }
        - fromResumeId：基于某份复制（duplicate 走此路径）
        - payload：直接给定 {data,fonts,spacing,v}（新建空白 / 继承单份数据时用）
-       返回新简历的元数据 {id,title,updatedAt} */
+       - parentId / kind / jobId / jdText：简历血缘（Resume Matcher 的 master→tailored 模型）。
+         kind = 'master' | 'derived'（缺省 'master'）；派生版 parentId 指向母简历、jobId 关联 JD、
+         jdText 存 JD 原文（供回溯 / 复用），全部可选、向后兼容。
+       返回新简历的元数据 {id,title,updatedAt,...} */
     create: function (opts) {
       opts = opts || {};
       var id = genId();
@@ -232,7 +235,11 @@
       if (opts.payload && opts.payload.data) payload = opts.payload;
       return readIndex().then(function () {
         var title = opts.title || '未命名简历';
-        var meta = { id: id, title: title, source: 'local', docId: null, updatedAt: Date.now(), tags: [] };
+        var meta = { id: id, title: title, source: 'local', docId: null, updatedAt: Date.now(), tags: [],
+          kind: opts.kind === 'derived' ? 'derived' : 'master' };
+        if (opts.parentId != null) meta.parentId = opts.parentId;
+        if (opts.jobId != null) meta.jobId = opts.jobId;
+        if (opts.jdText != null) meta.jdText = String(opts.jdText);
         _index.push(meta);
         _activeId = id;
         var chain;
@@ -258,7 +265,8 @@
 
     /* 保存某份简历（写入本地文档 + 更新索引 updatedAt/title/lastHash 等元数据）。
        meta 可带：title（重命名）、lastHash（本地内容指纹）、
-       lastPushedHash / lastRemoteFp / skipNextPull / lastPushNotifyAt（飞书同步进度） */
+       lastPushedHash / lastRemoteFp / skipNextPull / lastPushNotifyAt（飞书同步进度）、
+       parentId / kind / jobId / jdText（简历血缘，白名单透传，缺省不动） */
     save: function (id, payload, meta) {
       return readIndex().then(function () {
         var m = _index.filter(function (x) { return x.id === id; })[0];
@@ -270,6 +278,10 @@
             if (meta.lastRemoteFp !== undefined) m.lastRemoteFp = meta.lastRemoteFp;
             if (meta.skipNextPull !== undefined) m.skipNextPull = !!meta.skipNextPull;
             if (meta.lastPushNotifyAt !== undefined) m.lastPushNotifyAt = meta.lastPushNotifyAt;
+            if (meta.parentId !== undefined) m.parentId = meta.parentId;
+            if (meta.kind !== undefined) m.kind = meta.kind === 'derived' ? 'derived' : 'master';
+            if (meta.jobId !== undefined) m.jobId = meta.jobId;
+            if (meta.jdText !== undefined) m.jdText = String(meta.jdText);
           }
           m.updatedAt = Date.now();
         }
@@ -277,7 +289,7 @@
       });
     },
 
-    /* 局部更新某份简历的同步/指纹元数据（不动正文、不动 updatedAt） */
+    /* 局部更新某份简历的同步/指纹/血缘元数据（不动正文、不动 updatedAt） */
     patchMeta: function (id, meta) {
       return readIndex().then(function () {
         var m = _index.filter(function (x) { return x.id === id; })[0];
@@ -287,6 +299,10 @@
         if (meta.lastRemoteFp !== undefined) m.lastRemoteFp = meta.lastRemoteFp;
         if (meta.skipNextPull !== undefined) m.skipNextPull = !!meta.skipNextPull;
         if (meta.lastPushNotifyAt !== undefined) m.lastPushNotifyAt = meta.lastPushNotifyAt;
+        if (meta.parentId !== undefined) m.parentId = meta.parentId;
+        if (meta.kind !== undefined) m.kind = meta.kind === 'derived' ? 'derived' : 'master';
+        if (meta.jobId !== undefined) m.jobId = meta.jobId;
+        if (meta.jdText !== undefined) m.jdText = String(meta.jdText);
         return writeIndex();
       });
     },
@@ -322,6 +338,41 @@
         var m = _index.filter(function (x) { return x.id === id; })[0];
         var title = (m ? m.title : '简历') + ' 副本';
         return self.create({ title: title, fromResumeId: id });
+      });
+    },
+
+    /* 派生：基于母简历生成一份「一岗一版」派生简历（Resume Matcher 的 master→tailored）。
+       opts = { parentId, title, payload?, jobId?, jdText? }
+       - parentId：母简历 id（必填，派生版血缘锚点）
+       - payload：给定则直接用；否则复制母简历正文
+       - jobId / jdText：关联的 JD（可选，供回溯 / 复用）
+       生成的派生版 kind='derived'、parentId 指向母简历。 */
+    derive: function (opts) {
+      opts = opts || {};
+      var self = this;
+      return readIndex().then(function () {
+        var parent = opts.parentId;
+        if (!parent) { throw new Error('derive 缺少 parentId'); }
+        var m = _index.filter(function (x) { return x.id === parent; })[0];
+        var title = opts.title || ((m ? m.title : '简历') + ' 定制版');
+        var createOpts = {
+          title: title,
+          fromResumeId: parent,
+          parentId: parent,
+          kind: 'derived'
+        };
+        if (opts.payload && opts.payload.data) createOpts.payload = opts.payload;
+        if (opts.jobId != null) createOpts.jobId = opts.jobId;
+        if (opts.jdText != null) createOpts.jdText = opts.jdText;
+        return self.create(createOpts);
+      });
+    },
+
+    /* 列出某份母简历的所有派生版（按 updatedAt 倒序）。无血缘信息时返回 []。 */
+    children: function (parentId) {
+      return readIndex().then(function (idx) {
+        return idx.filter(function (x) { return x.parentId === parentId; })
+                  .sort(function (a, b) { return (b.updatedAt || 0) - (a.updatedAt || 0); });
       });
     },
 
