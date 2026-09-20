@@ -53,7 +53,8 @@
   - **前端分流**：`export-pdf.js` 新增统一 `downloadBlob(blob, filename)`（原生壳走 `__RESUME_NATIVE__.saveFile`，浏览器走 `<a download>`）；`downloadPDFNow`/`doExportDownload` 补存 `currentPdfBlob`/`currentExportBlob`；`exportJSON`/`exportJSONResume` 与 `export-extra.js` 的 `saveBytes`/`saveText`（Word/TXT/MD/静默 PDF）全部复用 `downloadBlob`；静默 PDF 失败回退改为优先走 `__RESUME_NATIVE__.printPage`。
   - **平台边界（如实标注）**：一期只覆盖桌面三端；Android 的 SAF 返回 `content://` URI 无法 `std::fs::write`，`save_file` 对此返回明确错误，单独立项（存私有目录 + 分享 intent）。
   - 浏览器路径（`npm start` / 单文件 HTML）零回归。
-  - 测试 `test/cases-native-export.js`（14 条）+ 三组变异测试全抓到（删 saveFile 桥 / bytes 不 base64 / 去 printPage 回退）。
+  - 原生保存成功提示走应用内通知中心 `ResumeNotifier.notify`（此前误写 `RB.notify` 会静默无反馈）。
+  - 测试 `test/cases-native-export.js`（16 条）+ 四组变异测试全抓到（删 saveFile 桥 / bytes 不 base64 / 去 printPage 回退 / 退回 RB.notify）。
 
 - **性能：每键渲染不再同步重画分页线（`#9`）**：`renderPreview` 每键调用 `drawPageGuides`（DOM 查询 + `getBoundingClientRect` + 建碎片），改为 `scheduleDrawPageGuides` 经 `requestAnimationFrame` 合并到单帧，避免逐键同步重画。`saveState` 写盘本就有 800ms 防抖（`pushRepoDebounced`），本项补上渲染侧合并。
   - 新增 `test/cases-perf.js` 断言「连续 3 次 renderPreview 只调度 1 次 rAF」；变异删合并守卫 → 断言变红（证伪有效）。断言计数 903 → **905**。

@@ -14,13 +14,22 @@ const preview = document.getElementById('preview');
    背景：打包成 App 后，Blob + <a download> 不落盘（macOS WKWebView 不支持 blob: 下载，
    WebKit bug 216918），必须改走 Rust 的 save_file（弹系统保存对话框写盘）。
    浏览器（npm start / 单文件 HTML）保持原样，零回归。 */
+/* 轻提示：优先用应用内通知中心（ResumeNotifier），未加载时回退到 #autosave 提示位。 */
+function notifySaved(msg){
+  try{
+    const N = (typeof window !== 'undefined') ? window.ResumeNotifier : null;
+    if(N && typeof N.notify === 'function'){ N.notify('success', '已保存', msg); return; }
+    const el = (typeof document !== 'undefined') ? document.getElementById('autosave') : null;
+    if(el){ el.textContent = '✓ ' + msg; }
+  }catch(e){ /* 提示失败不打断导出 */ }
+}
 async function downloadBlob(blob, filename){
   const N = (typeof window !== 'undefined') ? window.__RESUME_NATIVE__ : null;
   if(N && typeof N.saveFile === 'function'){
     try{
       const bytes = new Uint8Array(await blob.arrayBuffer());
       const saved = await N.saveFile(filename, bytes);
-      if(saved){ RB.notify && RB.notify('已保存到 ' + saved); }
+      if(saved){ notifySaved(saved); }
       return;   // 原生路径到此结束（用户取消 saved 为 null，静默不报错）
     }catch(e){
       // 原生保存失败（如 Android content://）→ 明确提示，不静默吞掉、也不回退到无效的 <a download>

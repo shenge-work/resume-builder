@@ -97,6 +97,9 @@ module.exports = [
       ctx.assert(/downloadBlob: downloadBlob/.test(pdfSrc), 'downloadBlob 暴露到 ResumeExport');
       // downloadBlob 必须判断原生 saveFile，否则 App 内仍走 <a download> 不落盘
       ctx.assert(/__RESUME_NATIVE__/.test(pdfSrc) && /saveFile/.test(pdfSrc), 'downloadBlob 判断原生 saveFile');
+      // 成功提示走 ResumeNotifier（RB.notify 不存在，走它会静默无反馈）
+      ctx.assert(/ResumeNotifier/.test(pdfSrc), '保存成功提示走 ResumeNotifier（非 RB.notify）');
+      ctx.assert(!/RB\.notify/.test(pdfSrc), '不再引用不存在的 RB.notify');
     }
   }
 ];
