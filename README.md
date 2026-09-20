@@ -287,6 +287,8 @@ node tools/render-resume.js                          # 用项目真实渲染管�
 | **PDF（静默）** | 「PDF（文字可选中 · 静默）」 | 经本地服务调本机 Chrome/Edge 的 headless 打印，**不弹对话框**直出矢量文字 PDF；需用 `npm start` 打开，失败自动回退到系统打印 |
 | Word（`.docx`） | 「导出 Word（.docx）」 | 真 Office Open XML（`[Content_Types].xml` 等必需部件齐全），粗体是**真加粗**非伪样式，HR 与 ATS 通用 |
 | 纯文本 / Markdown | 「导出纯文本 / 导出 Markdown」 | `.txt` 用于投递表单粘贴；`.md` 用于 GitHub / 博客 / 在线简历 |
+| 单文件 HTML | 「导出单文件 HTML」 | 仅含简历本身的独立 HTML，双击即开，文字可选中，可打印成 PDF |
+| **分享页** | 「导出分享页」 | 只读静态页 + 斜置「仅查看」半透明水印，`noindex` 防搜索引擎收录，可发给他人或放 GitHub Pages / Vercel |
 | **原生打印** | 「打印 / 另存为 PDF」 | 浏览器打印管线，矢量文字 PDF：文字可选中、可搜索；会弹出系统打印对话框 |
 | 图片型（兼容） | 「PDF 预览 / 下载（图片版）」 | html2canvas 截图拼合，**版式 100% 与屏幕一致**，但文字不可选、体积较大 |
 
@@ -299,7 +301,7 @@ node tools/render-resume.js                          # 用项目真实渲染管�
 ## 🧪 测试与构建
 
 ```bash
-npm test               # 纯 Node、零依赖：871 条断言
+npm test               # 纯 Node、零依赖：885 条断言
 npm run build          # 重建单文件版 → dist/简历编辑器-单文件.html
 npm run verify:assets  # 资源完整性门禁：引用缺失 / 漏打包 / 模块未接线 / 隐私目录泄漏
 npm run clean:html     # 剥离 index.html 中被外部编辑器注入的 data-page-node-id（提交前跑）

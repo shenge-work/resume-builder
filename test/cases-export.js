@@ -333,4 +333,45 @@ module.exports = [
     ctx.assert(doc && doc.bytes && doc.bytes.length > 0, '含矩阵技能行的 DOCX 能正常构建');
   }},
 
+  /* ================= H. 分享页（只读 + 水印，A6） =================
+     失效面：① 水印缺失 → 分享页与单文件 HTML 无差别，用户误把含编辑控件的版本发出去；
+     ② 标题/水印未转义 → 简历姓名含 <script> 时被注入执行；
+     ③ 无 noindex → 静态托管后被搜索引擎收录隐私信息。 */
+  { name: '分享页：含水印 + 转义 + 只读语义', fn: function (ctx) {
+    const E = ctx.ResumeExport;
+    ctx.assert(typeof E.buildSharePageHtml === 'function', 'buildSharePageHtml 已暴露');
+    ctx.assert(typeof E.buildWatermark === 'function', 'buildWatermark 已暴露');
+
+    const html = E.buildSharePageHtml({
+      resumeHtml: '<div class="resume">内容</div>',
+      cssText: '.resume{color:#000;}',
+      name: '张三',
+      watermarkText: '仅供查看'
+    });
+    ctx.assert(/仅供查看/.test(html), '标题或正文含「仅供查看」语义');
+    ctx.assert(/<div class="resume-share-wm"><span>/.test(html), '含水印 DOM 节点（而非仅样式）');
+    ctx.assert(/pointer-events\s*:\s*none/.test(html), '水印不拦截鼠标（不挡文本选中/复制）');
+    ctx.assert(/noindex,nofollow/.test(html), '带 noindex 元标签（防搜索引擎收录）');
+    ctx.assert(/张三/.test(html), '姓名出现在标题');
+  }},
+
+  { name: '分享页：姓名/水印 HTML 转义（防注入）', fn: function (ctx) {
+    const E = ctx.ResumeExport;
+    const html = E.buildSharePageHtml({
+      resumeHtml: '<div class="resume">x</div>',
+      cssText: '',
+      name: '<script>alert(1)</script>',
+      watermarkText: '<img src=x onerror=alert(2)>'
+    });
+    ctx.assert(html.indexOf('<script>alert(1)</script>') === -1, '姓名中的 <script> 被转义');
+    ctx.assert(html.indexOf('&lt;script&gt;') >= 0, '转义后仍保留可读文本');
+    ctx.assert(html.indexOf('<img src=x') === -1, '水印中的 <img> 被转义');
+  }},
+
+  { name: '分享页：水印 CSS 打印时隐藏', fn: function (ctx) {
+    const wm = ctx.ResumeExport.buildWatermark('仅供查看');
+    ctx.assert(/@media print\{\.resume-share-wm\{display:none;\}\}/.test(wm.css), '打印时水印隐藏（@media print）');
+    ctx.assert(/pointer-events\s*:\s*none/.test(wm.css), '水印不拦截鼠标事件');
+  }},
+
 ];

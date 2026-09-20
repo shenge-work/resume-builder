@@ -11,7 +11,7 @@ const { esc, boldText, getSection, getVarStr, spacingStyle, z, getPageMargins, m
 /* 从 js/feishu/feishu-sync.js 解构飞书 / 导入函数（物理拆分，不改变行为） */
 const { showFeishuStatus, reportToFeishu, pullFromFeishu, restoreFromFeishu, toggleMenu, openFeishuConfig, closeFeishuConfig, saveFeishuConfig, probeFeishuConfig, localApi, checkFeishuOauthStatus, startFeishuOauth, refreshFeishuOauth, revokeFeishuOauth, startFeishuRegister, cancelFeishuRegister, importResumeFile, importResumePayload, startAutoSync } = global.ResumeFeishu;
 /* 从 js/export/export-pdf.js 解构导出函数（物理拆分，不改变行为） */
-const { exportPDF, downloadPDFNow, closePdfModal, showExportModal, closeExportModal, doExportDownload, exportLongImage, exportSingleFileHTML } = global.ResumeExport;
+const { exportPDF, downloadPDFNow, closePdfModal, showExportModal, closeExportModal, doExportDownload, exportLongImage, exportSingleFileHTML, exportSharePage } = global.ResumeExport;
 /* 从 js/ui/pane-mobile.js 解构面板 / 移动端 UI 函数（物理拆分，不改变行为） */
 const { setPaneCollapsed, toggleEditorPane, syncSideRail, setSidePanelOpen, toggleSidePanel, setMobileView, currentMobileView, visibleModal, closeVisibleModal, handleMobileBack, setupNativeBack, setupMobileBackGesture, setupVisualViewport, setupKeyboardFocusGuard } = global.ResumeUI;
 /* 保存状态条（js/ui/save-status.js）。缺失时退化为空实现 —— 保存链路本身不该因为
@@ -981,6 +981,7 @@ global.ResumeEditor = {
   exportJSONResume: exportJSONResume,
   exportLongImage: exportLongImage,
   exportSingleFileHTML: exportSingleFileHTML,
+  exportSharePage: exportSharePage,
   closeExportModal: closeExportModal,
   doExportDownload: doExportDownload,
   setFileNameBase: setFileNameBase,

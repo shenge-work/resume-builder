@@ -47,6 +47,17 @@
 
 ### 新增
 
+- **分享页导出（A6，只读 + 水印，`js/export/export-pdf.js`）**：补上「简历做完发不出去」的短板。
+  在「导出单文件 HTML」同源管线上新增「导出分享页」——产出带**斜置「仅查看」半透明水印**的只读静态页，
+  内容与主简历一致、不含任何编辑控件、可本地打开或丢静态托管（GitHub Pages / Vercel）发给他人。
+  - 纯函数：`buildSharePageHtml`（拼只读文档，标题/水印均 HTML 转义防注入）/
+    `buildWatermark`（水印 CSS + DOM，`pointer-events:none` 不挡文本选中、`@media print` 打印时隐藏）。
+  - 内置 `noindex,nofollow` 元标签，防静态托管后被搜索引擎收录隐私。
+  - 入口：菜单「导出」组新增「导出分享页」→ `ResumeEditor.exportSharePage()`。
+  - 连带修复：`js/export-extra.js` 曾整包覆盖 `global.ResumeExport`（`= {...}`），
+    导致 export-pdf.js 挂上去的导出函数在测试/运行时丢失 —— 改为 `Object.assign(global.ResumeExport || {}, {...})` 合并。
+  - 测试 `test/cases-export.js`（14 条）+ 四轮变异测试全抓到（去水印节点/标题不转义/去 noindex/水印拦截鼠标）。
+
 - **JD 派生版本（A4，借鉴 Resume Matcher，`js/jd-derive.js`）**：在「JD 匹配分析」之上，
   一键生成**针对该 JD 的定制版简历**——复制主简历（不覆盖），把「缺失 / 弱覆盖」关键词整理成
   「JD 定制待补」技能分组插入副本，供用户逐条改写为真实经历（STAR 占位模板，绝不凭空编造）。

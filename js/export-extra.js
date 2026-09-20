@@ -473,7 +473,7 @@
     } catch (e) { }
   }
 
-  global.ResumeExport = {
+  global.ResumeExport = Object.assign(global.ResumeExport || {}, {
     exportDocx: exportDocx,
     exportTxt: exportTxt,
     exportMarkdown: exportMarkdown,
@@ -484,5 +484,5 @@
     buildBlocks: buildBlocks,
     zipStore: zipStore,
     crc32: crc32
-  };
+  });
 })(typeof window !== 'undefined' ? window : globalThis);

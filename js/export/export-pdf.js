@@ -241,6 +241,80 @@ ${clone.outerHTML}
   showExportModal('html', url, RB.getFileName('', 'html'), '单文件 HTML 预览');
 }
 
+/* ============ 导出分享页：只读展示用，带「仅查看」斜置水印 ============ */
+/* 与单文件 HTML 同源（都是 .resume 克隆 + 内联样式），差异仅在：
+   1) 叠加一层半透明斜置「仅查看」水印（pointer-events:none，不挡文本选中/复制）；
+   2) 文件名 / 标题语义为「分享」，区别于「留档」。 */
+
+/* 纯函数：拼「仅查看」水印的 CSS + DOM。不依赖 document，可独立测试。
+   watermarkText 会先 HTML 转义（防注入），再塞进重复水印节点。 */
+function buildWatermark(watermarkText){
+  const t = esc(watermarkText || '仅供查看');
+  const css =
+    '.resume-share-wrap{position:relative;}\n' +
+    '.resume-share-wm{position:absolute;inset:0;overflow:hidden;pointer-events:none;z-index:10;}\n' +
+    '.resume-share-wm span{position:absolute;left:-20%;top:30%;width:140%;font-size:34px;color:rgba(120,120,120,.16);' +
+      'transform:rotate(-24deg);white-space:nowrap;text-align:center;user-select:none;}\n' +
+    '.resume-share-wm span:nth-child(2){top:62%;}\n' +
+    '.resume-share-wm span:nth-child(3){top:94%;}\n' +
+    '@media print{.resume-share-wm{display:none;}}';
+  const dom = '<div class="resume-share-wm"><span>' + t + '</span><span>' + t + '</span><span>' + t + '</span></div>';
+  return { css: css, dom: dom };
+}
+
+/* 纯函数：把「简历 HTML + 样式 + 姓名 + 水印」拼成完整只读分享页文档。
+   返回完整 HTML 字符串；标题与水印文本均经 esc 转义。 */
+function buildSharePageHtml(opts){
+  const resumeHtml = opts && opts.resumeHtml ? opts.resumeHtml : '';
+  const cssText = opts && opts.cssText ? opts.cssText : '';
+  const name = esc((opts && opts.name) || '简历');
+  const wm = buildWatermark((opts && opts.watermarkText) || '仅供查看');
+  return `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex,nofollow">
+<title>${name} · 简历（仅供查看）</title>
+<style>
+${cssText}
+.resume{max-width:1000px;margin:0 auto;background:#fff;box-shadow:0 4px 18px rgba(0,0,0,.10);border-radius:4px;}
+${wm.css}
+@media print{
+  @page{ size:A4; margin:14mm 14mm; }
+  html,body{height:auto;overflow:visible;background:#fff;}
+  .resume{max-width:100% !important;width:100% !important;margin:0 !important;padding:0 !important;box-shadow:none !important;border-radius:0 !important;}
+  *{ -webkit-print-color-adjust:exact !important; print-color-adjust:exact !important; }
+  .resume .job,.resume .project,.resume .skill-group,.resume .adv li{ break-inside:avoid; }
+  .resume .section-title,.resume .job-title,.resume .job-role,.resume .project-title{ break-after:avoid; }
+  .page-break-before{ break-before:page; }
+}
+</style>
+</head>
+<body style="margin:0;padding:18px;background:#f0f0f0;">
+<div class="resume-share-wrap">
+${resumeHtml}
+${wm.dom}
+</div>
+</body>
+</html>`;
+}
+
+async function exportSharePage(){
+  const live = preview.querySelector('.resume');
+  if(!live){ alert('预览未渲染，请稍候重试。'); return; }
+  const clone = live.cloneNode(true);
+  clone.querySelectorAll('[data-drag]').forEach(n=>n.removeAttribute('data-drag'));
+  clone.querySelectorAll('[draggable]').forEach(n=>n.removeAttribute('draggable'));
+  clone.querySelectorAll('.dragging,.drop-before,.drop-after').forEach(n=>n.classList.remove('dragging','drop-before','drop-after'));
+  clone.querySelectorAll('.reorder-btns').forEach(n=>n.remove());
+  const css = await collectCssText();
+  const html = buildSharePageHtml({ resumeHtml: clone.outerHTML, cssText: css, name: data.name, watermarkText: '仅供查看' });
+  const blob = new Blob([html], {type:'text/html;charset=utf-8'});
+  const url = URL.createObjectURL(blob);
+  showExportModal('html', url, RB.getFileName('_分享页', 'html'), '分享页预览（只读 · 带水印）');
+}
+
 global.ResumeExport = {
   exportPDF: exportPDF,
   downloadPDFNow: downloadPDFNow,
@@ -249,6 +323,9 @@ global.ResumeExport = {
   closeExportModal: closeExportModal,
   doExportDownload: doExportDownload,
   exportLongImage: exportLongImage,
-  exportSingleFileHTML: exportSingleFileHTML
+  exportSingleFileHTML: exportSingleFileHTML,
+  exportSharePage: exportSharePage,
+  buildSharePageHtml: buildSharePageHtml,
+  buildWatermark: buildWatermark
 };
 })(typeof window !== "undefined" ? window : globalThis);

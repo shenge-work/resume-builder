@@ -103,6 +103,10 @@
       run: 'ResumeEditor.exportSingleFileHTML()', d: '导出', m: '导出'
     },
     {
+      label: '导出分享页', title: '导出只读分享页（带「仅查看」水印），可发给他人查看或放静态托管',
+      run: 'ResumeEditor.exportSharePage()', d: '导出', m: '导出'
+    },
+    {
       label: '导出 JSON Resume', title: '导出为 JSON Resume 标准格式，可被 resume-cli / Reactive Resume 等生态工具消费',
       run: 'ResumeEditor.exportJSONResume()', d: '导出', m: '导出'
     },
