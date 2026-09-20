@@ -59,7 +59,21 @@ const defaultSpacing = {
   skillGroup:{label:'技能分组',     mt:4, mb:6},
   skillTitle:{label:'技能分组名',   mt:0, mb:3},
   skillItem: {label:'技能点',       mt:0, mb:2},
-  adv:       {label:'优势条目',     mt:0, mb:4}
+  /* 矩阵式技能行（2026-09-20 新增）：关键词行 / 补充说明行 各自可独立微调。
+     skillMatrix 是矩阵行的「行间距」全局默认——行与行之间靠 CSS 内边距 + 细线分隔，
+     所以默认值取 0，避免和 skillGroup 的默认值叠加成大片空白。 */
+  skillKw:    {label:'技能关键词行', mt:0, mb:2},
+  skillDetail:{label:'技能说明行',   mt:0, mb:0},
+  skillMatrix:{label:'技能矩阵行',   mt:0, mb:0},
+  adv:       {label:'优势条目',     mt:0, mb:4},
+  /* 以下 5 类此前只在预览里被引用、没进这张默认表（表现为「每行微调能调，
+     但「间距配置」面板里找不到对应全局默认值」）。2026-09-20 补齐，
+     让内容编辑区里每个间距控件都有对应的全局默认值可调。 */
+  highlightCard:{label:'高亮卡',    mt:0, mb:6},
+  phaseLabel:{label:'成长阶段标签', mt:0, mb:2},
+  phaseDate: {label:'成长阶段时间', mt:0, mb:2},
+  phaseTitle:{label:'成长阶段主题', mt:0, mb:3},
+  phaseDesc: {label:'成长阶段描述', mt:0, mb:4}
 };
 let currentSpacing = JSON.parse(JSON.stringify(defaultSpacing));
 

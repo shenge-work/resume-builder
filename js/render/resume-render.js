@@ -5,35 +5,70 @@
  * 只依赖 js/data.js 暴露的全局 data / currentFonts / currentSpacing /
  * defaultPageMargins（均为顶层 let/const，跨脚本可读可写）。
  * 挂 window.ResumeRender 供 app.js 解构复用。
+ *
+ * 内容编辑区（右侧表单）自 2026-09-20 起由 js/render/editor-schema.js 的
+ * 声明式 schema 驱动：本文件只负责「把 schema 产出的 HTML 挂进 DOM、
+ * 把控件事件分发给 schema 的写回函数」，不再逐字段手写 if-else。
+ * 基础件（esc / T / S / z / objify / blank*）统一从 schema 取，保持单一实现。
  * ============================================================= */
 (function(global){
 "use strict";
+/* 编辑区 schema 引擎：必须在 js/render/resume-render.js 之前加载（见 index.html）。
+   缺了就直接报错，而不是退化成「编辑区空白」这种静默失效。 */
+const ES = global.ResumeEditorSchema;
+if(!ES) throw new Error('[resume-render] 缺少 js/render/editor-schema.js（需在本文件之前加载）');
 /* ============ 工具 ============ */
-function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+const { esc, T, S, z, objify, line, blankItem, blankProject, blankPhase, blankSkillGroup,
+        createSection: blankSection } = ES;
 /* 把 **xxx** 转为 <strong>xxx</strong>，其它字符转义 */
 function boldText(s){
   const safe = esc(s);
   return safe.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
 }
+/* 技能行（关键词行 / 说明行）的「· 分隔 + 高亮」渲染。
+   ⚠️ 切段必须「跳过 **加粗** 区间内部的分隔符」：
+   **JVM 调优 · 并发编程** 里那个「·」属于同一个高亮短语，若先按分隔符切段，
+   ** 标记会被切成两半，页面上就漏出字面量星号（踩过，test/cases.js 有断言钉住）。 */
+function kwSplit(s){
+  const str = String(s==null?'':s);
+  /* 交替分支按优先级：先尝试整体吃下 **...** 区段（其中的 · 不参与切分），再认分隔符 */
+  const re = /\*\*[^*]*\*\*|[·・•]/g;
+  const parts = []; let last = 0, m;
+  while((m = re.exec(str))){
+    const tok = m[0];
+    if(tok.length > 1) continue;          /* 命中加粗区段：整段保留在当前片段内 */
+    parts.push(str.slice(last, m.index));
+    last = m.index + tok.length;
+  }
+  parts.push(str.slice(last));
+  return parts.map(x=>x.trim()).filter(Boolean);
+}
+function kwText(s){
+  const parts = kwSplit(s);
+  if(!parts.length) return '';
+  /* 每段包一层 inline-block：整段在换行时作为整体挪到下一行，
+     不会出现「LLM 评测体 / 系」这种把专业名词拦腰截断的情况；
+     分隔圆点留在段外，是唯一的换行点。段内仍可兜底断行（overflow-wrap）。 */
+  return parts.map(x=>'<span class="skill-seg">'+boldText(x)+'</span>')
+    .join('<span class="skill-sep">·</span>');
+}
 function getSection(id){ return data.sections.find(s=>s.id===id); }
-function getVarStr(){ return Object.keys(currentFonts).map(k=>`--font-${k}:${currentFonts[k].val}px`).join(';')+';'; }
+function getVarStr(){ return Object.keys(currentFonts).map(k=>`--font-${esc(k)}:${z(currentFonts[k].val)}px`).join(';')+';'; }
+
 
 /* 行间距：全局默认值 + 该行独立偏移 */
 function spacingStyle(type, itemSpacing){
   const g = currentSpacing[type] || {mt:0, mb:0};
   const s = itemSpacing || {mt:0, mb:0};
-  const mt = (g.mt||0) + (s.mt||0);
-  const mb = (g.mb||0) + (s.mb||0);
+  /* 必须经 z() 强制数值化：导入数据里 mt/mb 可能是恶意字符串，
+     直接相加会退化成字符串拼接并注入 style 属性（如 '" onfocus="...'） */
+  const mt = z(g.mt) + z(s.mt);
+  const mb = z(g.mb) + z(s.mb);
   return `margin-top:${mt}px;margin-bottom:${mb}px;`;
 }
-function z(v){ return (v==null || v==='' || Number.isNaN(Number(v))) ? 0 : Number(v); }
 function getPageMargins(){ return data.pageMargins || defaultPageMargins; }
 function mmToPx(mm){ return mm * 3.7795275591; }  // 96 DPI: 1 mm ≈ 3.7795 px
 function pxToMm(px){ return px / 3.7795275591; }
-
-/* 取文本：兼容「对象 {text}」与「纯字符串」两种数据形态（迁移过渡用） */
-function T(x){ return (x && typeof x==='object' && 'text' in x) ? (x.text||'') : (x||''); }
-function S(x){ return (x && typeof x==='object' && 'spacing' in x) ? x.spacing : (x||{}); }
 
 /* ============ 渲染简历 HTML（来自数据模型） ============ */
 function renderResumeInner(){
@@ -44,22 +79,23 @@ function renderResumeInner(){
      +`<div class="header-left"><h1 class="name" style="${spacingStyle('name', data.nameSpacing)}">${esc(data.name)}</h1>`
      +`<div class="subtitle" style="${spacingStyle('subtitle', data.subtitleSpacing)}"><${subTag}>${esc(data.subtitle)}</${subTag}></div></div>`
      +`<div class="header-right"><div class="meta" style="${spacingStyle('meta', data.metaSpacing)}"><${metaTag}>${esc(data.meta)}</${metaTag}></div>`
-     + data.contact.map((c,i)=>`<div style="${spacingStyle('contact', ((data.contactSpacing||[])[i]||{}))}">${esc(T(c))}</div>`).join('') + `</div></header>`;
+     + (Array.isArray(data.contact) ? data.contact : []).map(c=>`<div style="${spacingStyle('contact', (c&&typeof c==='object'&&c.spacing)?c.spacing:null)}">${esc(T(c))}</div>`).join('') + `</div></header>`;
   data.sections.forEach(sec=>{
     const secBreak = sec.pageBreak ? ' page-break-before' : '';
-    h+=`<section class="section${secBreak}" data-drag="section:${sec.id}" draggable="true" style="${spacingStyle('section', sec.spacing)}">`;
+    const secIdEsc = esc(sec.id); /* sec.id 来自可导入 JSON，拼属性前必须转义 */
+    h+=`<section class="section${secBreak}" data-drag="section:${secIdEsc}" draggable="true" style="${spacingStyle('section', sec.spacing)}">`;
     h+=`<h2 class="section-title">${esc(sec.title)}</h2>`;
     if(sec.type==='advantages'){
       h+='<ul class="adv">';
       sec.items.forEach((it,i)=>{
         const tag = it.labelBold!==false ? 'b' : 'span';
-        h+=`<li class="adv-li" data-drag="item:${sec.id}:${i}" draggable="true" style="${spacingStyle('adv', it.spacing)}"><${tag}>${esc(it.label)}</${tag}>：${esc(T(it.text))}</li>`;
+        h+=`<li class="adv-li" data-drag="item:${secIdEsc}:${i}" draggable="true" style="${spacingStyle('adv', it.spacing)}"><${tag}>${esc(it.label)}</${tag}>：${esc(T(it.text))}</li>`;
       });
       h+='</ul>';
     } else if(sec.type==='career'){
       sec.items.forEach((job,i)=>{
         const jobBreak = job.pageBreak ? ' page-break-before' : '';
-        h+=`<div class="job${jobBreak}" data-drag="job:${sec.id}:${i}" draggable="true" style="${spacingStyle('job', job.spacing)}">`;
+        h+=`<div class="job${jobBreak}" data-drag="job:${secIdEsc}:${i}" draggable="true" style="${spacingStyle('job', job.spacing)}">`;
         h+=`<div class="job-header">`;
         let wrapStyle='';
         const lg = Number(job.logoGap);
@@ -84,7 +120,7 @@ function renderResumeInner(){
         }
         (job.projects||[]).forEach((p,pi)=>{
           const projBreak = p.pageBreak ? ' page-break-before' : '';
-          h+=`<div class="project nested${projBreak}" data-drag="proj:${sec.id}:${i}:${pi}" draggable="true" style="${spacingStyle('project', p.spacing)}">`;
+          h+=`<div class="project nested${projBreak}" data-drag="proj:${secIdEsc}:${i}:${pi}" draggable="true" style="${spacingStyle('project', p.spacing)}">`;
           h+=`<p class="project-title" style="${spacingStyle('pTitle', p.nameSpacing)}">${esc(T(p.name))}</p>`
             +`<span class="stack" style="${spacingStyle('pStack', p.stackSpacing)}">${esc(T(p.stack))}</span>`;
           const pQuote = p.descQuote !== false;
@@ -121,7 +157,22 @@ function renderResumeInner(){
       });
     } else if(sec.type==='skills'){
       sec.groups.forEach((grp,g)=>{
-        h+=`<div class="skill-group" data-drag="item:${sec.id}:${g}" draggable="true" style="${spacingStyle('skillGroup', grp.spacing)}"><h4 style="${spacingStyle('skillTitle', grp.nameSpacing)}">${esc(T(grp.name))}</h4><ul>`;
+        const drag = `data-drag="item:${secIdEsc}:${g}" draggable="true"`;
+        const kw = T(grp.keywords), dt = T(grp.detail);
+        if(kw.trim() || dt.trim()){
+          /* 矩阵式技能行（2026-09-20）：左列分组名，右列「关键词行 + 补充说明行」。
+             关键词走 **xxx** 高亮——专业名词完整保留（供 HR / AI 检索定位），
+             同时把掌握程度与成果压在同一视觉块里，扫一眼就能读出强弱。 */
+          h+=`<div class="skill-group skill-matrix" ${drag} style="${spacingStyle('skillMatrix', grp.spacing)}">`
+            +`<div class="skill-name" style="${spacingStyle('skillTitle', grp.nameSpacing)}">${esc(T(grp.name))}</div>`
+            +`<div class="skill-body">`;
+          if(kw.trim()) h+=`<div class="skill-kw" style="${spacingStyle('skillKw', grp.keywordsSpacing)}">${kwText(kw)}</div>`;
+          if(dt.trim()) h+=`<div class="skill-detail" style="${spacingStyle('skillDetail', grp.detailSpacing)}">${kwText(dt)}</div>`;
+          h+='</div></div>';
+          return;
+        }
+        /* 旧版逐条列表：分组内没填 keywords / detail 时保持原样，老数据零改动 */
+        h+=`<div class="skill-group" ${drag} style="${spacingStyle('skillGroup', grp.spacing)}"><h4 style="${spacingStyle('skillTitle', grp.nameSpacing)}">${esc(T(grp.name))}</h4><ul>`;
         grp.items.forEach((it,ii)=>{
           const itt = T(it);
           if(!itt.trim()) return;
@@ -134,7 +185,7 @@ function renderResumeInner(){
       h+='<div class="highlights">';
       (sec.cards||[]).forEach(card=>{
         const txt = T(card && card.text);
-        if(txt.trim()) h += '<div class="highlight-card">'+boldText(txt)+'</div>';
+        if(txt.trim()) h += '<div class="highlight-card" style="' + spacingStyle('highlightCard', (card&&card.spacing)||null) + '">'+boldText(txt)+'</div>';
       });
       const tags = (sec.tags||[]).map(t=>String(T(t)).trim()).filter(Boolean);
       if(tags.length){
@@ -149,7 +200,7 @@ function renderResumeInner(){
       h+='<div class="growth">';
       phases.forEach((ph,i)=>{
         h+=`<div class="growth-phase">`;
-        h+=`<span class="phase-label">${esc(T(ph.label))}</span>`;
+        h+=`<span class="phase-label" style="${spacingStyle('phaseLabel', ph.labelSpacing)}">${esc(T(ph.label))}</span>`;
         if(T(ph.date).trim()) h+=`<div class="phase-date" style="${spacingStyle('phaseDate', ph.dateSpacing)}">${esc(T(ph.date))}</div>`;
         if(T(ph.title).trim()) h+=`<div class="phase-title" style="${spacingStyle('phaseTitle', ph.titleSpacing)}">${esc(T(ph.title))}</div>`;
         if(T(ph.desc).trim()) h+=`<p class="phase-desc" style="${spacingStyle('phaseDesc', ph.descSpacing)}">${esc(T(ph.desc))}</p>`;
@@ -163,38 +214,10 @@ function renderResumeInner(){
   return h;
 }
 
-function blankItem(type){
-  if(type==='advantages') return {label:'',text:'',labelBold:true,spacing:{mt:0,mb:0}};
-  if(type==='career')     return {company:'',role:'',date:'',summary:'',summaryQuote:true,summaryColor:'#888888',pageBreak:false,projects:[],spacing:{mt:0,mb:0},companySpacing:{mt:0,mb:0},roleSpacing:{mt:0,mb:0},dateSpacing:{mt:0,mb:0},summarySpacing:{mt:0,mb:0},logoSpacing:{mt:0,mb:0},logoSizeSpacing:{mt:0,mb:0},logoWidthSpacing:{mt:0,mb:0},logoGapSpacing:{mt:0,mb:0}};
-  if(type==='projects')   return blankProject();
-  return {};
-}
-function blankProject(){ return {name:'',stack:'',desc:'',results:[], descQuote:true, descColor:'#888888', pageBreak:false, spacing:{mt:0,mb:0}, nameSpacing:{mt:0,mb:0}, stackSpacing:{mt:0,mb:0}, descSpacing:{mt:0,mb:0}}; }
-/* 新建一个空板块（用于「添加板块」）。id 随机生成，避免与已有板块冲突 */
-function blankSection(type){
-  const id = 's_' + Math.random().toString(36).slice(2, 9);
-  if(type==='advantages') return {id, type:'advantages', title:'个人优势', pageBreak:false, items:[ blankItem('advantages') ]};
-  if(type==='career')     return {id, type:'career', title:'职业履历', pageBreak:false, items:[ blankItem('career') ]};
-  if(type==='skills')     return {id, type:'skills', title:'核心技能', pageBreak:false, groups:[ {name:'', items:[], spacing:{mt:0,mb:0}, nameSpacing:{mt:0,mb:0}} ]};
-  if(type==='projects')   return {id, type:'projects', title:'项目经历', pageBreak:false, items:[ blankProject() ]};
-  if(type==='highlights') return {id, type:'highlights', title:'关键印记', pageBreak:false, cards:[ {text:''}, {text:''} ], tags:['','','']};
-  if(type==='growth')     return {id, type:'growth', title:'技术成长路径', pageBreak:false, phases:[ blankPhase(), blankPhase(), blankPhase() ]};
-  return {id, type:'advantages', title:'个人优势', pageBreak:false, items:[ blankItem('advantages') ]};
-}
-function blankPhase(){
-  return {label:'PHASE', date:'', title:'', desc:'', spacing:{mt:0,mb:0}, dateSpacing:{mt:0,mb:0}, titleSpacing:{mt:0,mb:0}, descSpacing:{mt:0,mb:0}};
-}
-/* 列表行（联系方式 / 量化成果 / 技能点）转为 {text, spacing} 对象，兼容旧版纯字符串 */
-function objify(x, text){
-  const sp = (x && typeof x==='object' && x.spacing) ? x.spacing : {mt:0, mb:0};
-  return {text: text==null?'':text, spacing: sp};
-}
-function itemHead(tag, secId, idxAttr, idx){
-  return `<div class="item-head"><span class="tag">${tag}</span>`
-    +`<button class="mini-btn" data-action="move-item" data-sec="${secId}" ${idxAttr}="${idx}" data-dir="up" title="上移">↑</button>`
-    +`<button class="mini-btn" data-action="move-item" data-sec="${secId}" ${idxAttr}="${idx}" data-dir="down" title="下移">↓</button>`
-    +`<button class="mini-btn del" data-action="del-item" data-sec="${secId}" ${idxAttr}="${idx}" title="删除">×</button></div>`;
-}
+/* 模型工厂（blankItem / blankProject / blankPhase / blankSection / objify）
+   已统一收敛到 js/render/editor-schema.js：编辑区渲染、点「添加」造新条目、
+   导入兜底、测试全走同一份实现，避免「工厂改了但界面没跟上」。
+   本文件顶部已从 schema 解构，故这里不再重复定义。 */
 
 const preview = document.getElementById('preview');
 
@@ -308,289 +331,53 @@ function reInsert(arr, from, to, before){
 }
 
 /* ============ 右侧纯文本编辑器（表单，无代码） ============ */
+/* 本文件只负责「把 schema 产出的表单挂进 DOM + 把事件分发给 schema」；
+   「有哪些字段、值写回哪里、增删移怎么算」全部在 js/render/editor-schema.js。
+   于是所有层级的列表都自动拥有 ＋ 新增 / × 删除 / ↑↓ 排序，新增板块类型
+   也只需在 schema 里注册一次，不必再改本文件。 */
 const editor = document.getElementById('editor');
 function renderEditor(){
-  let h='';
-  const fl = (label, inputHtml, code, spacingVal)=>{
-    const sp = spacingVal || {mt:0, mb:0};
-    const mt = z(sp.mt), mb = z(sp.mb);
-    return '<div class="field"><label>'+label+'</label>'
-      + inputHtml
-      + '<span class="spacing-row">'
-      + '<label>上间距 <input type="number" step="1" data-action="spacing-mt" data-sp="'+esc(code)+'" value="'+mt+'"></label>'
-      + '<label>下间距 <input type="number" step="1" data-action="spacing-mb" data-sp="'+esc(code)+'" value="'+mb+'"></label>'
-      + '</span></div>';
-  };
-  // 基本信息
-  h+='<div class="card"><div class="card-head">基本信息</div><div class="card-body">'
-    + fl('姓名', '<input data-field="name" value="'+esc(data.name)+'">', 'g:name', data.nameSpacing)
-    + fl('核心头衔（用 “·” 分隔）', '<input data-field="subtitle" value="'+esc(data.subtitle)+'">', 'g:subtitle', data.subtitleSpacing)
-    +'<div class="field" style="display:flex;align-items:center;gap:10px;"><label class="check"><input type="checkbox" data-field="subtitleBold" '+(data.subtitleBold?'checked':'')+'> 加粗显示核心头衔</label></div>'
-    + fl('顶部标签（年龄 / 年限 / 方向）', '<input data-field="meta" value="'+esc(data.meta)+'">', 'g:meta', data.metaSpacing)
-    +'<div class="field" style="display:flex;align-items:center;gap:10px;"><label class="check"><input type="checkbox" data-field="metaBold" '+(data.metaBold?'checked':'')+'> 加粗显示顶部标签</label></div>';
-  (data.contact||[]).forEach((c,i)=>{
-    h += fl('联系方式 第 '+(i+1)+' 行', '<textarea data-field="contact" data-ci="'+i+'" rows="2">'+esc(T(c))+'</textarea>', 'c:'+i, (c&&typeof c==='object'&&c.spacing)?c.spacing:undefined);
-  });
-  h +='</div></div>';
-  // 各板块
-  data.sections.forEach(sec=>{
-    h+='<div class="card"><div class="card-head"><span class="grow">'+esc(sec.title)+'</span>'
-      +'<button class="mini-btn" data-action="move-sec" data-sec="'+sec.id+'" data-dir="up" title="上移板块">↑</button>'
-      +'<button class="mini-btn" data-action="move-sec" data-sec="'+sec.id+'" data-dir="down" title="下移板块">↓</button>'
-      +'<button class="mini-btn del" data-action="del-section" data-sec="'+sec.id+'" title="删除板块">×</button></div>'
-      +'<div class="card-body">'+ fl('板块标题', '<input data-sec="'+sec.id+'" data-field="title" value="'+esc(sec.title)+'">', 's:'+sec.id, sec.spacing)
-      +'<div class="field" style="display:flex;align-items:center;gap:10px;"><label class="check"><input type="checkbox" data-sec="'+sec.id+'" data-field="pageBreak" '+(sec.pageBreak?'checked':'')+'> 强制本板块从新一页开始</label></div>';
-    if(sec.type==='advantages'){
-      sec.items.forEach((it,i)=>{
-        h+='<div class="item-row">'+itemHead('优势 '+(i+1),sec.id,'data-iidx',i)
-          + fl('小标题', '<input data-sec="'+sec.id+'" data-iidx="'+i+'" data-field="label" value="'+esc(it.label)+'">', 'a:'+sec.id+':'+i, it.spacing)
-          +'<div class="field" style="display:flex;align-items:center;gap:10px;"><label class="check"><input type="checkbox" data-sec="'+sec.id+'" data-iidx="'+i+'" data-field="labelBold" '+(it.labelBold!==false?'checked':'')+'> 小标题加粗</label></div>'
-          + fl('内容', '<textarea data-sec="'+sec.id+'" data-iidx="'+i+'" data-field="text" rows="2">'+esc(T(it.text))+'</textarea>', 'a:'+sec.id+':'+i, it.spacing)
-          +'</div>';
-      });
-      h+='<button class="add-btn" data-action="add-item" data-sec="'+sec.id+'">＋ 添加优势条目</button>';
-    } else if(sec.type==='career'){
-      sec.items.forEach((job,i)=>{
-        h+='<div class="item-row">'+itemHead('公司 '+(i+1),sec.id,'data-iidx',i);
-        const code = 'j:'+sec.id+':'+i;
-        h += fl('公司', '<input data-sec="'+sec.id+'" data-iidx="'+i+'" data-field="company" value="'+esc(T(job.company))+'">', code+':company', job.companySpacing);
-        h += fl('岗位', '<input data-sec="'+sec.id+'" data-iidx="'+i+'" data-field="role" value="'+esc(T(job.role))+'">', code+':role', job.roleSpacing);
-        h += fl('时间', '<input data-sec="'+sec.id+'" data-iidx="'+i+'" data-field="date" value="'+esc(T(job.date||''))+'">', code+':date', job.dateSpacing);
-        h += fl('Logo（图片 URL / DataURI，可留空）', '<textarea data-sec="'+sec.id+'" data-iidx="'+i+'" data-field="logo" rows="2">'+esc(T(job.logo||''))+'</textarea>', code+':logo', job.logoSpacing);
-        h += fl('Logo 高度（px，留空则默认 28）', '<input type="number" min="8" max="120" step="1" data-sec="'+sec.id+'" data-iidx="'+i+'" data-field="logoSize" value="'+((job.logoSize===''||job.logoSize==null)?28:esc(job.logoSize))+'">', code+':logoSize', job.logoSizeSpacing);
-        h += fl('Logo 宽度（px，留空则按原始比例）', '<input type="number" min="8" max="320" step="1" data-sec="'+sec.id+'" data-iidx="'+i+'" data-field="logoWidth" value="'+((job.logoWidth===''||job.logoWidth==null)?'':esc(job.logoWidth))+'">', code+':logoWidth', job.logoWidthSpacing);
-        h += fl('Logo 与名称间距（px，留空则默认 9）', '<input type="number" min="0" max="60" step="1" data-sec="'+sec.id+'" data-iidx="'+i+'" data-field="logoGap" value="'+((job.logoGap===''||job.logoGap==null)?'':esc(job.logoGap))+'">', code+':logoGap', job.logoGapSpacing);
-        h += fl('公司概述（纯文本段落）', '<textarea data-sec="'+sec.id+'" data-iidx="'+i+'" data-field="summary" rows="4">'+esc(T(job.summary||''))+'</textarea>', code+':summary', job.summarySpacing);
-        h +='<div class="field" style="display:flex;align-items:center;gap:10px;"><label class="check"><input type="checkbox" data-sec="'+sec.id+'" data-iidx="'+i+'" data-field="summaryQuote" '+(job.summaryQuote!==false?'checked':'')+'> 公司概述引用样式</label></div>'
-          +'<div class="field" style="display:flex;align-items:center;gap:10px;"><label class="check"><input type="checkbox" data-sec="'+sec.id+'" data-iidx="'+i+'" data-field="pageBreak" '+(job.pageBreak?'checked':'')+'> 强制该公司从新一页开始</label></div>'
-          +'<div class="field" style="display:flex;align-items:center;gap:10px;"><label class="check">引用颜色 <input type="color" data-sec="'+sec.id+'" data-iidx="'+i+'" data-field="summaryColor" value="'+esc(job.summaryColor||'#888888')+'"></label></div>';
-        (job.projects||[]).forEach((p,pi)=>{
-          const pcode = 'p:'+sec.id+':'+i+':'+pi;
-          h+='<div class="sub-row"><div class="item-head"><span class="tag">项目 '+(pi+1)+'</span>'
-            +'<button class="mini-btn" data-action="move-proj" data-sec="'+sec.id+'" data-iidx="'+i+'" data-pidx="'+pi+'" data-dir="up">↑</button>'
-            +'<button class="mini-btn" data-action="move-proj" data-sec="'+sec.id+'" data-iidx="'+i+'" data-pidx="'+pi+'" data-dir="down">↓</button>'
-            +'<button class="mini-btn del" data-action="del-proj" data-sec="'+sec.id+'" data-iidx="'+i+'" data-pidx="'+pi+'">×</button></div>';
-          h += fl('项目名', '<input data-sec="'+sec.id+'" data-iidx="'+i+'" data-pidx="'+pi+'" data-field="pname" value="'+esc(T(p.name))+'">', pcode+':name', p.nameSpacing);
-          h += fl('技术栈', '<input data-sec="'+sec.id+'" data-iidx="'+i+'" data-pidx="'+pi+'" data-field="pstack" value="'+esc(T(p.stack))+'">', pcode+':stack', p.stackSpacing);
-          h += fl('简介', '<textarea data-sec="'+sec.id+'" data-iidx="'+i+'" data-pidx="'+pi+'" data-field="pdesc" rows="2">'+esc(T(p.desc))+'</textarea>', pcode+':desc', p.descSpacing);
-          h +='<div class="field" style="display:flex;align-items:center;gap:10px;"><label class="check"><input type="checkbox" data-sec="'+sec.id+'" data-iidx="'+i+'" data-pidx="'+pi+'" data-field="descQuote" '+(p.descQuote!==false?'checked':'')+'> 项目描述引用样式</label></div>'
-            +'<div class="field" style="display:flex;align-items:center;gap:10px;"><label class="check"><input type="checkbox" data-sec="'+sec.id+'" data-iidx="'+i+'" data-pidx="'+pi+'" data-field="pageBreak" '+(p.pageBreak?'checked':'')+'> 强制该项目从新一页开始</label></div>'
-            +'<div class="field" style="display:flex;align-items:center;gap:10px;"><label class="check">引用颜色 <input type="color" data-sec="'+sec.id+'" data-iidx="'+i+'" data-pidx="'+pi+'" data-field="descColor" value="'+esc(p.descColor||'#888888')+'"></label></div>';
-          (p.results||[]).forEach((r,ri)=>{
-            h += fl('量化成果 第 '+(ri+1)+' 行', '<textarea data-sec="'+sec.id+'" data-iidx="'+i+'" data-pidx="'+pi+'" data-field="presults" data-ri="'+ri+'" rows="2">'+esc(T(r))+'</textarea>', pcode+':results:'+ri, (r&&typeof r==='object'&&r.spacing)?r.spacing:undefined);
-          });
-          h +='</div>';
-        });
-        h+='<button class="add-btn sub" data-action="add-proj" data-sec="'+sec.id+'" data-iidx="'+i+'">＋ 为该公司添加项目</button></div>';
-      });
-      h+='<button class="add-btn" data-action="add-item" data-sec="'+sec.id+'">＋ 添加公司</button>';
-    } else if(sec.type==='skills'){
-      sec.groups.forEach((grp,g)=>{
-        const kcode='k:'+sec.id+':'+g;
-        h+='<div class="item-row"><div class="item-head"><span class="tag">技能分组 '+(g+1)+'</span>'
-          +'<button class="mini-btn" data-action="move-group" data-sec="'+sec.id+'" data-gidx="'+g+'" data-dir="up">↑</button>'
-          +'<button class="mini-btn" data-action="move-group" data-sec="'+sec.id+'" data-gidx="'+g+'" data-dir="down">↓</button>'
-          +'<button class="mini-btn del" data-action="del-group" data-sec="'+sec.id+'" data-gidx="'+g+'">×</button></div>';
-        h += fl('分组名', '<input data-sec="'+sec.id+'" data-gidx="'+g+'" data-field="gname" value="'+esc(T(grp.name))+'">', kcode+':gname', grp.nameSpacing);
-        (grp.items||[]).forEach((it,ii)=>{
-          h += fl('技能点 第 '+(ii+1)+' 行', '<textarea data-sec="'+sec.id+'" data-gidx="'+g+'" data-field="gitems" data-ri="'+ii+'" rows="2">'+esc(T(it))+'</textarea>', kcode+':gitems:'+ii, (it&&typeof it==='object'&&it.spacing)?it.spacing:undefined);
-        });
-        h +='</div>';
-      });
-      h+='<button class="add-btn" data-action="add-group" data-sec="'+sec.id+'">＋ 添加技能分组</button>';
-    } else if(sec.type==='projects'){
-      sec.items.forEach((p,i)=>{
-        const pcode='p:'+sec.id+':'+i;
-        h+='<div class="item-row">'+itemHead('项目 '+(i+1),sec.id,'data-iidx',i);
-        h += fl('项目名', '<input data-sec="'+sec.id+'" data-iidx="'+i+'" data-field="pname" value="'+esc(T(p.name))+'">', pcode+':name', p.nameSpacing);
-        h += fl('技术栈', '<input data-sec="'+sec.id+'" data-iidx="'+i+'" data-field="pstack" value="'+esc(T(p.stack))+'">', pcode+':stack', p.stackSpacing);
-        h += fl('简介', '<textarea data-sec="'+sec.id+'" data-iidx="'+i+'" data-field="pdesc" rows="2">'+esc(T(p.desc))+'</textarea>', pcode+':desc', p.descSpacing);
-        (p.results||[]).forEach((r,ri)=>{
-          h += fl('量化成果 第 '+(ri+1)+' 行', '<textarea data-sec="'+sec.id+'" data-iidx="'+i+'" data-field="presults" data-ri="'+ri+'" rows="2">'+esc(T(r))+'</textarea>', pcode+':results:'+ri, (r&&typeof r==='object'&&r.spacing)?r.spacing:undefined);
-        });
-        h +='</div>';
-      });
-      h+='<button class="add-btn" data-action="add-item" data-sec="'+sec.id+'">＋ 添加项目</button>';
-    } else if(sec.type==='highlights'){
-      (sec.cards||[]).forEach((card,i)=>{
-        const ccode='h:'+sec.id+':c:'+i;
-        h+='<div class="item-row"><div class="item-head"><span class="tag">高亮卡 '+(i+1)+'</span>'
-          +'<button class="mini-btn" data-action="move-card" data-sec="'+sec.id+'" data-cidx="'+i+'" data-dir="up" title="上移">↑</button>'
-          +'<button class="mini-btn" data-action="move-card" data-sec="'+sec.id+'" data-cidx="'+i+'" data-dir="down" title="下移">↓</button>'
-          +'<button class="mini-btn del" data-action="del-card" data-sec="'+sec.id+'" data-cidx="'+i+'" title="删除">×</button></div>';
-        h += fl('高亮卡正文（**xxx** 标记加粗）', '<textarea data-sec="'+sec.id+'" data-cidx="'+i+'" data-field="hcard" rows="3">'+esc(T(card && card.text))+'</textarea>', ccode+':text');
-      });
-      h+='<button class="add-btn" data-action="add-card" data-sec="'+sec.id+'">＋ 添加高亮卡</button>';
-      h+='<div class="item-row"><div class="item-head"><span class="tag">标签芯片</span></div>';
-      (sec.tags||[]).forEach((t,i)=>{
-        h += fl('标签 '+(i+1), '<input data-sec="'+sec.id+'" data-tidx="'+i+'" data-field="htag" value="'+esc(T(t))+'">', 'h:'+sec.id+':t:'+i);
-      });
-      h+='<button class="add-btn" data-action="add-tag" data-sec="'+sec.id+'">＋ 添加标签</button>';
-      h+='</div>';
-    } else if(sec.type==='growth'){
-      (sec.phases||[]).forEach((ph,i)=>{
-        const pcode='g:'+sec.id+':'+i;
-        // phase 用 data-pidx，复用 itemHead 但 idxAttr 不同
-        h+='<div class="item-row"><div class="item-head"><span class="tag">阶段 '+(i+1)+'</span>'
-          +'<button class="mini-btn" data-action="move-phase" data-sec="'+sec.id+'" data-pidx="'+i+'" data-dir="up" title="上移">↑</button>'
-          +'<button class="mini-btn" data-action="move-phase" data-sec="'+sec.id+'" data-pidx="'+i+'" data-dir="down" title="下移">↓</button>'
-          +'<button class="mini-btn del" data-action="del-phase" data-sec="'+sec.id+'" data-pidx="'+i+'" title="删除">×</button></div>';
-        h += fl('阶段标签（如 PHASE 1）', '<input data-sec="'+sec.id+'" data-pidx="'+i+'" data-field="phaseLabel" value="'+esc(T(ph.label))+'">', pcode+':label');
-        h += fl('时间段', '<input data-sec="'+sec.id+'" data-pidx="'+i+'" data-field="phaseDate" value="'+esc(T(ph.date))+'">', pcode+':date', ph.dateSpacing);
-        h += fl('主题（如 Java 架构 · 工程基石）', '<input data-sec="'+sec.id+'" data-pidx="'+i+'" data-field="phaseTitle" value="'+esc(T(ph.title))+'">', pcode+':title', ph.titleSpacing);
-        h += fl('描述', '<textarea data-sec="'+sec.id+'" data-pidx="'+i+'" data-field="phaseDesc" rows="3">'+esc(T(ph.desc))+'</textarea>', pcode+':desc', ph.descSpacing);
-        h +='</div>';
-      });
-      h+='<button class="add-btn" data-action="add-phase" data-sec="'+sec.id+'">＋ 添加阶段</button>';
-    }
-    h+='</div></div>';
-  });
-  // 添加板块
-  h+='<div class="card add-section-card"><div class="card-head">添加板块</div><div class="card-body add-section-body">'
-    +'<button class="add-btn" data-action="add-section" data-type="advantages">＋ 个人优势</button>'
-    +'<button class="add-btn" data-action="add-section" data-type="career">＋ 职业履历</button>'
-    +'<button class="add-btn" data-action="add-section" data-type="skills">＋ 核心技能</button>'
-    +'<button class="add-btn" data-action="add-section" data-type="projects">＋ 项目经历</button>'
-    +'<button class="add-btn" data-action="add-section" data-type="highlights">＋ 关键印记</button>'
-    +'<button class="add-btn" data-action="add-section" data-type="growth">＋ 技术成长路径</button>'
-    +'</div></div>';
-  editor.innerHTML = h;
+  editor.innerHTML = ES.renderEditorHTML(data);
 }
 
-
-
-/* 解析间距微调目标（data-sp 编码） */
-function parseSpacingTarget(code){
-  const parts = String(code).split(':');
-  const kind = parts[0];
-  if(kind==='g'){ const k=parts[1]+'Spacing'; data[k]=data[k]||{mt:0,mb:0}; return {obj:data, key:k}; }
-  if(kind==='c'){ const i=+parts[1]; data.contact=Array.isArray(data.contact)?data.contact:[]; data.contact[i]=objify(data.contact[i], T(data.contact[i]||'')); return {obj:data.contact, key:i}; }
-  if(kind==='s'){ const sec=getSection(parts[1]); sec.spacing=sec.spacing||{mt:0,mb:0}; return {obj:sec, key:'spacing'}; }
-  if(kind==='a'){ const sec=getSection(parts[1]); const it=sec.items[+parts[2]]; it.spacing=it.spacing||{mt:0,mb:0}; return {obj:it, key:'spacing'}; }
-  if(kind==='j'){ const sec=getSection(parts[1]); const job=sec.items[+parts[2]]; if(parts[3]){ const f=parts[3]; job[f+'Spacing']=job[f+'Spacing']||{mt:0,mb:0}; return {obj:job, key:f+'Spacing'}; } job.spacing=job.spacing||{mt:0,mb:0}; return {obj:job, key:'spacing'}; }
-  if(kind==='p'){ const sec=getSection(parts[1]); const job=sec.items[+parts[2]]; const pr=job.projects[+parts[3]]; if(parts[4]){ if(parts[4]==='results'){ const ri=+parts[5]; pr.results[ri]=objify(pr.results[ri], T(pr.results[ri]||'')); return {obj:pr.results, key:ri}; } pr[parts[4]+'Spacing']=pr[parts[4]+'Spacing']||{mt:0,mb:0}; return {obj:pr, key:parts[4]+'Spacing'}; } pr.spacing=pr.spacing||{mt:0,mb:0}; return {obj:pr, key:'spacing'}; }
-  if(kind==='k'){ const sec=getSection(parts[1]); const grp=sec.groups[+parts[2]]; if(parts[3]){ if(parts[3]==='gitems'){ const ri=+parts[4]; grp.items[ri]=objify(grp.items[ri], T(grp.items[ri]||'')); return {obj:grp.items, key:ri}; } grp[parts[3]+'Spacing']=grp[parts[3]+'Spacing']||{mt:0,mb:0}; return {obj:grp, key:parts[3]+'Spacing'}; } grp.spacing=grp.spacing||{mt:0,mb:0}; return {obj:grp, key:'spacing'}; }
-  return null;
-}
-
-/* 编辑输入：只改文字 → 更新模型 → 重渲染预览（不重建右侧，保留焦点） */
+/* 三类控件各用一套寻址属性，互不干扰：
+     · 字段      data-path（对象路径）+ data-field（属性名；空 = 整行就是该值）
+     · 间距微调  data-spath（挂间距的对象路径）+ data-sp（间距属性名）+ data-pos（mt/mb）
+     · 列表操作  data-act（add/del/up/down）+ data-list（数组路径）+ data-listid + data-idx
+   替代了原先 data-sec/data-iidx/data-gidx/data-pidx/data-cidx/data-tidx 六套索引
+   与 'j:s1:0:company' 这类字符串编码解析。 */
 editor.addEventListener('input', e=>{
-  const t=e.target;
-  RB.recordHistory('edit');   // 每次输入前记录（同类型在短时间内的连续输入会合并为一个撤销步）
-  if(t.dataset.action==='spacing-mt' || t.dataset.action==='spacing-mb'){
-    const target = parseSpacingTarget(t.dataset.sp);
-    if(target){ const k = t.dataset.action==='spacing-mt' ? 'mt' : 'mb'; target.obj[target.key] = target.obj[target.key] || {mt:0,mb:0}; target.obj[target.key][k] = z(t.value); renderPreview(); }
+  const t = e.target;
+  const ds = t.dataset || {};
+  if(ds.spath === undefined && ds.path === undefined) return;   // 非编辑区字段，忽略
+  RB.recordHistory('edit');   // 每次输入前记录（同类型短时间内的连续输入会合并为一个撤销步）
+  if(ds.spath !== undefined){
+    if(ES.writeSpacingInput(data, ds, t.value)) renderPreview();
     return;
   }
-  const f=t.dataset.field; if(!f) return;
-  if(f==='name'){ data.name=t.value; renderPreview(); return; }
-  if(f==='subtitle'){ data.subtitle=t.value; renderPreview(); return; }
-  if(f==='subtitleBold'){ data.subtitleBold=t.checked; renderPreview(); return; }
-  if(f==='meta'){ data.meta=t.value; renderPreview(); return; }
-  if(f==='metaBold'){ data.metaBold=t.checked; renderPreview(); return; }
-  if(f==='contact'){ const i=+t.dataset.ci; data.contact[i]=objify(data.contact[i], t.value); renderPreview(); return; }
-  const sec=getSection(t.dataset.sec); if(!sec) return;
-  if(f==='title'){ sec.title=t.value; renderPreview(); return; }
-  if(f==='pageBreak' && t.dataset.iidx==null && t.dataset.pidx==null && t.dataset.gidx==null && t.dataset.cidx==null && t.dataset.tidx==null){ sec.pageBreak = t.checked; renderPreview(); return; }
-  if(sec.type==='advantages'){
-    const i=+t.dataset.iidx; const it=sec.items[i];
-    if(f==='label') it.label=t.value;
-    else if(f==='labelBold') it.labelBold=t.checked;
-    else if(f==='text') it.text=t.value;
-    renderPreview();
-  } else if(sec.type==='career'){
-    const i=+t.dataset.iidx; const job=sec.items[i];
-    if(f==='company') job.company=t.value;
-    else if(f==='role') job.role=t.value;
-    else if(f==='date') job.date=t.value;
-    else if(f==='logo') job.logo=t.value;
-    else if(f==='logoSize') job.logoSize = t.value==='' ? '' : Number(t.value);
-    else if(f==='logoWidth') job.logoWidth = t.value==='' ? '' : Number(t.value);
-    else if(f==='logoGap') job.logoGap = t.value==='' ? '' : Number(t.value);
-    else if(f==='summary') job.summary=t.value;
-    else if(f==='summaryQuote') job.summaryQuote = t.checked;
-    else if(f==='summaryColor') job.summaryColor = t.value;
-    else if(f==='pageBreak' && t.dataset.pidx==null) job.pageBreak = t.checked;
-    else if(f==='pname'||f==='pstack'||f==='pdesc'||f==='descQuote'||f==='descColor'||f==='pageBreak'){
-      const p=job.projects[+t.dataset.pidx]; if(!p) return;
-      if(f==='pname') p.name=t.value; else if(f==='pstack') p.stack=t.value;
-      else if(f==='pdesc') p.desc=t.value;
-      else if(f==='descQuote') p.descQuote = t.checked;
-      else if(f==='descColor') p.descColor = t.value;
-      else if(f==='pageBreak') p.pageBreak = t.checked;
-    } else if(f==='presults'){
-      const p=job.projects[+t.dataset.pidx]; if(!p) return;
-      const ri=+t.dataset.ri; p.results[ri]=objify(p.results[ri], t.value);
-    }
-    renderPreview();
-  } else if(sec.type==='skills'){
-    const g=+t.dataset.gidx; const grp=sec.groups[g];
-    if(f==='gname') grp.name=t.value;
-    else if(f==='gitems'){ const ri=+t.dataset.ri; grp.items[ri]=objify(grp.items[ri], t.value); }
-    renderPreview();
-  } else if(sec.type==='projects'){
-    const i=+t.dataset.iidx; const p=sec.items[i];
-    if(f==='pname') p.name=t.value; else if(f==='pstack') p.stack=t.value;
-    else if(f==='pdesc') p.desc=t.value;
-    else if(f==='presults'){ const ri=+t.dataset.ri; p.results[ri]=objify(p.results[ri], t.value); }
-    renderPreview();
-  } else if(sec.type==='highlights'){
-    if(f==='hcard'){ const i=+t.dataset.cidx; sec.cards[i] = sec.cards[i] || {}; sec.cards[i].text = t.value; }
-    else if(f==='htag'){ const i=+t.dataset.tidx; sec.tags[i] = t.value; }
-    renderPreview();
-  } else if(sec.type==='growth'){
-    const i=+t.dataset.pidx; const ph=sec.phases[i]; if(!ph) return;
-    if(f==='phaseLabel') ph.label=t.value;
-    else if(f==='phaseDate') ph.date=t.value;
-    else if(f==='phaseTitle') ph.title=t.value;
-    else if(f==='phaseDesc') ph.desc=t.value;
-    renderPreview();
-  }
+  if(ES.writeInput(data, ds, ES.coerceInput(t.type, t.value, t.checked))) renderPreview();
 });
 
-
+/* 列表操作：一套通用实现覆盖所有层级（板块 / 公司 / 项目 / 量化成果 /
+   技能分组 / 技能点 / 高亮卡 / 标签芯片 / 阶段 / 联系方式）。
+   返回 true 表示数据真的变了，调用方据此重渲染（校验失败或首末位空转不重渲染，
+   避免无意义地重建表单、丢掉滚动位置）。 */
+function handleListAction(b){
+  const ds = b.dataset || {};
+  if(!ds.act || ds.list === undefined) return false;
+  const verdict = ES.checkAction(data, ds);
+  if(!verdict.ok){
+    if(verdict.message) alert(verdict.message);   // 如「至少保留一个板块，无法删除。」
+    return false;
+  }
+  if(verdict.confirm && !confirm(verdict.confirm)) return false;
+  if(verdict.noop) return false;
+  RB.recordHistory('action');   // 先记快照再改数据，撤销才能回到改前
+  return ES.applyAction(data, ds);
+}
 editor.addEventListener('click', e=>{
-  const b=e.target.closest('button[data-action]'); if(!b) return;
-  const act=b.dataset.action;
-  // 添加板块：无需已存在的 sec，单独处理
-  if(act==='add-section'){
-    const t=b.dataset.type; if(!t) return;
-    RB.recordHistory('action');
-    data.sections.push(blankSection(t));
-    renderEditor(); renderPreview(); return;
-  }
-  const secId=b.dataset.sec; const sec=getSection(secId); if(!sec) return;
-  if(act==='del-section'){
-    if(data.sections.length<=1){ alert('至少保留一个板块，无法删除。'); return; }
-    if(!confirm('确定删除整个「'+sec.title+'」板块吗？此操作可用「撤销」恢复。')) return;
-    RB.recordHistory('action');
-    const i=data.sections.findIndex(s=>s.id===secId); if(i>=0) data.sections.splice(i,1);
-  } else if(act==='move-sec'){
-    RB.recordHistory('action');
-    const i=data.sections.findIndex(s=>s.id===secId); const j=i+(b.dataset.dir==='up'?-1:1);
-    if(j>=0&&j<data.sections.length){ [data.sections[i],data.sections[j]]=[data.sections[j],data.sections[i]]; }
-  } else if(act==='add-item'){ RB.recordHistory('action'); sec.items.push(blankItem(sec.type)); }
-  else if(act==='del-item'){ RB.recordHistory('action'); sec.items.splice(+b.dataset.iidx,1); }
-  else if(act==='move-item'){ RB.recordHistory('action'); const i=+b.dataset.iidx; const j=i+(b.dataset.dir==='up'?-1:1); if(j>=0&&j<sec.items.length){ [sec.items[i],sec.items[j]]=[sec.items[j],sec.items[i]]; } }
-  else if(act==='add-group'){ RB.recordHistory('action'); sec.groups.push({name:'',items:[],spacing:{mt:0,mb:0},nameSpacing:{mt:0,mb:0}}); }
-  else if(act==='del-group'){ RB.recordHistory('action'); sec.groups.splice(+b.dataset.gidx,1); }
-  else if(act==='move-group'){ RB.recordHistory('action'); const g=+b.dataset.gidx; const j=g+(b.dataset.dir==='up'?-1:1); if(j>=0&&j<sec.groups.length){ [sec.groups[g],sec.groups[j]]=[sec.groups[j],sec.groups[g]]; } }
-  else if(act==='add-proj'){ RB.recordHistory('action'); const job=sec.items[+b.dataset.iidx]; if(job){ job.projects=job.projects||[]; job.projects.push(blankProject()); } }
-  else if(act==='del-proj'){ RB.recordHistory('action'); const job=sec.items[+b.dataset.iidx]; if(job&&job.projects) job.projects.splice(+b.dataset.pidx,1); }
-  else if(act==='move-proj'){
-    RB.recordHistory('action');
-    const job=sec.items[+b.dataset.iidx]; const p=+b.dataset.pidx; const j=p+(b.dataset.dir==='up'?-1:1);
-    if(job&&job.projects&&j>=0&&j<job.projects.length){ [job.projects[p],job.projects[j]]=[job.projects[j],job.projects[p]]; }
-  }
-  else if(act==='add-phase'){ RB.recordHistory('action'); sec.phases=sec.phases||[]; sec.phases.push(blankPhase()); }
-  else if(act==='del-phase'){ if(!sec.phases||sec.phases.length<=1){ alert('至少保留一个阶段，无法删除。'); return; } RB.recordHistory('action'); sec.phases.splice(+b.dataset.pidx,1); }
-  else if(act==='move-phase'){ RB.recordHistory('action'); const i=+b.dataset.pidx; const j=i+(b.dataset.dir==='up'?-1:1); if(sec.phases&&j>=0&&j<sec.phases.length){ [sec.phases[i],sec.phases[j]]=[sec.phases[j],sec.phases[i]]; } }
-  else if(act==='add-card'){ RB.recordHistory('action'); sec.cards=sec.cards||[]; sec.cards.push({text:''}); }
-  else if(act==='del-card'){ RB.recordHistory('action'); sec.cards=sec.cards||[]; if(sec.cards.length<=1){ alert('至少保留一张高亮卡。'); return; } sec.cards.splice(+b.dataset.cidx,1); }
-  else if(act==='move-card'){ RB.recordHistory('action'); sec.cards=sec.cards||[]; const i=+b.dataset.cidx; const j=i+(b.dataset.dir==='up'?-1:1); if(j>=0&&j<sec.cards.length){ [sec.cards[i],sec.cards[j]]=[sec.cards[j],sec.cards[i]]; } }
-  else if(act==='add-tag'){ RB.recordHistory('action'); sec.tags=sec.tags||[]; sec.tags.push(''); }
-  else if(act==='del-tag'){ RB.recordHistory('action'); sec.tags=sec.tags||[]; sec.tags.splice(+b.dataset.tidx,1); }
-  renderEditor(); renderPreview();
+  const b = e.target.closest('button[data-act]'); if(!b) return;
+  if(handleListAction(b)){ renderEditor(); renderPreview(); }
 });
 
 /* ============ 撤销 / 重做（全量状态快照栈） ============ */
@@ -601,8 +388,8 @@ const settings = document.getElementById('settings');
 function renderSettings(){
   settings.innerHTML = Object.keys(currentFonts).map(k=>{
     const s=currentFonts[k];
-    return `<div class="setting"><label>${s.label}${s.desc?`<small>${s.desc}</small>`:''}</label>`
-      +`<input type="number" min="${s.min}" max="${s.max}" step="0.5" value="${s.val}" data-key="${k}"></div>`;
+    return `<div class="setting"><label>${esc(s.label)}${s.desc?`<small>${esc(s.desc)}</small>`:''}</label>`
+      +`<input type="number" min="${z(s.min)}" max="${z(s.max)}" step="0.5" value="${z(s.val)}" data-key="${esc(k)}"></div>`;
   }).join('');
   settings.querySelectorAll('input').forEach(inp=>{
     inp.addEventListener('input', function(){
@@ -618,10 +405,10 @@ function renderSpacingSettings(){
   const wrap = document.getElementById('spacingSettings');
   wrap.innerHTML = Object.keys(currentSpacing).map(k=>{
     const s=currentSpacing[k];
-    return `<div class="setting"><label>${s.label}</label>`
+    return `<div class="setting"><label>${esc(s.label)}</label>`
       +`<span style="display:flex;gap:6px;align-items:center;">`
-      +`<small style="color:var(--ui-faint);">上</small><input type="number" min="-40" max="80" step="1" value="${s.mt}" data-k="${k}" data-pos="mt" title="上间距" style="width:46px;">`
-      +`<small style="color:var(--ui-faint);">下</small><input type="number" min="-40" max="80" step="1" value="${s.mb}" data-k="${k}" data-pos="mb" title="下间距" style="width:46px;">`
+      +`<small style="color:var(--ui-faint);">上</small><input type="number" min="-40" max="80" step="1" value="${z(s.mt)}" data-k="${esc(k)}" data-pos="mt" title="上间距" style="width:46px;">`
+      +`<small style="color:var(--ui-faint);">下</small><input type="number" min="-40" max="80" step="1" value="${z(s.mb)}" data-k="${esc(k)}" data-pos="mb" title="下间距" style="width:46px;">`
       +`</span></div>`;
   }).join('');
   wrap.querySelectorAll('input').forEach(inp=>{
@@ -720,7 +507,12 @@ function drawPageGuides(){
 }
 function toggleGuides(){
   guidesOn = !guidesOn;
-  document.getElementById('guideBtn').textContent = guidesOn ? '隐藏分页线' : '显示分页线';
+  /* 两端各一个按钮（桌面 / 手机同一份入口清单）→ 都更新；
+     且必须判空：此前裸取 textContent，元素不在就会直接抛错中断切换。 */
+  ['guideBtn', 'guideBtnMobile'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = guidesOn ? '隐藏分页线' : '显示分页线';
+  });
   drawPageGuides();
 }
 window.addEventListener('resize', ()=>{ if(guidesOn) drawPageGuides(); });
@@ -776,10 +568,44 @@ function migrateQuoteColors(d){
    并将联系方式 / 量化成果 / 技能点 的纯字符串数组升级为 {text, spacing} 对象数组 */
 const PB = '<<PAGE_BREAK>>';
 function stripPB(s){ return String(s==null?'':s).split(PB).join(''); }
-function toLine(x){ if(x && typeof x==='object' && 'text' in x){ x.text = stripPB(x.text); x.spacing = x.spacing||{mt:0,mb:0}; return x; } return {text: stripPB(x||''), spacing:{mt:0,mb:0}}; }
+function toLine(x){
+  if(x && typeof x==='object' && 'text' in x){
+    x.text = stripPB(x.text);
+    /* 历史遗留：2026-09-20 之前的编辑区把「行间距微调」错写成了行对象的 mt/mb
+       （预览读的是 .spacing，所以那批数值一直没生效）。这里把它们搬回正确位置后删掉脏字段。 */
+    if(x.mt!==undefined || x.mb!==undefined){
+      if(!x.spacing) x.spacing = {mt: z(x.mt), mb: z(x.mb)};
+      delete x.mt; delete x.mb;
+    }
+    x.spacing = x.spacing || {mt:0,mb:0};
+    return x;
+  }
+  return {text: stripPB(x||''), spacing:{mt:0,mb:0}};
+}
+/* 高亮卡：兼容「纯字符串」与「{text}」两种旧形态（旧数据的字符串卡此前会被预览整张丢掉） */
+function toCard(x){
+  if(x && typeof x==='object'){
+    x.text = T(x);
+    x.spacing = x.spacing || {mt:0,mb:0};
+    return x;
+  }
+  return {text: T(x), spacing:{mt:0,mb:0}};
+}
 function ensureSpacing(obj, fields){ if(!obj) return; fields.forEach(f=>{ if(obj[f+'Spacing']==null) obj[f+'Spacing']={mt:0,mb:0}; }); }
 function migrateSpacing(d){
+  /* 旧版把联系方式的行间距存在根级 contactSpacing[] 数组里（与预览读取位置不一致），
+     统一折叠回每行自己的 spacing；同时兼容直接挂在行上的 mt/mb。 */
   if(Array.isArray(d.contact)) d.contact = d.contact.map(toLine);
+  if(Array.isArray(d.contactSpacing)){
+    d.contact.forEach((c,i)=>{
+      const leg = d.contactSpacing[i];
+      const cur = (c && typeof c==='object') ? c.spacing : null;
+      if(leg && (!cur || (!cur.mt && !cur.mb))){
+        c.spacing = {mt: z(leg.mt), mb: z(leg.mb)};
+      }
+    });
+    delete d.contactSpacing;
+  }
   (d.sections||[]).forEach(sec=>{
     if(sec.spacing==null) sec.spacing={mt:0,mb:0};
     if(sec.type==='advantages'){
@@ -799,8 +625,11 @@ function migrateSpacing(d){
       });
     } else if(sec.type==='skills'){
       sec.groups = (sec.groups||[]).filter(g=>!g.__break).map(grp=>{
-        ensureSpacing(grp, ['name']); grp.spacing=grp.spacing||{mt:0,mb:0};
+        ensureSpacing(grp, ['name','keywords','detail']); grp.spacing=grp.spacing||{mt:0,mb:0};
         grp.name=stripPB(grp.name||'');
+        /* 关键词行 / 说明行：统一压成字符串（兼容旧数据里的 {text} 形态） */
+        grp.keywords=stripPB(T(grp.keywords||''));
+        grp.detail=stripPB(T(grp.detail||''));
         grp.items=(grp.items||[]).map(toLine);
         return grp;
       });
@@ -811,9 +640,20 @@ function migrateSpacing(d){
         p.results=(p.results||[]).map(toLine);
         return p;
       });
+    } else if(sec.type==='highlights'){
+      /* 高亮卡此前完全没有迁移：cards 若是纯字符串，预览会整张丢掉；tags 保持纯字符串数组 */
+      sec.cards = (sec.cards||[]).map(toCard);
+      sec.tags = (sec.tags||[]).map(t=>String(T(t)));
+    } else if(sec.type==='growth'){
+      sec.phases = (sec.phases||[]).map(ph=>{
+        ensureSpacing(ph, ['label','date','title','desc']);
+        ph.spacing = ph.spacing || {mt:0,mb:0};
+        return ph;
+      });
     }
   });
 }
+
 /* v6 迁移：新版间距默认值新增「公司块」「技能分组」独立类型，并整体收紧；
    若用户本地仍保存旧版默认值，直接重置为当前 defaultSpacing（保留每行独立微调） */
 function migrateSpacingDefaults(){
@@ -840,14 +680,16 @@ global.ResumeRender = {
   mmToPx: mmToPx, pxToMm: pxToMm, T: T, S: S,
   // html builders
   renderResumeInner: renderResumeInner,
-  // constructors
+  // constructors（实现已收敛到 editor-schema.js，这里保持导出名不变）
   blankItem: blankItem, blankProject: blankProject, blankSection: blankSection,
-  blankPhase: blankPhase, objify: objify, itemHead: itemHead,
+  blankPhase: blankPhase, blankSkillGroup: blankSkillGroup, objify: objify,
+  // 编辑区 schema（供外部/测试直接访问引擎）
+  EditorSchema: ES,
   // preview + drag
   safeMm: safeMm, syncPrintPageMargin: syncPrintPageMargin,
   renderPreview: renderPreview,
   // editor form
-  renderEditor: renderEditor, parseSpacingTarget: parseSpacingTarget,
+  renderEditor: renderEditor, handleListAction: handleListAction,
   // settings panels
   renderSettings: renderSettings, resetFonts: resetFonts,
   renderSpacingSettings: renderSpacingSettings, resetSpacing: resetSpacing,

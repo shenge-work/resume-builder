@@ -80,9 +80,12 @@ const files = [
   ['js/views/tracker-view.js', 'js/views/tracker-view.js（P3 投递追踪）'],
   ['js/views/templates-view.js', 'js/views/templates-view.js（排版预设页）'],
   ['js/views/portfolio-view.js', 'js/views/portfolio-view.js（个人官网预览页）'],
+  ['js/render/editor-schema.js', 'js/render/editor-schema.js（内容编辑区 schema + 通用渲染写回引擎）'],
   ['js/render/resume-render.js', 'js/render/resume-render.js（简历渲染引擎拆分）'],
   ['js/export/export-pdf.js', 'js/export/export-pdf.js（PDF / 长图 / 单文件 HTML 导出）'],
   ['js/feishu/feishu-sync.js', 'js/feishu/feishu-sync.js（飞书同步 / 扫码授权 / 注册 / 自动同步）'],
+  ['js/ui/menu-actions.js', 'js/ui/menu-actions.js（统一入口清单：桌面工具菜单 + 手机 sync-pane 同源渲染）'],
+  ['js/ui/save-status.js', 'js/ui/save-status.js（保存状态条：保存三态 + 存储降级告警）'],
   ['js/ui/notifier.js', 'js/ui/notifier.js（消息通知中心）'],
   ['js/ui/pane-mobile.js', 'js/ui/pane-mobile.js（面板 / 移动端 UI）'],
   ['js/ai/presets.js', 'js/ai/presets.js（AI 厂商预设）'],
@@ -91,7 +94,8 @@ const files = [
   ['js/app.js', 'js/app.js'],
   ['js/router/bootstrap.js', 'js/router/bootstrap.js（P0 路由启动）'],
   ['js/export-extra.js', 'js/export-extra.js（T7 DOCX / 纯文本 / Markdown / 静默 PDF 导出）'],
-  ['js/audit.js', 'js/audit.js（T7 投递体检）']
+  ['js/audit.js', 'js/audit.js（T7 投递体检）'],
+  ['js/jd-match.js', 'js/jd-match.js（JD 匹配分析：岗位关键词覆盖三档）']
 ];
 for (const [file, name] of files) {
   const tag = '<script src="' + file + '"></script>';

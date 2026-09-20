@@ -125,6 +125,39 @@ module.exports = [
       });
     }
   },
+  {
+    name: 'rename 只改索引标题，正文文件（按 id）不受影响',
+    fn: (ctx) => {
+      const L = ctx.ResumeLibrary;
+      return L.list().then((idx) => {
+        const id = idx[0].id;
+        const before = idx[0].title;
+        return L.rename(id, '更名后标题').then(() => Promise.all([L.list(), L.load(id)]));
+      }).then(([idx, doc]) => {
+        const m = idx.find(x => x.title === '更名后标题');
+        ctx.assert(!!m, 'rename 后索引标题更新');
+        ctx.assert(!!doc && !!doc.data, 'rename 后文档仍可按原 id 读取');
+        ctx.assert(doc.data.name === '改后', 'rename 不触碰正文内容');
+      });
+    }
+  },
+  {
+    name: 'save 带 meta.lastHash 后 getMeta/patchMeta 可读回指纹',
+    fn: (ctx) => {
+      const L = ctx.ResumeLibrary;
+      let savedId = null;
+      return L.list().then((idx) => {
+        savedId = idx[0].id;
+        return L.save(savedId, { data: { name: '带指纹', contact: [], sections: [] }, fonts: null, spacing: null, v: 8 }, { lastHash: 'HASH_ABC' });
+      }).then(() => {
+        const m = ctx.ResumeLibrary.getMeta(savedId);
+        ctx.assert(!!m && m.lastHash === 'HASH_ABC', 'save 透传 lastHash 到索引项');
+        return L.patchMeta(savedId, { lastHash: 'HASH_XYZ' });
+      }).then(() => {
+        ctx.assert(ctx.ResumeLibrary.getMeta(savedId).lastHash === 'HASH_XYZ', 'patchMeta 可更新指纹');
+      });
+    }
+  },
 
   /* ---- savedAt 新旧仲裁（数据一致性根治，2026-09-19）----
      pickResumeSource(doc, memSavedAt)：库文档与内存基底谁新用谁。

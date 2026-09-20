@@ -185,9 +185,73 @@ async function printToPdf(htmlPath, pdfPath) {
   return buf;
 }
 
+/* 请求入口守卫：本服务持有简历 PII 与各类凭证，只应被「经 npm start 打开的本机页面」访问。
+   1) Host 校验 —— 防 DNS rebinding：恶意域名先把 JS 送达浏览器、再把 DNS 重绑到 127.0.0.1，
+      若不校验 Host，攻击者页面即可同源读取 /data/resume.json 与全部 /api 响应；
+   2) /api/* 的 Origin / Sec-Fetch-Site 校验 —— 防跨站 CSRF：POST 表单/凑内容型 fetch 属
+      「简单请求」免预检即可达服务器，校验 Origin 白名单可整链掐断；
+   3) 畸形 URL 容错 —— decodeURIComponent 对非法百分号编码（如 /%zz）抛 URIError，
+      不捕获会让整个进程退出（单个 <img src=...> 就能反复杀掉本地服务、中断实时保存）。 */
+const HOST_ALLOW = new Set([
+  '127.0.0.1:' + PORT,
+  'localhost:' + PORT,
+  '[::1]:' + PORT
+]);
+const ORIGIN_ALLOW = new Set([
+  'http://127.0.0.1:' + PORT,
+  'http://localhost:' + PORT,
+  'http://[::1]:' + PORT
+]);
+
+/* 进程级兜底：请求处理链里任何未捕获的异常都不允许再穿透到进程。
+   曾经的教训——/api/library/doc 里一处 ReferenceError 让整个服务静默退出，前端随即
+   永久降级到 localStorage，用户以为已保存、磁盘上却什么都没有（静默数据丢失）。
+   这里只做「不杀进程 + 记日志 + 尽力给当前请求一个 500」，不掩盖问题：日志保留完整堆栈，
+   且测试会断言各接口返回预期状态码——真走了兜底就会返回 500，测试当场变红。 */
+let _activeRes = null;
+process.on('uncaughtException', (e) => {
+  console.error('[未捕获异常] ' + ((e && e.stack) || e));
+  if (_activeRes && !_activeRes.headersSent) {
+    try {
+      _activeRes.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+      _activeRes.end(JSON.stringify({ error: '内部错误（详见服务端日志）' }));
+    } catch (_) { /* 响应已不可写，忽略 */ }
+  }
+});
+process.on('unhandledRejection', (e) => {
+  console.error('[未处理的 Promise 拒绝] ' + ((e && e.stack) || e));
+});
+
 const server = http.createServer((req, res) => {
-  const u = new URL(req.url, 'http://localhost');
-  const pathname = decodeURIComponent(u.pathname);
+  _activeRes = res; // 兜底用：异常发生时把 500 回给当前请求，避免连接静默挂起
+
+  // 1) Host 必须是本机回环（浏览器请求一定带 Host；rebinding 域名会暴露自己）
+  const host = String(req.headers.host || '').toLowerCase();
+  if (!HOST_ALLOW.has(host)) return send(res, 403, { error: 'Forbidden: invalid Host' });
+
+  // 2) /api/* 只接受本机同源页面发起的请求（curl 等无 Origin 的非浏览器调用不受影响）
+  if (String(req.url).startsWith('/api/')) {
+    const origin = req.headers.origin;
+    if (origin !== undefined && !ORIGIN_ALLOW.has(String(origin))) {
+      return send(res, 403, { error: 'Forbidden: invalid Origin' });
+    }
+    const site = req.headers['sec-fetch-site'];
+    if (site !== undefined && String(site).toLowerCase() === 'cross-site') {
+      return send(res, 403, { error: 'Forbidden: cross-site request' });
+    }
+  }
+
+  // 3) URL 解析容错：解析失败按 400 处理，绝不让异常穿透到进程
+  // ⚠️ u 必须在 try 之外声明：下面多处接口（/api/library/doc、/api/feishu/register/poll、
+  //    /api/feishu/register/cancel）是在 try 块以外读它的。此前写成块内 const，
+  //    导致一次普通的 GET 请求就抛 ReferenceError 并直接杀掉整个服务进程。
+  let pathname, u;
+  try {
+    u = new URL(req.url, 'http://localhost');
+    pathname = decodeURIComponent(u.pathname);
+  } catch (e) {
+    return send(res, 400, { error: 'Bad Request: malformed URL' });
+  }
 
   // —— 写接口：把当前编辑器数据落盘为 data/resume.json ——
   if (req.method === 'POST' && pathname === '/api/resume') {
@@ -212,6 +276,87 @@ const server = http.createServer((req, res) => {
       }
     });
     return;
+  }
+
+  // —— 简历库接口（统一分文件模型：index.json + <id>.json）——
+  // 浏览器开发模式（npm start）与桌面端（Tauri 命令）共用同一份 ResumeLibrary 代码，
+  // 只是落盘位置不同：这里读写 data/resumes/，桌面端读写 app_data_dir()/resumes/。
+  // 目录结构：index.json（清单+激活态+内容指纹） + <id>.json（每份简历一个文件）。
+  const LIB_DIR = path.join(ROOT, 'data', 'resumes');
+  const LIB_INDEX = path.join(LIB_DIR, 'index.json');
+  const sanitizeResumeId = (id) => /^[A-Za-z0-9_-]{1,128}$/.test(id || '') ? id : null;
+  const readJsonFile = (p) => { try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch (e) { return null; } };
+  const writeJsonFile = (p, v) => { fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, JSON.stringify(v, null, 2) + '\n', 'utf8'); };
+
+  if (req.method === 'GET' && pathname === '/api/library/index') {
+    return send(res, 200, { index: readJsonFile(LIB_INDEX) });
+  }
+  if (req.method === 'POST' && pathname === '/api/library/index') {
+    let buf = '';
+    req.on('data', (c) => { buf += c; if (buf.length > 1024 * 1024) req.destroy(); });
+    req.on('end', () => {
+      let idx;
+      try { idx = JSON.parse(buf); } catch (e) { return send(res, 400, { error: 'JSON 解析失败: ' + e.message }); }
+      if (!idx || typeof idx !== 'object') return send(res, 400, { error: 'index 必须是对象' });
+      const items = Array.isArray(idx.items) ? idx.items : [];
+      for (const it of items) {
+        if (!it || !sanitizeResumeId(it.id)) return send(res, 400, { error: 'index 含非法简历 id' });
+      }
+      try { writeJsonFile(LIB_INDEX, idx); return send(res, 200, { ok: true }); }
+      catch (e) { return send(res, 500, { error: '写入 index.json 失败: ' + e.message }); }
+    });
+    return;
+  }
+  if ((req.method === 'GET' || req.method === 'POST' || req.method === 'DELETE') && pathname === '/api/library/doc') {
+    const id = sanitizeResumeId(u.searchParams.get('id'));
+    if (!id) return send(res, 400, { error: '非法简历 id' });
+    const fp = path.join(LIB_DIR, id + '.json');
+    if (req.method === 'GET') return send(res, 200, { doc: readJsonFile(fp) });
+    if (req.method === 'DELETE') {
+      try { fs.rmSync(fp, { force: true }); } catch (e) {}
+      return send(res, 200, { ok: true });
+    }
+    let buf = '';
+    req.on('data', (c) => { buf += c; if (buf.length > 20 * 1024 * 1024) req.destroy(); });
+    req.on('end', () => {
+      let doc;
+      try { doc = JSON.parse(buf); } catch (e) { return send(res, 400, { error: 'JSON 解析失败: ' + e.message }); }
+      if (!doc || typeof doc !== 'object' || !doc.data) return send(res, 400, { error: '简历载荷非法（缺少 data）' });
+      try { writeJsonFile(fp, doc); return send(res, 200, { ok: true }); }
+      catch (e) { return send(res, 500, { error: '写入简历文件失败: ' + e.message }); }
+    });
+    return;
+  }
+
+  // —— 数据体检：把「我的简历到底存在哪、有几份、最后一次写盘是什么时候」如实报给页面 ——
+  // 仅面向本机回环页面（上面的 Host / Origin 校验已保证），返回本机绝对路径便于用户自行核对。
+  if (req.method === 'GET' && pathname === '/api/library/info') {
+    const legacyFile = path.join(ROOT, 'data', 'resume.json');
+    let dirExists = false, indexExists = false, docCount = 0, lastWriteAt = 0;
+    try {
+      dirExists = fs.existsSync(LIB_DIR);
+      indexExists = fs.existsSync(LIB_INDEX);
+      if (indexExists) {
+        const idx = readJsonFile(LIB_INDEX);
+        const items = (idx && Array.isArray(idx.items)) ? idx.items : [];
+        docCount = items.length;
+        for (const it of items) {
+          const t = Number(it && it.updatedAt) || 0;
+          if (t > lastWriteAt) lastWriteAt = t;
+        }
+      }
+    } catch (e) { /* 目录不可读时按空库上报，不因此报 500 */ }
+    return send(res, 200, {
+      ok: true,
+      base: LIB_DIR,
+      indexPath: LIB_INDEX,
+      dirExists: dirExists,
+      indexExists: indexExists,
+      docCount: docCount,
+      lastWriteAt: lastWriteAt || null,
+      legacyFile: legacyFile,
+      legacyExists: fs.existsSync(legacyFile)
+    });
   }
 
   // —— 静默 PDF：请求体是完整数据 payload，返回 application/pdf 直接下载 ——
@@ -587,9 +732,15 @@ const server = http.createServer((req, res) => {
      一律 403；隐藏文件（.git / .workbuddy / 各类 dotfile）也拒绝。
      data/resume.json 是编辑器实时读写的私有数据源，保留可访问（gitignored、不进公开仓库）。 */
   const SENSITIVE_BASENAMES = new Set(['sync.config.json', 'sync.state.json', 'sync.oauth.json', 'ai.config.json', 'keystore.properties']);
+  /* 敏感「目录」级拦截：android-signing/ 存放 Android 签名密钥库与明文口令文件，
+     目录名不带点、单个文件名也难穷举，按 basename 黑名单拦不住，必须整目录拒绝。 */
+  const SENSITIVE_DIRS = new Set(['android-signing']);
   const relPath = path.relative(ROOT, filePath);
   const relNorm = relPath.split(path.sep).join('/');
   if (SENSITIVE_BASENAMES.has(path.basename(relNorm))) {
+    return send(res, 403, { error: 'Forbidden' });
+  }
+  if (SENSITIVE_DIRS.has(relNorm.split('/')[0])) {
     return send(res, 403, { error: 'Forbidden' });
   }
   if (relNorm.split('/').some(seg => seg.startsWith('.'))) {

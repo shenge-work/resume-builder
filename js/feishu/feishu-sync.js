@@ -47,11 +47,12 @@ async function reportToFeishu(){
     const idTag = j.authMode === 'user' ? '（扫码授权 · 用户身份）' : '（应用身份）';
     showFeishuStatus('✓ 已上报到飞书' + idTag + ' · ' + when + tail);
     // 手动推送成功后，把本地 hash 记入基线，避免自动同步下一轮立即重复推送
+    // （口径必须是 contentHash：只看内容，剔除 savedAt/id/name）
     try {
       const aid = activeResumeId();
-      const st = loadAutoSyncState();
+      const st = await loadAutoSyncState();
       if (!st[aid]) st[aid] = {};
-      st[aid].lastPushedHash = stableHash(RB.currentPayload());
+      st[aid].lastPushedHash = contentHash(payload);
       st[aid].skipNextPull = true;
       saveAutoSyncState(st);
     } catch (e) {}
@@ -72,7 +73,7 @@ async function pullFromFeishu(){
     RB.recordHistory('action');
     RB.applyDataPayload(obj);
     showFeishuStatus('✓ 已从飞书拉取最新版本');
-    markManualPullBaseline(obj);
+    await markManualPullBaseline(obj);
   } catch (e) {
     showFeishuStatus('✗ 拉取失败：' + e.message);
     safeNotify('error', '拉取失败', e.message);
@@ -90,7 +91,7 @@ async function restoreFromFeishu(versionId){
     RB.recordHistory('action');
     RB.applyDataPayload(obj);
     showFeishuStatus('✓ 已从飞书恢复该版本');
-    markManualPullBaseline(obj);
+    await markManualPullBaseline(obj);
     return true;
   } catch (e) {
     showFeishuStatus('✗ 恢复失败：' + e.message);
@@ -200,11 +201,15 @@ async function probeFeishuConfig(){
   }
 }
 
-/* ============ 飞书扫码授权（OAuth 授权码模式） ============
-   流程：点「扫码授权」→ 后端生成授权 URL → 新窗口打开飞书授权页（页内自带二维码）
-        → 用户手机扫码授权 → 飞书回调本地 /api/feishu/oauth/callback 存凭证
+/* ============ 飞书连接（合并：扫码授权 OAuth + 扫码注册个人应用） ============
+   单一入口「连接飞书」：
+       1) 直接调 /api/feishu/oauth/start 发起扫码授权（应用凭证已配置时，只扫一个码）
+       2) 若后端提示缺少应用凭证 → 自动先走「扫码注册个人应用」，
+          注册成功（后端已自动保存 app_id/app_secret 并探测绑定）后再发起扫码授权，
+          一条流程、两个二维码、零表单，一气呵成。
+   授权：用户扫码 → 飞书回调本地 /api/feishu/oauth/callback 存 user_access_token
         → 前端轮询 /api/feishu/oauth/status 检测到 authorized 即成功。
-   凭证只存本机 sync.oauth.json，绝不进浏览器；浏览器只经本地 serve.js 中转。 */
+   凭证只存本机 sync.oauth.json / sync.config.json（gitignored），绝不进浏览器。 */
 /* 本地服务 API 薄封装（浏览器模式；file:// 或非 npm start 打开时 fetch 失败，友好提示） */
 function localApi(method, path, body){
   if(typeof fetch !== 'function') return Promise.reject(new Error('当前环境不支持网络请求，请用 npm start 打开'));
@@ -217,7 +222,7 @@ function localApi(method, path, body){
     return j;
   }));
 }
-/* 打开配置弹窗时检查扫码授权状态，回显 */
+/* 打开设置页时检查连接状态，回显 */
 async function checkFeishuOauthStatus(){
   try{
     const j = await localApi('GET', '/api/feishu/oauth/status');
@@ -226,37 +231,54 @@ async function checkFeishuOauthStatus(){
 }
 function renderOauthStatus(st){
   const el = document.getElementById('oauthStatus');
-  if(!el) return;
-  if(st && st.authorized){
-    const t = st.updated_at ? new Date(st.updated_at).toLocaleString() : '';
-    el.innerHTML = '✓ 已扫码授权' + (t ? ' · ' + t : '') + '，可直接「上报到飞书」读写你的云盘/文档';
-    el.style.color = '#1a6b1a';
-  } else {
-    el.textContent = '尚未扫码授权（后端已预配置应用身份时，直接点「扫码授权」即可）';
-    el.style.color = '#6b6b6b';
+  const connectBtn = document.getElementById('oauthStartBtn');
+  const revokeBtn = document.getElementById('revokeOauthBtn');
+  if(el){
+    if(st && st.authorized){
+      const t = st.updated_at ? new Date(st.updated_at).toLocaleString() : '';
+      el.innerHTML = '✓ 已连接飞书（用户身份）' + (t ? ' · ' + t : '') + '，可直接「上报到飞书」读写你的云盘/文档';
+      el.style.color = '#1a6b1a';
+    } else {
+      el.textContent = '尚未连接飞书。点击「连接飞书」，扫码完成应用注册与授权（一气呵成，无需填写任何配置）。';
+      el.style.color = '#6b6b6b';
+    }
   }
+  if(connectBtn) connectBtn.style.display = (st && st.authorized) ? 'none' : 'inline-block';
+  if(revokeBtn) revokeBtn.style.display = (st && st.authorized) ? 'inline-block' : 'none';
 }
-/* 发起扫码授权：应用身份由后端 sync.config.json 预配置，前端无需填写任何字段 */
+/* 发起「连接飞书」：应用凭证缺失时先扫码注册个人应用，成功后自动继续扫码授权（一气呵成） */
 async function startFeishuOauth(){
   const btn = document.getElementById('oauthStartBtn');
   const el = document.getElementById('oauthStatus');
-  if(btn){ btn.disabled = true; btn.textContent = '生成授权链接…'; }
-  if(el){ el.textContent = '正在生成授权链接…'; el.style.color = '#6b6b6b'; }
+  if(btn){ btn.disabled = true; btn.textContent = '连接中…'; }
+  if(el){ el.textContent = '正在准备授权…'; el.style.color = '#6b6b6b'; }
   try{
-    const j = await localApi('POST', '/api/feishu/oauth/start', {});
-    if(el){ el.textContent = '请在飞书授权页用手机扫码，并点「允许」授权'; el.style.color = '#6b6b6b'; }
+    let j;
+    try{
+      j = await localApi('POST', '/api/feishu/oauth/start', {});
+    }catch(e0){
+      const msg = e0 && e0.message ? e0.message : String(e0);
+      // 缺少应用凭证 → 先扫码注册个人应用（后端自动保存并探测绑定），成功后继续授权
+      if(!/尚未配置|缺少 App ID/.test(msg)) throw e0;
+      if(el){ el.textContent = '检测到尚未配置飞书应用，先扫码创建个人应用（第 1 步）…'; }
+      feishuRegAutoOauth = true;
+      const registered = await startFeishuRegister();
+      if(!registered) return; // 注册失败 / 已取消，状态已在卡片中展示
+      j = await localApi('POST', '/api/feishu/oauth/start', {});
+    }
+    if(el){ el.textContent = '第 2 步：请在飞书授权页用手机扫码，并点「允许」授权'; }
     // 新窗口打开飞书授权页（页内自带二维码）；授权后飞书会回调本地存凭证
     const w = window.open(j.authorizeUrl, '_blank', 'width=480,height=640');
     if(!w){
-      // 弹窗被拦截：退化为同页跳转（授权完成后需用户手动点「刷新状态」）
+      // 弹窗被拦截：退化为同页跳转（授权完成后返回本页即自动识别）
       window.location.href = j.authorizeUrl;
     }
     // 开始轮询授权状态（授权完成后回调页存好凭证，这里轮询到即更新）
     pollOauthUntilDone();
   }catch(e){
-    if(el){ el.textContent = '✗ 生成授权链接失败：' + (e && e.message ? e.message : e); el.style.color = '#a33'; }
+    if(el){ el.textContent = '✗ 连接失败：' + (e && e.message ? e.message : e); el.style.color = '#a33'; }
   }finally{
-    if(btn){ btn.disabled = false; btn.textContent = '扫码授权'; }
+    if(btn){ btn.disabled = false; btn.textContent = '连接飞书'; }
   }
 }
 /* 轮询授权状态，最多 3 分钟（授权页用户操作需要时间） */
@@ -275,11 +297,11 @@ function pollOauthUntilDone(){
     }catch(e){ /* 静默 */ }
     if(tries >= 90){ // 90 × 2s = 3 分钟
       clearInterval(timer);
-      if(el){ el.textContent = '尚未检测到授权（可完成扫码后点「刷新状态」）'; el.style.color = '#6b6b6b'; }
+      if(el){ el.textContent = '尚未检测到授权（可完成扫码后稍候，或重新点「连接飞书」）'; el.style.color = '#6b6b6b'; }
     }
   }, 2000);
 }
-/* 手动刷新授权状态 */
+/* 手动刷新授权状态（保留接口，界面已不放置该按钮） */
 async function refreshFeishuOauth(){
   const el = document.getElementById('oauthStatus');
   if(el){ el.textContent = '正在检查…'; el.style.color = '#6b6b6b'; }
@@ -290,26 +312,35 @@ async function refreshFeishuOauth(){
     if(el){ el.textContent = '✗ 检查失败：' + (e && e.message ? e.message : e); el.style.color = '#a33'; }
   }
 }
-/* 解除扫码授权：删除本机 sync.oauth.json，同步链路回退应用身份 */
+/* 断开连接：删除本机 sync.oauth.json，同步链路回退应用身份 */
 async function revokeFeishuOauth(){
-  if(!confirm('确定解除扫码授权吗？解除后「上报到飞书」将回退到应用身份（App Secret 方式）读写。')) return;
+  if(!confirm('确定断开飞书连接吗？断开后「上报到飞书」将回退到应用身份（App Secret 方式）读写。')) return;
   try{
     await localApi('POST', '/api/feishu/oauth/revoke', {});
     renderOauthStatus(null);
-    showFeishuStatus('✓ 已解除扫码授权');
+    showFeishuStatus('✓ 已断开飞书连接');
   }catch(e){
-    showFeishuStatus('✗ 解除失败：' + (e && e.message ? e.message : e));
+    showFeishuStatus('✗ 断开失败：' + (e && e.message ? e.message : e));
   }
 }
 
 /* ============ 飞书「个人应用」扫码注册（Device Flow，拿到 app_id / app_secret） ============
-   流程：点「扫码注册个人应用」→ 后端 /api/feishu/register/begin 发起设备授权，返回二维码 URL
-        → 浏览器用 qrcode-generator 把 URL 渲染成二维码
-        → 用户手机飞书扫码并确认 → 飞书后台创建 PersonalAgent（个人应用）
-        → 前端轮询 /api/feishu/register/poll → 成功即拿到 app_id/app_secret，后端已自动保存并探测绑定。
-   凭证只在本地 serve.js 写 sync.config.json，绝不进浏览器。 */
+   由「连接飞书」在缺少应用凭证时自动触发，也可独立调用：
+       后端 /api/feishu/register/begin 发起设备授权，返回二维码 URL
+       → 浏览器用 qrcode-generator 把 URL 渲染成二维码
+       → 用户手机飞书扫码并确认 → 飞书后台创建 PersonalAgent（个人应用）
+       → 前端轮询 /api/feishu/register/poll → 成功即拿到 app_id/app_secret，后端已自动保存并探测绑定。
+   凭证只在本地 serve.js 写 sync.config.json，绝不进浏览器。
+   通过 Promise 完成回调供「连接飞书」串联：注册成功后自动继续扫码授权。 */
 let feishuRegToken = null;
 let feishuRegTimer = null;
+let feishuRegResolve = null;     // 注册流程 Promise 完成回调（true=成功，false=失败/取消）
+let feishuRegAutoOauth = false;  // 是否由「连接飞书」自动触发（注册成功即继续授权）
+
+function finishFeishuRegister(ok){
+  feishuRegAutoOauth = false;
+  if(feishuRegResolve){ const r = feishuRegResolve; feishuRegResolve = null; r(!!ok); }
+}
 
 /* 把二维码 URL 渲染成图片；qrcode-generator 的 qrcode 全局由 vendor/qrcode-generator.js 提供。
    渲染失败（库未加载）时降级为可点击链接，仍可完成扫码/确认。 */
@@ -335,33 +366,34 @@ function renderRegisterQr(qrUrl){
 function stopFeishuRegisterPoll(){ if(feishuRegTimer){ clearInterval(feishuRegTimer); feishuRegTimer = null; } }
 function resetRegButtons(){
   const wrap = document.getElementById('regQrWrap');
-  const btn = document.getElementById('regStartBtn');
   const cancelBtn = document.getElementById('regCancelBtn');
   if(wrap) wrap.style.display = 'none';
-  if(btn){ btn.style.display = 'inline-block'; btn.disabled = false; btn.textContent = '扫码注册个人应用'; }
   if(cancelBtn) cancelBtn.style.display = 'none';
 }
 
-/* 发起扫码注册：调后端 begin 拿二维码，启动轮询 */
-async function startFeishuRegister(){
-  const btn = document.getElementById('regStartBtn');
-  const cancelBtn = document.getElementById('regCancelBtn');
-  const statusEl = document.getElementById('regStatus');
-  const resultEl = document.getElementById('regResult');
-  if(btn){ btn.disabled = true; btn.textContent = '生成二维码…'; }
-  if(resultEl){ resultEl.style.display = 'none'; }
-  try{
-    const j = await localApi('POST', '/api/feishu/register/begin', {});
-    feishuRegToken = j.token;
-    renderRegisterQr(j.qrUrl);
-    if(statusEl){ statusEl.textContent = '等待扫码…（' + (j.expireIn || 600) + 's 内有效）'; statusEl.style.color = '#6b6b6b'; }
-    if(btn){ btn.style.display = 'none'; }
-    if(cancelBtn){ cancelBtn.style.display = 'inline-block'; }
-    pollFeishuRegisterUntilDone();
-  }catch(e){
-    if(statusEl){ statusEl.textContent = '✗ 发起失败：' + (e && e.message ? e.message : e); statusEl.style.color = '#a33'; }
-    if(btn){ btn.disabled = false; btn.textContent = '扫码注册个人应用'; }
-  }
+/* 发起扫码注册：调后端 begin 拿二维码，启动轮询；返回 Promise（true=注册成功） */
+function startFeishuRegister(){
+  return new Promise(function(resolve){
+    feishuRegResolve = resolve;
+    const statusEl = document.getElementById('regStatus');
+    const resultEl = document.getElementById('regResult');
+    if(resultEl){ resultEl.style.display = 'none'; }
+    const fail = (msg) => {
+      if(statusEl){ statusEl.textContent = '✗ ' + msg; statusEl.style.color = '#a33'; }
+      resetRegButtons();
+      finishFeishuRegister(false);
+    };
+    localApi('POST', '/api/feishu/register/begin', {}).then(function(j){
+      feishuRegToken = j.token;
+      renderRegisterQr(j.qrUrl);
+      if(statusEl){ statusEl.textContent = '等待扫码…（' + (j.expireIn || 600) + 's 内有效）'; statusEl.style.color = '#6b6b6b'; }
+      const cancelBtn = document.getElementById('regCancelBtn');
+      if(cancelBtn){ cancelBtn.style.display = 'inline-block'; }
+      pollFeishuRegisterUntilDone();
+    }).catch(function(e){
+      fail('发起失败：' + (e && e.message ? e.message : e));
+    });
+  });
 }
 /* 取消当前扫码注册会话 */
 async function cancelFeishuRegister(){
@@ -373,6 +405,7 @@ async function cancelFeishuRegister(){
   resetRegButtons();
   const statusEl = document.getElementById('regStatus');
   if(statusEl){ statusEl.textContent = '已取消'; statusEl.style.color = '#6b6b6b'; }
+  finishFeishuRegister(false);
 }
 /* 轮询扫码终态：waiting / success / failed / expired */
 function pollFeishuRegisterUntilDone(){
@@ -394,32 +427,37 @@ function pollFeishuRegisterUntilDone(){
         const appId = j.appId || '';
         let msg = '✓ 已创建个人应用并自动保存凭证（App ID：' + (appId || '—') + '）';
         if(j.probe && j.probe.error){
-          msg += '；自动探测绑定失败：' + j.probe.error + '（可稍后点「自动探测并绑定」重试）';
+          msg += '；自动探测绑定失败：' + j.probe.error + '（可稍后在「高级设置」点「自动探测并绑定」重试）';
         } else if(j.probe && j.probe.folder_token){
-          msg += '，已自动创建「简历数据」文件夹并绑定。现在可以「上报到飞书」了。';
+          msg += '，已自动创建「简历数据」文件夹并绑定。';
         }
+        msg += feishuRegAutoOauth ? ' 正在发起扫码授权…' : ' 现在可以「上报到飞书」了。';
         if(resultEl){ resultEl.style.display = 'block'; resultEl.style.background = '#eef7ee'; resultEl.style.border = '1px solid #cde6cd'; resultEl.style.color = '#1a6b1a'; resultEl.textContent = msg; }
         if(statusEl){ statusEl.textContent = '完成'; statusEl.style.color = '#1a6b1a'; }
         const cfgAppId = document.getElementById('cfgAppId');
         if(cfgAppId && appId) cfgAppId.value = appId;
         resetRegButtons();
         showFeishuStatus('✓ 飞书个人应用已注册并绑定');
+        finishFeishuRegister(true);
       } else if(st === 'failed'){
         stopFeishuRegisterPoll();
         if(resultEl){ resultEl.style.display = 'block'; resultEl.style.background = '#fdeeee'; resultEl.style.border = '1px solid #f3cccc'; resultEl.style.color = '#a33'; resultEl.textContent = '✗ 注册失败：' + (j.error_description || j.error || '未知错误'); }
         if(statusEl){ statusEl.textContent = '失败'; statusEl.style.color = '#a33'; }
         resetRegButtons();
+        finishFeishuRegister(false);
       } else if(st === 'expired'){
         stopFeishuRegisterPoll();
-        if(resultEl){ resultEl.style.display = 'block'; resultEl.style.background = '#fdeeee'; resultEl.style.border = '1px solid #f3cccc'; resultEl.style.color = '#a33'; resultEl.textContent = '✗ 二维码已过期，请重新点击「扫码注册个人应用」。'; }
+        if(resultEl){ resultEl.style.display = 'block'; resultEl.style.background = '#fdeeee'; resultEl.style.border = '1px solid #f3cccc'; resultEl.style.color = '#a33'; resultEl.textContent = '✗ 二维码已过期，请重新点击「连接飞书」。'; }
         if(statusEl){ statusEl.textContent = '已过期'; statusEl.style.color = '#a33'; }
         resetRegButtons();
+        finishFeishuRegister(false);
       }
     }catch(e){
       if(tries >= 150){ // 150 × 2s = 5 分钟兜底
         stopFeishuRegisterPoll();
         if(statusEl){ statusEl.textContent = '✗ 轮询中断：' + (e && e.message ? e.message : e); statusEl.style.color = '#a33'; }
         resetRegButtons();
+        finishFeishuRegister(false);
       }
     }
   }, 2000);
@@ -659,28 +697,55 @@ async function importResumeFile(input){
      3) 本地无改动、远端也无变化 → 本轮静默，不发请求；
      4) 本地有改动且远端也变了 → 推本地新版本（飞书版本化，旧版仍在历史，不丢）。
    所有异常走 ResumeNotifier.error 通知，不弹窗、不打断编辑。
-   状态按 resumeId 分键存 localStorage，多份简历互不串。 */
-const AUTO_SYNC_KEY = 'resume_autosync_v1';
+   状态不再存 localStorage（P0 存储统一）：改存 ResumeLibrary 索引项
+   （index.json 的 items[].lastPushedHash / lastRemoteFp / skipNextPull /
+   lastPushNotifyAt），随简历走、按 id 分键、落盘持久化——
+   与「简历数据分文件存储」保持一致，重启后继续生效。 */
 const AUTO_SYNC_INTERVAL_MS = 60 * 1000;
 const PUSH_NOTIFY_THROTTLE_MS = 5 * 60 * 1000;
 let _autoSyncTimer = null;
 let _autoSyncBusy = false;
 let _autoSyncStarted = false;
+const _autoSyncState = {};   // id → {lastPushedHash,lastRemoteFp,skipNextPull,lastPushNotifyAt}（内存缓存）
 
-function loadAutoSyncState() {
+function libraryApi() {
+  return (typeof global.ResumeLibrary === 'object' && global.ResumeLibrary && typeof global.ResumeLibrary.list === 'function') ? global.ResumeLibrary : null;
+}
+/* 从 ResumeLibrary 索引项加载同步状态（异步；失败回退内存缓存/空） */
+async function loadAutoSyncState() {
+  const Lib = libraryApi();
+  if (!Lib) return _autoSyncState;
   try {
-    const raw = localStorage.getItem(AUTO_SYNC_KEY);
-    const o = raw ? JSON.parse(raw) : {};
-    return (o && typeof o === 'object' && !Array.isArray(o)) ? o : {};
-  } catch (e) { return {}; }
+    const items = await Lib.list();
+    Object.keys(_autoSyncState).forEach(function (k) { delete _autoSyncState[k]; });
+    (items || []).forEach(function (it) {
+      if (!it || !it.id) return;
+      _autoSyncState[it.id] = {
+        lastPushedHash: it.lastPushedHash || '',
+        lastRemoteFp: it.lastRemoteFp || '',
+        skipNextPull: !!it.skipNextPull,
+        lastPushNotifyAt: it.lastPushNotifyAt || 0
+      };
+    });
+  } catch (e) { /* 静默 */ }
+  return _autoSyncState;
 }
-function saveAutoSyncState(state) {
-  try { localStorage.setItem(AUTO_SYNC_KEY, JSON.stringify(state)); } catch (e) {}
+/* 写回 ResumeLibrary 索引项（异步 fire-and-forget，失败吞掉） */
+function saveAutoSyncState(all) {
+  const Lib = libraryApi();
+  if (!Lib || !all || typeof all !== 'object') return;
+  try {
+    Object.keys(all).forEach(function (id) {
+      const s = all[id];
+      if (!s || typeof s !== 'object') return;
+      try { Lib.patchMeta(id, { lastPushedHash: s.lastPushedHash, lastRemoteFp: s.lastRemoteFp, skipNextPull: !!s.skipNextPull, lastPushNotifyAt: s.lastPushNotifyAt || 0 }); } catch (e) {}
+    });
+  } catch (e) { /* 静默 */ }
 }
+/* 同步读某份简历的同步状态（依赖内存缓存；未加载时返回空记录） */
 function curAutoSyncState(id) {
-  const all = loadAutoSyncState();
-  if (!all[id]) all[id] = { lastPushedHash: '', lastRemoteFp: '', skipNextPull: false, lastPushNotifyAt: 0 };
-  return { all: all, cur: all[id] };
+  if (!_autoSyncState[id]) _autoSyncState[id] = { lastPushedHash: '', lastRemoteFp: '', skipNextPull: false, lastPushNotifyAt: 0 };
+  return { all: _autoSyncState, cur: _autoSyncState[id] };
 }
 /* 稳定内容哈希：key 递归排序后 djb2，同内容必然同 hash（用于「内容是否变更」判定） */
 function stableHash(obj) {
@@ -695,6 +760,15 @@ function stableHash(obj) {
   let h = 5381;
   for (let i = 0; i < str.length; i++) h = ((h << 5) + h) ^ str.charCodeAt(i);
   return (h >>> 0).toString(36);
+}
+/* 内容指纹：只覆盖 {data,fonts,spacing,v}，显式剔除 savedAt/id/name 等易变元数据。
+   ⚠️ 「内容是否变更」的判定必须用它：currentPayload() 每次生成都带新的 savedAt 时间戳，
+   若直接 stableHash(currentPayload()) 则指纹每次必变 → 飞书自动同步每 60s 推一个
+   新版本（云盘版本膨胀）+ 本地「指纹一致跳过写盘」永不生效（死代码）。
+   本地写盘（app.js saveState）与飞书自动同步（autoSyncTick）必须共用同一口径。 */
+function contentHash(payload) {
+  if (!payload || typeof payload !== 'object') return stableHash(payload);
+  return stableHash({ data: payload.data, fonts: payload.fonts, spacing: payload.spacing, v: payload.v });
 }
 /* 远端版本指纹：version_id + size + create_time，任一变化即视为远端有新版本 */
 function remoteFingerprint(version) {
@@ -715,11 +789,12 @@ function notifyThrottled(type, title, body) {
   safeNotify(type, title, body);
 }
 /* 手动拉取/恢复成功后对齐基线：本地 hash = 拉下来的内容，远端指纹下轮重新对齐 */
-function markManualPullBaseline(obj) {
+async function markManualPullBaseline(obj) {
   try {
     const id = activeResumeId();
+    await loadAutoSyncState();
     const { all, cur } = curAutoSyncState(id);
-    cur.lastPushedHash = stableHash(obj);
+    cur.lastPushedHash = contentHash(obj);
     cur.lastRemoteFp = '';
     saveAutoSyncState(all);
   } catch (e) {}
@@ -738,12 +813,13 @@ async function autoSyncTick() {
   if (_autoSyncBusy || (typeof document !== 'undefined' && document.hidden)) return;
   const bound = await isFeishuBound();
   if (!bound) return;
+  await loadAutoSyncState();   // 每轮从索引项刷新同步状态（重启/多份切换后仍准确）
   const id = activeResumeId();
   const { all, cur } = curAutoSyncState(id);
   const localPayload = RB.currentPayload();
   localPayload.id = id;
   localPayload.name = (localPayload.data && localPayload.data.name) || '简历';
-  const localHash = stableHash(localPayload);
+  const localHash = contentHash(localPayload);   // 剔除 savedAt/id/name，只看内容
 
   _autoSyncBusy = true;
   try {
@@ -780,7 +856,7 @@ async function autoSyncTick() {
         const obj = await ResumeStore.pull(id);
         RB.recordHistory('action');
         RB.applyDataPayload(obj);
-        cur.lastPushedHash = stableHash(obj);
+        cur.lastPushedHash = contentHash(obj);
         safeNotify('info', '已从飞书自动拉取更新', '云端有新版本，已合并到本地（可撤销）');
       }
       cur.lastRemoteFp = remoteFp;
@@ -830,8 +906,9 @@ global.ResumeFeishu = {
   startAutoSync: startAutoSync,
   stopAutoSync: stopAutoSync,
   autoSyncTick: autoSyncTick,
-  /* 测试用纯函数 */
+
   stableHash: stableHash,
+  contentHash: contentHash,
   remoteFingerprint: remoteFingerprint
 };
 })(typeof window !== "undefined" ? window : globalThis);

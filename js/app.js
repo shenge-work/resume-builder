@@ -14,9 +14,35 @@ const { showFeishuStatus, reportToFeishu, pullFromFeishu, restoreFromFeishu, tog
 const { exportPDF, downloadPDFNow, closePdfModal, showExportModal, closeExportModal, doExportDownload, exportLongImage, exportSingleFileHTML } = global.ResumeExport;
 /* 从 js/ui/pane-mobile.js 解构面板 / 移动端 UI 函数（物理拆分，不改变行为） */
 const { setPaneCollapsed, toggleEditorPane, syncSideRail, setSidePanelOpen, toggleSidePanel, setMobileView, currentMobileView, visibleModal, closeVisibleModal, handleMobileBack, setupNativeBack, setupMobileBackGesture, setupVisualViewport, setupKeyboardFocusGuard } = global.ResumeUI;
+/* 保存状态条（js/ui/save-status.js）。缺失时退化为空实现 —— 保存链路本身不该因为
+   一个纯展示模块没加载就崩掉（单文件版漏登记 / 老页面缓存都可能触发）。 */
+const SaveStatus = (global.ResumeSaveStatus && typeof global.ResumeSaveStatus.markSaved === 'function')
+  ? global.ResumeSaveStatus
+  : { init: function () { return false; }, onRetry: function () { }, markInfo: function () { },
+      markEditing: function () { }, markSaving: function () { }, markSaved: function () { },
+      markFailed: function () { }, markDegraded: function () { } };
 
-const hist = { undo: [], redo: [], last: { kind:'', t:0 } };
 const HIST_MAX = 100;
+/* 撤销 / 重做栈按简历隔离（修复跨份污染）：
+   - 旧实现是全局单栈 {undo,redo}，切换简历不清栈 → 在 A 简历里按 Ctrl+Z 会把 B 简历内容改回去。
+   - 现改为：每个简历 id 各持一份 {undo,redo}，存于 STACKS；hist.undo/hist.redo 只是「当前激活简历栈」的引用，
+     recordHistory / undo / redo 经 bindHist(activeResumeId) 重指。单份模式 activeResumeId 为 null，用 '__default__' 兜底。
+   - hist.last（合并窗口）保持全局，但 bindHist 仅「真正切换简历」时重置，同一份内连续输入合并不受影响。 */
+const hist = { undo: [], redo: [], last: { kind:'', t:0 } };
+const STACKS = {};
+const DEFAULT_STACK_KEY = '__default__';
+function stackKeyOf(id){ return id || DEFAULT_STACK_KEY; }
+function getStack(id){ const k = stackKeyOf(id); if(!STACKS[k]) STACKS[k] = { undo:[], redo:[] }; return STACKS[k]; }
+let histBoundId = DEFAULT_STACK_KEY;
+function bindHist(id){
+  const k = stackKeyOf(id);
+  if(histBoundId === k) return;            // 同一份：不重绑、不清合并窗口
+  histBoundId = k;
+  const s = getStack(id);
+  hist.undo = s.undo;
+  hist.redo = s.redo;
+  hist.last = { kind:'', t:0 };            // 切简历时重置合并窗口，避免 A 的连续输入被并入 B
+}
 function snapshot(){ return JSON.stringify({ data, fonts: currentFonts, spacing: currentSpacing }); }
 /* 从快照恢复并把所有面板重渲染 */
 function restoreSnapshot(s){
@@ -29,6 +55,7 @@ function restoreSnapshot(s){
 /* 记录一次变更。kind 相同且时间相近的连续「编辑/设置」会合并为一个撤销步（避免逐字符/逐格历史爆炸）；
    'action' 类（增删/移动/拖拽/导入/重置）每次都是独立可撤销步，不合并 */
 function recordHistory(kind){
+  bindHist(activeResumeId);
   const now = Date.now();
   if((kind==='edit' || kind==='setting') && hist.last.kind===kind && (now - hist.last.t) < 700){ hist.last.t = now; return; }
   hist.undo.push(snapshot());
@@ -39,23 +66,39 @@ function recordHistory(kind){
   markDirty(activeResumeId);
 }
 function undo(){
+  bindHist(activeResumeId);
   if(!hist.undo.length){ return; }
   hist.redo.push(snapshot());
   restoreSnapshot(hist.undo.pop());
   hist.last = { kind:'', t:0 };
   updateUndoButtons();
+  if(bootDone){ markDirty(activeResumeId); saveState(); }   // 撤销结果落盘（修复「撤销后不写盘」）
 }
 function redo(){
+  bindHist(activeResumeId);
   if(!hist.redo.length){ return; }
   hist.undo.push(snapshot());
   restoreSnapshot(hist.redo.pop());
   hist.last = { kind:'', t:0 };
   updateUndoButtons();
+  if(bootDone){ markDirty(activeResumeId); saveState(); }
 }
+/* 撤销 / 重做在桌面与手机各有一个按钮（同一份入口清单的两端渲染），都要同步禁用态 ——
+   只更新一个的话，另一个会一直显示成「可点」，点下去却是空动作。 */
+const UNDO_IDS = ['undoBtn', 'undoBtnMobile'];
+const REDO_IDS = ['redoBtn', 'redoBtnMobile'];
 function updateUndoButtons(){
-  const u=document.getElementById('undoBtn'), r=document.getElementById('redoBtn');
-  if(u) u.disabled = hist.undo.length===0;
-  if(r) r.disabled = hist.redo.length===0;
+  UNDO_IDS.forEach(id => { const el = document.getElementById(id); if (el) el.disabled = hist.undo.length === 0; });
+  REDO_IDS.forEach(id => { const el = document.getElementById(id); if (el) el.disabled = hist.redo.length === 0; });
+}
+/* 判断事件 target 是否落在可编辑字段内（输入框 / 多行框 / contenteditable）。
+   用于撤销快捷键：在字段内放行浏览器原生撤销，让「撤一个词」而不是回滚整份简历。 */
+function isEditableTarget(el){
+  if(!el) return false;
+  const tag = el.tagName;
+  if(tag === 'INPUT' || tag === 'TEXTAREA') return true;
+  if(el.isContentEditable) return true;
+  return false;
 }
 
 /* ============ 右侧面板折叠 / 展开（状态持久化到 localStorage） ============ */
@@ -111,14 +154,26 @@ document.addEventListener('keydown', e=>{
     const m=document.getElementById('pdfModal'); if(m && m.style.display==='flex') closePdfModal();
     const em=document.getElementById('exportModal'); if(em && em.style.display==='flex') closeExportModal();
   }
-  // 撤销 / 重做（应用级；会覆盖输入框的原生撤销，换取整段内容的撤销能力）
+  // 撤销 / 重做（应用级）。⚠️ 输入框 / contenteditable 内放行浏览器原生撤销，
+  // 让用户在文本框里「撤一个词」而不是回滚整份简历（修复跨字段误吞原生撤销）。
   const mod = e.ctrlKey || e.metaKey;
-  if(mod && (e.key==='z' || e.key==='Z')){ e.preventDefault(); if(e.shiftKey) redo(); else undo(); }
-  else if(mod && (e.key==='y' || e.key==='Y')){ e.preventDefault(); redo(); }
+  const inField = isEditableTarget(e.target);
+  if(mod && (e.key==='z' || e.key==='Z')){
+    if(inField) return;                 // 交给浏览器原生撤销，不拦截、不整份回滚
+    e.preventDefault(); if(e.shiftKey) redo(); else undo();
+  }
+  else if(mod && (e.key==='y' || e.key==='Y')){
+    if(inField) return;
+    e.preventDefault(); redo();
+  }
   else if(mod && (e.key==='b' || e.key==='B')){ e.preventDefault(); toggleEditorPane(); }
 });
 
-/* ============ 自动保存（编辑即存入浏览器 localStorage，重新打开本文件时恢复） ============ */
+/* ============ 自动保存 ============
+   已移除浏览器持久化（IndexedDB / localStorage 不再存简历数据）：
+   · 多份模式 → ResumeLibrary 写 <app_data_dir>/resumes/<id>.json（Tauri 命令）
+   · 单份模式 → ResumeStore 写 default 文档
+   · 内容指纹（stableHash）比对后才写盘；SAVE_KEY* 仅用于清理旧版本残留。 */
 const SAVE_KEY = 'resume_builder_data_v1';
 const SAVE_KEY_LEGACY = 'resume_chenpeisheng_v1';
 const SAVE_VERSION = 8;
@@ -128,34 +183,48 @@ let bootDone = false;
 
 /* ============ 多简历（M1/M2）：左抽屉 + 顶部标签页 ============
    状态：
-   - activeResumeId：当前正在编辑的简历 id（null = 尚未接入多简历，走旧单份逻辑）
+   - activeResumeId：当前正在编辑的简历 id（null = 尚未接入多简历，走单份 default 文档）
    - openTabs：已打开的工作区标签 id 列表（桌面多开）
    - dirty：每份简历是否有未同步修改（用 Set 记 id，保存即清）
-   与现有单份逻辑的关系：data/fonts/spacing 仍是「当前编辑的那份」；
-   saveState() 时额外把 payload 写进 ResumeLibrary.save(activeResumeId, …)。
-   首份简历由「继承现有单份数据」创建，保证老用户升级不丢内容。 */
+   与单份逻辑的关系：data/fonts/spacing 仍是「当前编辑的那份」；
+   saveState() 时经内容指纹比对后写进 ResumeLibrary.save(activeResumeId, …)。
+   首份简历由「继承当前已加载数据」创建，保证老用户升级不丢内容。 */
 let activeResumeId = null;       // 当前激活简历 id
 let openTabs = [];               // 已打开标签 id 列表（顺序）
 let dirtySet = new Set();        // 未保存的简历 id 集合
 let _libraryReady = false;       // ResumeLibrary 是否已初始化
 let lastSavedAt = 0;             // 当前内存数据的来源时间戳（0=未知/旧数据无时间戳）
+let _defaultLastHash = null;     // 单份模式（default 文档）的内容指纹（内存态）
 
 function currentPayload(){ return { data, fonts: currentFonts, spacing: currentSpacing, v: SAVE_VERSION, savedAt: Date.now() }; }
 function markDirty(id){ if(id){ dirtySet.add(id); renderResumeDrawer(); } }
 function clearDirty(id){ if(id){ dirtySet.delete(id); renderResumeDrawer(); } }
 function isDirty(id){ return !!id && dirtySet.has(id); }
 
-/* 仲裁：库文档与当前内存基底（磁盘 resume.json / localStorage）谁新用谁。
+/* 仲裁：库文档与当前内存基底（仓库 data/resume.json / 种子数据）谁新用谁。
    返回 'library'=库文档较新（浏览器里有未落盘的更新修改）；'repo'=基底较新或同级。
    旧数据双方都无 savedAt（都为 0）→ 'repo'（磁盘是恢复脚本/手工编辑的意图载体，磁盘优先）。 */
 function pickResumeSource(doc, memSavedAt){
   return ((Number(doc && doc.savedAt) || 0) > (Number(memSavedAt) || 0)) ? 'library' : 'repo';
 }
 
-/* 初始化多简历：读索引；空库则继承现有单份数据建首份。
+/* 初始化多简历：读索引；空库则继承当前单份数据建首份。
    ⚠️ 必须在基底数据链（loadRepoData → loadTemplateData）完成之后再调用：
    本函数会用 savedAt 仲裁「库文档 vs 基底」谁新，若在基底加载完成前调用，
-   IndexedDB 旧文档会覆盖基底并写回磁盘（数据污染事故的根因）。 */
+   库旧文档会覆盖基底并写回磁盘（数据污染事故的根因）。 */
+/* 无写服务环境（file:// / 静态托管）下，ResumeLibrary 已降级 localStorage。
+   旧版本把整份数据存在 SAVE_KEY（resume_builder_data_v1），升级到「分文件库」后
+   若不做迁移，这些数据会静默消失 —— 这里在「降级态 + 空库」时把它作为首份简历继承。
+   （npm start 模式不迁移：磁盘 data/resumes/*.json 才是真源。） */
+function legacyLocalPayload(){
+  try{
+    const raw = localStorage.getItem(SAVE_KEY);
+    if(!raw) return null;
+    const obj = JSON.parse(raw);
+    if(obj && obj.data && Array.isArray(obj.data.sections)) return obj;
+  }catch(e){}
+  return null;
+}
 async function initResumeLibrary(){
   if(typeof global.ResumeLibrary !== 'object' || !global.ResumeLibrary) return;
   try{
@@ -163,8 +232,16 @@ async function initResumeLibrary(){
     _libraryReady = true;
     let idx = await global.ResumeLibrary.list();
     if(!idx.length){
-      // 空库：继承当前已加载的单份数据（localStorage / 种子）建首份
-      const payload = currentPayload();
+      // 空库：继承当前已加载的单份数据（仓库 data/resume.json / 种子）建首份；
+      // 若处于 localStorage 降级态且旧版本留有数据，优先继承旧数据（升级迁移）
+      let payload = null;
+      try{
+        if(global.ResumeLibrary.backendKind() === 'localstorage') payload = legacyLocalPayload();
+      }catch(e){}
+      if(!payload) payload = currentPayload();
+      // 旧数据迁移时必须同步载入内存：否则屏幕仍是空骨架，
+      // 下一次 saveState 会用空骨架覆盖刚建好（含旧数据）的首份简历
+      else applyPayloadWithoutSave(payload);
       const meta = await global.ResumeLibrary.create({ title: (data.name||'简历') || '未命名简历', payload: payload });
       activeResumeId = meta.id;
       openTabs = [meta.id];
@@ -176,7 +253,7 @@ async function initResumeLibrary(){
       // 载入激活简历——先仲裁，不再无条件覆盖：
       const doc = await global.ResumeLibrary.load(activeResumeId);
       if(doc && doc.data && pickResumeSource(doc, lastSavedAt) === 'library'){
-        // 库文档较新（浏览器里有比磁盘/localStorage 更新的修改）→ 用库文档
+        // 库文档较新（比磁盘/内存基底新，有未落盘的更新修改）→ 用库文档
         applyPayloadWithoutSave(doc);
       } else {
         // 基底较新（或双方都无时间戳 → 磁盘优先）：把基底回写库，保证库与基底一致
@@ -427,68 +504,143 @@ function getDefaultFileNameBase(){ return (data.name || '简历').replace(/\s+/g
 function loadFileNameBase(){ try{ fileNameBase = localStorage.getItem(FILENAME_BASE_KEY) || ''; }catch(e){ fileNameBase = ''; } }
 function saveFileNameBase(){ try{ localStorage.setItem(FILENAME_BASE_KEY, fileNameBase); }catch(e){} }
 function setFileNameBase(v){ fileNameBase = String(v==null?'':v).trim(); saveFileNameBase(); updateFileNameInput(); }
-function updateFileNameInput(){ const el=document.getElementById('filenameBase'); if(!el) return; el.placeholder = getDefaultFileNameBase(); el.value = fileNameBase; }
+/* 同上：文件名输入框两端各一个（id 不同，避免重复 id），都要回填 */
+const FILENAME_INPUT_IDS = ['filenameBase', 'filenameBaseMobile'];
+function updateFileNameInput(){
+  FILENAME_INPUT_IDS.forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.placeholder = getDefaultFileNameBase();
+    el.value = fileNameBase;
+  });
+}
 function getFileName(suffix, ext){ const base = fileNameBase || getDefaultFileNameBase(); return base + (suffix||'') + '.' + ext; }
 
-function saveState(){
-  try{
-    localStorage.setItem(SAVE_KEY, JSON.stringify(currentPayload()));
-    if(bootDone) showAutosave();
-  }catch(e){
-    const el=document.getElementById('autosave');
-    if(el) el.textContent = '⚠ 自动保存不可用（浏览器禁用了本地存储）';
-  }
-  // 实时写回仓库 data/resume.json（需经本地写服务 npm start 打开）；file:// 或只读服务器会静默失败、回退 localStorage
-  pushRepoDebounced();
-  // 多简历：同步写入当前激活简历文档
-  if(_libraryReady && activeResumeId && typeof global.ResumeLibrary === 'object' && global.ResumeLibrary){
-    try{ global.ResumeLibrary.save(activeResumeId, currentPayload()); clearDirty(activeResumeId); }catch(e){}
-  }
-}
-/* 实时写回：经 ResumeStore 数据门面持久化（LocalStore/BrowserStore），不再直接 fetch 本地写服务 */
+/* ============ 自动保存（统一分文件模型 + 内容指纹） ============
+   链路：编辑 → saveState() → stableHash 指纹比对 → 800ms 防抖 → 写盘
+   · 多份模式：ResumeLibrary.save(activeResumeId, payload, {lastHash})
+     → <app_data_dir>/resumes/<id>.json + index.json（指纹持久化，重启后仍生效）
+   · 单份模式：ResumeStore.save(payload) → default 文档（内存指纹比对）
+   指纹一致 = 内容未变 → 跳过写盘，避免无意义文件 IO（与飞书自动同步同一规则）。 */
 let _repoPushTimer = null;
-function pushRepo(){
-  ResumeStore.save(currentPayload());   // fire-and-forget；store 内部吞掉持久化错误，绝不让异常冒泡
-}
-function pushRepoDebounced(){
-  if(_repoPushTimer) clearTimeout(_repoPushTimer);
-  _repoPushTimer = setTimeout(pushRepo, 800);
-}
-function loadState(){
+/* 当前是否处于「磁盘写入失败 → 已退回浏览器存储」的降级态。
+   降级之后每次保存都会「成功」（写进了 localStorage），若不做这个判断，
+   「已保存」提示会把降级告警盖掉，用户重新误以为改动已落盘。 */
+function isDegradedNow(){
   try{
-    let raw = localStorage.getItem(SAVE_KEY);
-    // 兼容旧版个人化 key：首次启动把旧数据迁移到通用 key，避免内容丢失
-    if(!raw && SAVE_KEY_LEGACY){
-      raw = localStorage.getItem(SAVE_KEY_LEGACY);
-      if(raw){
-        try{ localStorage.setItem(SAVE_KEY, raw); localStorage.removeItem(SAVE_KEY_LEGACY); }catch(_){}
-      }
-    }
-    if(!raw) return false;
-    const obj = JSON.parse(raw);
-    if(obj && obj.data) data = obj.data;
-    if(obj && obj.fonts) currentFonts = obj.fonts;
-    if(obj && obj.spacing) currentSpacing = obj.spacing;
-    lastSavedAt = Number(obj && obj.savedAt) || 0;
-    if((obj.v || 0) < SAVE_VERSION){
-      migrateQuoteColors(data);
-      migrateSpacing(data);
-      migratePageBreaks(data);
-      migrateSpacingDefaults();
-      data.pageMargins = data.pageMargins || JSON.parse(JSON.stringify(defaultPageMargins));
-      try{ localStorage.setItem(SAVE_KEY, JSON.stringify({data, fonts: currentFonts, spacing: currentSpacing, v: SAVE_VERSION})); }catch(_){}
-    }
-    return true;
+    return !!(global.ResumeLibrary && typeof global.ResumeLibrary.isDegraded === 'function' && global.ResumeLibrary.isDegraded());
   }catch(e){ return false; }
 }
-function clearSaved(){
-  if(!confirm('确定清空本地保存的修改，恢复到文件内置的初始数据吗？')) return;
-  try{ localStorage.removeItem(SAVE_KEY); }catch(e){}
-  location.reload();
+/* 启动阶段的信息（数据从哪来、要不要 npm start）同时写到常驻状态条与旧 #autosave 上，
+   让用户一进来就能看到「我的数据在哪儿」，而不是只在收起的面板里留一行字。 */
+function setBootInfo(text){
+  SaveStatus.markInfo(text);
+  const el = document.getElementById('autosave');
+  if(el) el.textContent = text;
 }
+/* 写盘结果统一回报到状态条：成功=已保存时刻；失败=可重试；降级态持续告警、不被成功覆盖 */
+function reportSaveDone(){
+  clearDirty(activeResumeId);
+  if(isDegradedNow()) SaveStatus.markDegraded();
+  else SaveStatus.markSaved();
+}
+function reportSaveFail(e){
+  SaveStatus.markFailed(e && e.message ? String(e.message).slice(0, 60) : '');
+}
+function pushRepo(payload, hash){
+  if(_libraryReady && activeResumeId && typeof global.ResumeLibrary === 'object' && global.ResumeLibrary){
+    /* ⚠️ 必须写入 saveState 传入的同一份 payload：若此处再调 currentPayload() 会生成
+       另一个 savedAt 的新对象，写盘内容与指纹 hash 对不上，指纹比对失去意义。 */
+    try{
+      const p = global.ResumeLibrary.save(activeResumeId, payload, { lastHash: hash });
+      if(p && typeof p.then === 'function') p.then(reportSaveDone).catch(reportSaveFail);
+      else reportSaveDone();          // 后端未返回 Promise 时按同步成功处理
+    }catch(e){ reportSaveFail(e); }
+  } else {
+    /* 单份模式：store 内部会吞掉持久化错误，能回报就回报 */
+    try{
+      const r = ResumeStore.save(payload);
+      if(r && typeof r.then === 'function') r.then(reportSaveDone).catch(reportSaveFail);
+      else reportSaveDone();
+    }catch(e){ reportSaveFail(e); }
+  }
+}
+/* 人工重试（状态条的「重试」按钮）：清掉降级锁 → 绕过内容指纹强制再写一次盘，
+   否则内容未变会被 saveState 的指纹比对直接跳过，重试就成了空动作。 */
+function retrySave(){
+  try{
+    if(global.ResumeLibrary && typeof global.ResumeLibrary.retryDisk === 'function') global.ResumeLibrary.retryDisk();
+  }catch(e){}
+  SaveStatus.markSaving();
+  const payload = currentPayload();
+  let hash = null;
+  try{
+    hash = (global.ResumeFeishu && typeof global.ResumeFeishu.contentHash === 'function')
+      ? global.ResumeFeishu.contentHash(payload) : null;
+  }catch(e){ hash = null; }
+  pushRepo(payload, hash);
+}
+function pushRepoDebounced(payload, hash){
+  if(_repoPushTimer) clearTimeout(_repoPushTimer);
+  _repoPushTimer = setTimeout(function(){ _repoPushTimer = null; pushRepo(payload, hash); }, 800);
+}
+function saveState(){
+  const payload = currentPayload();
+  // 统一内容指纹：只看 {data,fonts,spacing,v}，剔除 savedAt（每次生成必变的时间戳，
+  // 混进哈希会让「内容未变跳过写盘」永不成立）；与飞书自动同步同一口径。
+  let hash = null;
+  try {
+    hash = (global.ResumeFeishu && typeof global.ResumeFeishu.contentHash === 'function')
+      ? global.ResumeFeishu.contentHash(payload)
+      : null;
+  } catch (e) { hash = null; }
+  if(_libraryReady && activeResumeId && typeof global.ResumeLibrary === 'object' && global.ResumeLibrary){
+    // 多份模式：lastHash 持久化在 index.json，重启后仍可跳过无变化写盘
+    let lastHash = null;
+    try { const m = global.ResumeLibrary.getMeta(activeResumeId); if(m) lastHash = m.lastHash || null; } catch(e){}
+    if(hash !== null && lastHash !== null && hash === lastHash) return; // 内容未变，跳过
+  } else {
+    // 单份模式：内存指纹比对
+    if(hash !== null && _defaultLastHash !== null && hash === _defaultLastHash) return;
+    if(hash !== null) _defaultLastHash = hash;
+  }
+  if(bootDone) SaveStatus.markSaving();   // 防抖窗口内先给出「保存中」，别让用户对着静默干等
+  pushRepoDebounced(payload, hash);
+}
+/* 内置初始数据（种子）：单文件构建时 DEMO_DATA 为完整示范，开发态为空骨架 */
+function seedPayload(){
+  const empty = { name:'', subtitle:'', subtitleBold:false, meta:'', metaBold:false, contact:[], sections:[] };
+  return {
+    data: JSON.parse(JSON.stringify((typeof DEMO_DATA !== 'undefined' && DEMO_DATA) ? DEMO_DATA : empty)),
+    fonts: JSON.parse(JSON.stringify(defaultFonts)),
+    spacing: JSON.parse(JSON.stringify(defaultSpacing)),
+    v: SAVE_VERSION,
+    savedAt: Date.now()
+  };
+}
+/* 清空当前简历的修改，恢复到内置初始数据。
+   已移除浏览器持久化（localStorage 不再存简历数据），这里同时清理旧版本残留键。 */
+function clearSaved(){
+  if(!confirm('确定清空当前简历的修改，恢复到内置初始数据吗？')) return;
+  try{ localStorage.removeItem(SAVE_KEY); localStorage.removeItem(SAVE_KEY_LEGACY); }catch(e){}
+  recordHistory('action');
+  const seed = seedPayload();
+  if(_libraryReady && activeResumeId && typeof global.ResumeLibrary === 'object' && global.ResumeLibrary){
+    try{ global.ResumeLibrary.save(activeResumeId, seed, {}); }catch(e){}
+  }
+  applyPayloadWithoutSave(seed);
+  renderSettings(); renderMarginSettings(); renderSpacingSettings(); renderEditor(); renderPreview(); applyPanelState();
+  updateUndoButtons();
+  try{ document.title = (data.name||'简历') + ' · 简历编辑器'; }catch(_){}
+}
+/* 保存完成时刷新反馈。主呈现已交给常驻状态条（含失败 / 降级态），这里同时更新工具菜单
+   面板头里的旧 #autosave 文案，兼容展开面板时的查看习惯。降级态优先，不被「已保存」盖掉。 */
 function showAutosave(){
+  const degraded = isDegradedNow();
+  if(degraded) SaveStatus.markDegraded(); else SaveStatus.markSaved();
   const el=document.getElementById('autosave');
   if(!el) return;
+  if(degraded){ el.textContent = '⚠ 磁盘写入失败，改动暂存本浏览器'; return; }
   const t=new Date(); const p=n=>String(n).padStart(2,'0');
   el.textContent = '✓ 已自动保存 · ' + p(t.getHours())+':'+p(t.getMinutes())+':'+p(t.getSeconds());
 }
@@ -521,11 +673,31 @@ function importJSON(input){
   reader.onerror = ()=>{ alert('导入失败：文件读取错误'); input.value = ''; };
   reader.readAsText(file);
 }
+/* 导入数据的安全规范化（分享模板是简历工具的常见场景，导入面必须收紧）：
+   fonts/spacing 只接受已知 key，val/mt/mb 强制数值化，label/desc 一律重置为出厂默认 ——
+   防止恶意 JSON 借 label/desc/键名注入 HTML（渲染层已转义，这里是第二道防线） */
+function sanitizePayload(){
+  const okFonts = {};
+  Object.keys(defaultFonts).forEach(function(k){
+    const f = currentFonts[k] || {};
+    okFonts[k] = { label: defaultFonts[k].label, desc: defaultFonts[k].desc,
+      val: z(f.val) || defaultFonts[k].val, min: defaultFonts[k].min, max: defaultFonts[k].max };
+  });
+  currentFonts = okFonts;
+  const okSpacing = {};
+  Object.keys(defaultSpacing).forEach(function(k){
+    const s = currentSpacing[k] || {};
+    okSpacing[k] = { label: defaultSpacing[k].label, mt: z(s.mt), mb: z(s.mb) };
+  });
+  currentSpacing = okSpacing;
+  if(!Array.isArray(data.contact)) data.contact = [];
+}
 /* 把一份 {data,fonts,spacing} 形态的载荷应用为当前内容（导入 / 加载仓库 data/resume.json 共用） */
 function applyDataPayload(obj){
   data = obj.data;
   if(obj.fonts && typeof obj.fonts==='object') currentFonts = obj.fonts;
   if(obj.spacing && typeof obj.spacing==='object') currentSpacing = obj.spacing;
+  sanitizePayload();
   lastSavedAt = Number(obj && obj.savedAt) || 0;
   data.pageMargins = data.pageMargins || JSON.parse(JSON.stringify(defaultPageMargins));
   migrateQuoteColors(data);
@@ -556,6 +728,7 @@ function applyPayloadWithoutSave(obj){
   data = obj.data;
   if(obj.fonts && typeof obj.fonts==='object') currentFonts = obj.fonts;
   if(obj.spacing && typeof obj.spacing==='object') currentSpacing = obj.spacing;
+  sanitizePayload();
   lastSavedAt = Number(obj && obj.savedAt) || 0;
   data.pageMargins = data.pageMargins || JSON.parse(JSON.stringify(defaultPageMargins));
   migrateQuoteColors(data);
@@ -640,7 +813,6 @@ RB.drawPageGuides = drawPageGuides;
    这里再刷一次按钮文案（防御性：若将来调整脚本加载顺序也不会漏渲） */
 try{ if(themeApi()) themeApi().init(); }catch(e){}
 loadFileNameBase();
-const restored = loadState();
 renderSettings();
 renderMarginSettings();
 renderSpacingSettings();
@@ -650,7 +822,6 @@ applyPanelState();
 updateFileNameInput();
 try{ document.title = (data.name||'简历') + ' · 简历编辑器'; }catch(_){}
 updateUndoButtons();
-if(restored){ const el=document.getElementById('autosave'); if(el) el.textContent='✓ 已恢复上次保存的内容'; }
 bootDone = true;
 /* P3 移动端加固：软键盘可视区变量 + 返回键语义（任一步失败都静默，桌面 / 浏览器零影响） */
 setupVisualViewport();
@@ -666,20 +837,33 @@ setupMobileBackGesture();
 // 需经本地写服务（npm start）打开才能读到；file:// 或只读服务器读取失败时静默回退
 loadRepoData({silent:true}).catch(()=>false).then(applied=>{
   if(applied){
-    const el=document.getElementById('autosave');
-    if(el) el.textContent = '✓ 已从仓库 data/resume.json 加载';
+    setBootInfo('✓ 已从仓库 data/resume.json 加载');
     return;
   }
   return loadTemplateData({silent:true}).then(tApplied=>{
-    const el=document.getElementById('autosave');
-    if(el) el.textContent = tApplied
+    setBootInfo(tApplied
       ? '✓ 已加载示范数据（template.json，可编辑后导出 / 实时保存）'
-      : '✓ 已加载（未连接本地写服务，编辑仅存本浏览器，请改用 npm start 启动）';
+      : '✓ 已加载（未连接本地写服务，编辑仅存本浏览器，请改用 npm start 启动）');
   }).catch(()=>{});
 }).then(()=>{
   // 基底数据已定（磁盘 > template > 内置），此时多简历初始化才能正确仲裁新旧
   return initResumeLibrary();
 }).then(()=>{
+  // 按实际存储后端更新持久化状态提示（避免「未连接本地写服务，编辑仅存本浏览器」误导）
+  try{
+    const kind = (global.ResumeLibrary && typeof global.ResumeLibrary.backendKind === 'function')
+      ? global.ResumeLibrary.backendKind() : '';
+    if(kind === 'localstorage'){
+      setBootInfo('⚠ 未连接本地写服务：编辑自动存入本浏览器（换浏览器 / 清缓存会丢，建议 npm start 或用 JSON 备份）');
+    }
+  }catch(e){}
+  /* 保存状态条就位：绑定 DOM、接管存储降级通知、接上人工重试。
+     放在数据链末尾（与 initResumeLibrary 同序）—— 此时 ResumeLibrary 的后端已确定，
+     init 里注册的降级回调才不会挂到一个还没定型后端上。 */
+  try{
+    SaveStatus.init();
+    SaveStatus.onRetry(retrySave);
+  }catch(e){}
   // 绑定飞书后开机即自动双向同步（未绑定时 tick 内部自检绑定态、静默空转）
   try{ startAutoSync(); }catch(e){}
 }).catch(()=>{});
@@ -762,6 +946,7 @@ global.ResumeEditor = {
   closeVisibleModal: closeVisibleModal,
   undo: undo,
   redo: redo,
+  isEditableTarget: isEditableTarget,
   resetSpacing: resetSpacing,
   applyLayoutPreset: applyLayoutPreset,
   resetMargins: resetMargins,
@@ -773,6 +958,7 @@ global.ResumeEditor = {
   switchResume: switchResume,
   /* P0 路由层用：取当前激活简历 id（闭包变量，只读） */
   getActiveResumeId: function () { return activeResumeId; },
+  setActiveResumeId: function (v) { activeResumeId = v; },
   resumeNew: resumeNew,
   resumeDuplicate: resumeDuplicate,
   resumeRemove: resumeRemove,
@@ -791,7 +977,7 @@ global.ResumeEditor = {
   blankItem: blankItem,
   recordHistory: recordHistory,
   hist: hist,
-  loadState: loadState,
+  saveState: saveState,
   applyImported: applyImported,
   renderResumeInner: renderResumeInner,
   migrateSpacing: migrateSpacing,

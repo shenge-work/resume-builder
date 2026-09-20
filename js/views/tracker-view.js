@@ -156,7 +156,7 @@
         STATUS_ORDER.map(function (k) { return '<option value="' + k + '">' + STATUS[k].label + '</option>'; }).join('') +
         '          </select>' +
         '        </label>' +
-        '        <label class="tk-field"><span>关联简历</span><input type="text" id="tkResume" placeholder="如 陈培胜 · Agent 岗"></label>' +
+        '        <label class="tk-field"><span>关联简历</span><input type="text" id="tkResume" placeholder="如 简历标题 · 目标岗位"></label>' +
         '        <label class="tk-field"><span>备注</span><textarea id="tkNote" rows="2" placeholder="可选"></textarea></label>' +
         '      </div>' +
         '      <div class="tk-modal-foot">' +

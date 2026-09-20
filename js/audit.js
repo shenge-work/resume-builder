@@ -62,6 +62,9 @@
         (sec.groups || []).forEach(g => {
           if (!g) return;
           push(T(g.name), st, 'skills', 'name');
+          /* 矩阵式技能行的两行内容（2026-09-20 新增），漏了会被判成空板块 */
+          push(T(g.keywords), st, 'skills', 'keywords');
+          push(T(g.detail), st, 'skills', 'detail');
           (g.items || []).forEach(x => push(T(x), st, 'skills', 'items'));
         });
       } else if (type === 'projects') {
@@ -149,7 +152,7 @@
     const type = sec.type;
     if (type === 'advantages') return (sec.items || []).map(i => i && (trim(i.label) + trim(T(i.text)))).join('');
     if (type === 'career') return (sec.items || []).map(j => j && [trim(T(j.company)), trim(T(j.role)), trim(T(j.date)), trim(T(j.summary))].join('')).join('');
-    if (type === 'skills') return (sec.groups || []).map(g => g && (trim(T(g.name)) + (g.items || []).map(x => trim(T(x))).join(''))).join('');
+    if (type === 'skills') return (sec.groups || []).map(g => g && (trim(T(g.name)) + trim(T(g.keywords)) + trim(T(g.detail)) + (g.items || []).map(x => trim(T(x))).join(''))).join('');
     if (type === 'projects') return (sec.items || []).map(p => p && [trim(T(p.name)), trim(T(p.stack)), trim(T(p.desc)), (p.results || []).map(r => trim(T(r))).join('')].join('')).join('');
     if (type === 'highlights') return (sec.cards || []).map(c => trim(T(c))).join('') + (sec.tags || []).map(t => trim(T(t))).join('');
     if (type === 'growth') return (sec.phases || []).map(p => p && [trim(p.label), trim(T(p.date)), trim(T(p.title)), trim(T(p.desc))].join('')).join('');

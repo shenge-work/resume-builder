@@ -97,6 +97,14 @@
     </div>
 
     <input type="file" id="importFile" accept=".json,application/json" style="display:none" onchange="ResumeEditor.importJSON(this)">
+    <!-- 保存状态条：常驻显示「编辑中 / 保存中 / 已保存 HH:MM / 失败·可重试」。
+         此前这套反馈三重不可见（面板默认收起、手机被 display:none、写盘失败被静默降级吞掉），
+         本状态条把「改动是否真的落盘」变成屏幕上一行如实的状态；role=status + aria-live
+         让读屏同样能收到保存结果。文案与状态机在 js/ui/save-status.js。 -->
+    <div class="save-bar" id="saveBar" role="status" aria-live="polite" hidden>
+      <span class="save-bar-text"></span>
+      <button type="button" class="save-bar-retry" hidden>重试</button>
+    </div>
     <div class="preview-frame" id="preview"></div>
   </div>
 
@@ -133,6 +141,29 @@
       <div class="panel-body"><div id="auditBody"></div></div>
     </div>
 
+    <!-- JD 匹配分析：粘贴目标岗位 JD，把「任职要求」拆成关键词并与当前简历比对，
+         分成已覆盖 / 弱覆盖 / 缺失三档。纯规则只读匹配；JD 原文只存浏览器偏好
+         （localStorage），不写进简历数据、不随飞书同步。实现见 js/jd-match.js。 -->
+    <div class="panel collapsed" id="panel-jd">
+      <div class="panel-header" onclick="ResumeJd.toggle()">
+        <span style="flex:1;">JD 匹配分析（已覆盖 / 弱覆盖 / 缺失）</span>
+        <span class="chevron">▾</span>
+      </div>
+      <div class="panel-body">
+        <div class="jd-input-wrap">
+          <textarea id="jdInput" class="jd-input" rows="4" spellcheck="false"
+            placeholder="粘贴目标岗位的「任职要求 / 岗位职责」原文…（只存在本机浏览器，不写进简历数据、不随同步上传）"
+            oninput="ResumeJd.setJd(this.value)"></textarea>
+          <div class="jd-input-foot">
+            <button class="mini-btn" onclick="ResumeJd.analyzeNow()" title="按当前 JD 与当前简历重新匹配">分析匹配度</button>
+            <button class="mini-btn" onclick="ResumeJd.clearJd()" title="清空 JD 与分析结果">清空</button>
+            <span class="jd-input-hint">改完简历再点一次即刷新</span>
+          </div>
+        </div>
+        <div id="jdBody"></div>
+      </div>
+    </div>
+
     <div class="panel panel-grow" id="panel-editor">
       <div class="panel-header collapsible" data-panel="panel-editor">内容编辑（仅改文字，代码自动生成）<span class="chevron">▾</span></div>
       <div class="panel-body">
@@ -151,32 +182,10 @@
       <span class="autosave" id="feishuStatus"></span>
       <span class="autosave" id="autosave"></span>
     </div>
-    <div class="side-panel-body">
-      <div class="side-group">快速操作</div>
-      <span class="filename-wrap" title="导出文件的默认文件名前缀">
-        <label for="filenameBase">文件名</label>
-        <input type="text" id="filenameBase" placeholder="姓名_简历" onchange="ResumeEditor.setFileNameBase(this.value)">
-      </span>
-      <button onclick="ResumeEditor.undo()" id="undoBtn" title="撤销 (Ctrl/Cmd+Z)">撤销</button>
-      <button onclick="ResumeEditor.redo()" id="redoBtn" title="重做 (Ctrl/Cmd+Shift+Z / Ctrl+Y)">重做</button>
-      <button onclick="ResumeAudit.toggle()" id="auditBtn" title="投递体检：页数 / 完整性 / 量化 / ATS 检查">投递体检</button>
-      <button onclick="ResumeEditor.toggleTheme()" id="themeBtn" title="切换夜间模式"><span id="themeBtnLabel">夜间模式</span></button>
-
-      <div class="side-group">导出</div>
-      <button onclick="ResumeExport.exportPdfSilent()" id="pdfSilentBtn" title="经本地服务调用本机浏览器静默生成「可选中文字」的 PDF，不弹打印对话框（需 npm start 打开）">PDF（文字可选中 · 静默）</button>
-      <button onclick="window.print()" title="走浏览器原生打印 / 另存为 PDF（快捷键 Ctrl/Cmd+P）">打印 / 另存为 PDF</button>
-      <button onclick="ResumeExport.exportDocx()" title="导出真正的 Word 文档（.docx），HR 与 ATS 通用">导出 Word（.docx）</button>
-      <button onclick="ResumeExport.exportTxt()" title="导出纯文本，投递表单 / ATS 粘贴用">导出纯文本（.txt）</button>
-      <button onclick="ResumeExport.exportMarkdown()" title="导出 Markdown，便于放到 GitHub / 博客 / 在线简历">导出 Markdown（.md）</button>
-      <button onclick="ResumeEditor.exportPDF()" title="html2canvas 截图拼合，生成图片版 PDF 预览">PDF 预览 / 下载（图片版）</button>
-      <button onclick="ResumeEditor.exportLongImage()" title="导出页面完整长图，与预览完全一致">导出（图片版）</button>
-      <button onclick="ResumeEditor.exportSingleFileHTML()" title="导出仅含简历本身的独立 HTML 文件，可直接双击打开">导出单文件 HTML</button>
-
-
-      <div class="side-group">视图</div>
-      <button onclick="ResumeEditor.toggleGuides()" id="guideBtn">显示分页线</button>
-      <button onclick="ResumeEditor.toggleEditorPane()" id="paneToggleBtn" title="收起/展开右侧编辑面板 (Ctrl/Cmd+B)">收起编辑面板</button>
-    </div>
+    <!-- 按钮清单由 js/ui/menu-actions.js 渲染（与手机 sync-pane 同源）。
+         ⚠️ 不要再往这里手写按钮：两份手写清单必然漂移 —— 此前桌面缺飞书同步与页面导航、
+         手机缺打印 / 撤销 / 重做 / 文件名，就是这么来的。加功能请改 ACTIONS 清单。 -->
+    <div class="side-panel-body"><div id="toolsMenuBody"></div></div>
   </aside>
 
   <!-- 手机底部 Tab 导航：预览 / 编辑 / 同步（桌面隐藏） -->
@@ -186,37 +195,13 @@
     <button data-mv="sync" onclick="ResumeEditor.setMobileView('sync')">同步</button>
   </nav>
 
-  <!-- 手机「同步 / 工具」聚合页：暴露桌面工具栏文件/导出/飞书同步菜单功能 -->
+  <!-- 手机「同步 / 工具」聚合页：与桌面工具菜单渲染**同一份**清单（js/ui/menu-actions.js 的 ACTIONS），
+       因此两端不可能再出现「一边有、一边没有」。 -->
   <div class="sync-pane">
     <div class="sync-inner">
       <h2 class="sync-title">同步 / 工具</h2>
       <span class="autosave" id="feishuStatusMobile"></span>
-
-      <div class="sync-group">投递准备</div>
-      <button onclick="ResumeAudit.toggle()">投递体检（页数 / 内容 / ATS）</button>
-
-      <div class="sync-group">飞书同步</div>
-      <button onclick="ResumeEditor.reportToFeishu()">上报到飞书</button>
-      <button id="feishuPullBtnMobile" onclick="ResumeEditor.pullFromFeishu()">拉取最新</button>
-      <button onclick="ResumeRouter.navigate('/history')">历史版本</button>
-      <button onclick="ResumeNotifier.togglePanel()">消息通知</button>
-
-      <div class="sync-group">导出</div>
-      <button onclick="ResumeExport.exportPdfSilent()">PDF（文字可选中）</button>
-      <button onclick="ResumeExport.exportDocx()">导出 Word（.docx）</button>
-      <button onclick="ResumeExport.exportTxt()">导出纯文本</button>
-      <button onclick="ResumeExport.exportMarkdown()">导出 Markdown</button>
-      <button onclick="ResumeEditor.exportPDF()">导出 PDF 预览</button>
-      <button onclick="ResumeEditor.exportLongImage()">导出图片版</button>
-      <button onclick="ResumeEditor.exportSingleFileHTML()">导出单文件 HTML</button>
-
-      <div class="sync-group">更多页面</div>
-      <button onclick="ResumeRouter.navigate('/library')">简历库（多份管理）</button>
-      <button onclick="ResumeRouter.navigate('/tracker')">投递追踪</button>
-      <button onclick="ResumeRouter.navigate('/settings')">设置（飞书 / 外观 / 数据备份）</button>
-
-      <div class="sync-group">外观</div>
-      <button onclick="ResumeEditor.toggleTheme()"><span id="themeBtnLabelMobile">夜间模式</span></button>
+      <div id="syncMenuBody"></div>
     </div>
   </div>
 </div>
@@ -279,9 +264,18 @@
 <script src="js/views/tracker-view.js"></script>
 <script src="js/views/templates-view.js"></script>
 <script src="js/views/portfolio-view.js"></script>
+<!-- 内容编辑区 schema（字段 / 列表 / 板块类型注册表 + 通用渲染与写回引擎）：
+     必须在 resume-render.js 之前加载 —— 后者从这里取 esc/T/z/objify/blank* 基础件，
+     并按注册表生成右侧表单。新增板块类型只需在 editor-schema.js 里 register 一次。 -->
+<script src="js/render/editor-schema.js"></script>
 <script src="js/render/resume-render.js"></script>
 <script src="js/export/export-pdf.js"></script>
 <script src="js/feishu/feishu-sync.js"></script>
+<!-- 统一入口清单：桌面工具菜单 + 手机 sync-pane 的按钮都由它渲染。
+     必须早于 pane-mobile.js / app.js —— 它们在初始化时按 id 找按钮（paneToggleBtn 等）。 -->
+<script src="js/ui/menu-actions.js"></script>
+<!-- 保存状态条（保存三态 + 存储降级告警）：须在 store 之后、app.js 之前 -->
+<script src="js/ui/save-status.js"></script>
 <!-- 消息通知中心（自动同步告警等）：不依赖其他业务模块，app.js 前加载 -->
 <script src="js/ui/notifier.js"></script>
 <script src="js/ui/pane-mobile.js"></script>
@@ -295,5 +289,8 @@
 <!-- T7 投递链路：两者均只读消费 ResumeEditor.getData()，必须在 app.js 之后加载 -->
 <script src="js/export-extra.js"></script>
 <script src="js/audit.js"></script>
+<!-- JD 匹配分析（粘贴岗位 JD → 关键词覆盖三档）：同样只读消费 ResumeEditor.getData()，
+     与 audit.js 平级、互不依赖，放在最后便于两者共用一套面板视觉词汇。 -->
+<script src="js/jd-match.js"></script>
 </body>
 </html>

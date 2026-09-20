@@ -124,6 +124,28 @@
     return st[stateKey(base, resumeId)] || st[base] || null;
   }
 
+  /* ============ 本地简历库（统一分文件模型，对应 src-tauri/src/storage.rs） ============
+     <app_data_dir>/resumes/index.json + <id>.json，与飞书 file_token_<id> 分键同构。 */
+  function resumeIndexLoad() { return invoke('resume_index_load'); }
+  function resumeIndexSave(index) { return invoke('resume_index_save', { index: index }); }
+  function resumeDocLoad(id) { return invoke('resume_doc_load', { id: id }); }
+  function resumeDocSave(id, payload) { return invoke('resume_doc_save', { id: id, payload: payload }); }
+  function resumeDocRemove(id) { return invoke('resume_doc_remove', { id: id }); }
+
+  /* ResumeLibrary 可注入的本地文件后端（与 serve.js /api/library/* 同构） */
+  function localLibraryBackend() {
+    return {
+      kind: 'native',
+      listIndex: function () {
+        return resumeIndexLoad().then(function (v) { return v || { active: null, items: [] }; });
+      },
+      writeIndex: function (index) { return resumeIndexSave(index).then(function () { return index; }); },
+      loadDoc: function (id) { return resumeDocLoad(id); },
+      saveDoc: function (id, doc) { return resumeDocSave(id, doc); },
+      removeDoc: function (id) { return resumeDocRemove(id); }
+    };
+  }
+
   /* docx：确保文档存在 → 清空原有 block → 写入一个 code block（内含完整 JSON） */
   function ensureDoc(cfg, resumeId) {
     return readState().then(function (st) {
@@ -290,19 +312,34 @@
     }
   }
 
-  /* resume-store.js 已抢先加载并快照过 __RESUME_NATIVE__，此处把它的 FeishuStore
+  /* resume-store.js 已抢先加载并快照过 __RESUME_NATIVE__，此处把它的 FeishuStore / LocalStore
      重定向到上面的实现（不修改 resume-store.js 本身）。 */
   (function rebindFacade() {
     var RS = global.ResumeStore;
-    if (!RS || !RS._stores || !RS._stores.FeishuStore) return;
-    var F = RS._stores.FeishuStore;
-    F.available = true;
-    F.push = function (payload) { return guard(api.feishuPush, [payload]); };
-    F.pull = function () { return guard(api.feishuPull, []); };
-    F.listVersions = function () { return guard(api.feishuListVersions, []); };
-    F.restore = function (versionId) { return guard(api.feishuRestore, [versionId]); };
-    F.loadConfig = function () { return guard(api.feishuLoadConfig, []); };
-    F.saveConfig = function (cfg) { return guard(api.feishuSaveConfig, [cfg]); };
-    F.probe = function (req) { return guard(api.feishuProbe, [req]); };
+    if (!RS || !RS._stores) return;
+    if (RS._stores.FeishuStore) {
+      var F = RS._stores.FeishuStore;
+      F.available = true;
+      /* ⚠️ 调用方参数必须透传：feishuPull/feishuListVersions/feishuRestore 都按
+         resumeId 定位远端文件（file_token_<id>），丢了参数会全部退化到 default 文档，
+         造成「把 A 简历的内容拉进 B 简历」的跨文档覆盖事故。 */
+      F.push = function (payload) { return guard(api.feishuPush, [payload]); };
+      F.pull = function (resumeId) { return guard(api.feishuPull, [resumeId]); };
+      F.listVersions = function (resumeId) { return guard(api.feishuListVersions, [resumeId]); };
+      F.restore = function (versionId, resumeId) { return guard(api.feishuRestore, [versionId, resumeId]); };
+      F.loadConfig = function () { return guard(api.feishuLoadConfig, []); };
+      F.saveConfig = function (cfg) { return guard(api.feishuSaveConfig, [cfg]); };
+      F.probe = function (req) { return guard(api.feishuProbe, [req]); };
+    }
+    /* LocalStore（单份 default 文档）→ 本地文件系统 */
+    if (RS._stores.LocalStore) {
+      RS._stores.LocalStore.get = function () { return guard(api.resumeDocLoad, ['default']); };
+      RS._stores.LocalStore.set = function (payload) { return guard(api.resumeDocSave, ['default', payload]); };
+    }
+    /* ResumeLibrary（多份，index.json + <id>.json）→ 本地文件系统 */
+    var Lib = global.ResumeLibrary;
+    if (Lib && typeof Lib.setBackend === 'function') {
+      Lib.setBackend(localLibraryBackend());
+    }
   })();
 })(typeof window !== 'undefined' ? window : this);

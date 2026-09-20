@@ -1,0 +1,585 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>江屿 JIANG YU · 前端开发工程师 · 求职作品集 2026</title>
+<link rel="icon" type="image/png" sizes="32x32" href="favicon-64.png">
+<link rel="icon" type="image/png" sizes="512x512" href="favicon.png">
+<link rel="apple-touch-icon" href="favicon.png">
+<meta name="description" content="江屿的个人求职作品集——2026 届计算机科学与技术应届毕业生，前端开发 / 创意开发方向。">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Space+Mono:wght@400;700&family=Noto+Sans+SC:wght@400;500;700;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<!-- ══════════════ 顶栏 / TOP BAR ══════════════ -->
+<header class="topbar" id="topbar">
+  <div class="topbar-inner">
+    <a class="brand" href="#hero">
+      <span class="brand-mark">JY<span class="brand-dot">.</span></span>
+      <span class="brand-sub">JIANG YU —<br>2026届应届生档案</span>
+    </a>
+    <nav class="nav" id="nav">
+      <a href="#about" data-sec="about"><span class="nav-no">01</span>关于我</a>
+      <a href="#objective" data-sec="objective"><span class="nav-no">02</span>求职意向</a>
+      <a href="#education" data-sec="education"><span class="nav-no">03</span>教育经历</a>
+      <a href="#experience" data-sec="experience"><span class="nav-no">04</span>实习经历</a>
+      <a href="#projects" data-sec="projects"><span class="nav-no">05</span>项目作品</a>
+      <a href="#skills" data-sec="skills"><span class="nav-no">06</span>专业技能</a>
+      <a href="#awards" data-sec="awards"><span class="nav-no">07</span>获奖证书</a>
+      <a href="#contact" data-sec="contact"><span class="nav-no">08</span>联系方式</a>
+    </nav>
+    <div class="topbar-right">
+      <span class="status-pill"><i class="lamp lamp-green"></i>求职中 HIRING</span>
+      <button class="menu-btn" id="menuBtn" aria-label="打开菜单" aria-expanded="false">
+        <span></span><span></span><span></span>
+      </button>
+    </div>
+  </div>
+</header>
+
+<!-- ══════════════ 首屏 / HERO：档案封面 ══════════════ -->
+<section class="hero" id="hero">
+  <div class="hero-grid-bg" aria-hidden="true"></div>
+  <span class="hero-corner tl" aria-hidden="true">PORTFOLIO — VOL.2026</span>
+  <span class="hero-corner tr" aria-hidden="true">N30.27° / E120.16°</span>
+  <span class="hero-corner bl" aria-hidden="true">FILE NO. JY-2026-0117</span>
+  <span class="hero-corner br" aria-hidden="true">● REC</span>
+
+  <div class="hero-inner">
+    <!-- 左：姓名排版 + 定位 + 简介 + 按钮 -->
+    <div class="hero-left">
+      <p class="hero-eyebrow reveal">
+        <span class="tag tag-orange">2026 届应届毕业生</span>
+        <span class="tag tag-blue">FRESH GRADUATE</span>
+      </p>
+      <h1 class="hero-name">
+        <span class="hero-name-cn reveal">江屿<i class="glitch-layer glitch-blue" aria-hidden="true">江屿</i><i class="glitch-layer glitch-orange" aria-hidden="true">江屿</i></span>
+        <span class="hero-name-en reveal" aria-hidden="true">JIANG YU</span>
+      </h1>
+      <p class="hero-role reveal">
+        前端开发工程师 <span class="role-slash">/</span>
+        <span class="role-en">FRONT-END&nbsp;DEVELOPER</span>
+      </p>
+      <p class="hero-bio reveal">
+        临江理工大学计算机科学与技术专业，四年手写代码、两段实习、四个完整项目。
+        相信「界面即体验」：用干净的工程实现有温度的设计，
+        把每一个像素都落到用户看得见的地方。
+      </p>
+      <div class="hero-cta reveal">
+        <a class="btn btn-solid" href="#projects">查看作品
+          <span class="btn-arrow" aria-hidden="true">▶▶</span></a>
+        <a class="btn btn-ghost" href="resume.html" download="江屿-前端开发工程师-简历.html">
+          下载简历 <span class="btn-arrow" aria-hidden="true">↓</span></a>
+      </div>
+      <p class="hero-meta reveal">
+        <i class="lamp lamp-green"></i>
+        <span>OPEN TO WORK · 随时到岗 · 杭州 / 上海 / 远程</span>
+      </p>
+    </div>
+
+    <!-- 右：立体人才档案卡（签名元素） -->
+    <div class="hero-right reveal">
+      <div class="idcard-stack" aria-hidden="true">
+        <div class="idcard idcard-back-2"></div>
+        <div class="idcard idcard-back-1"></div>
+        <div class="idcard idcard-main">
+          <div class="idcard-head">
+            <div class="idcard-photo">
+              <img src="images/portrait.jpg" alt="江屿的个人形象照" width="480" height="480">
+              <span class="idcard-photo-frame" aria-hidden="true"></span>
+            </div>
+            <div class="idcard-head-info">
+              <p class="idcard-title">人才档案终端<br><span>TALENT&nbsp;ARCHIVE</span></p>
+              <p class="idcard-no">NO. JY-2026-0117</p>
+              <p class="idcard-status"><i class="lamp lamp-green"></i>ACTIVE · 已激活</p>
+            </div>
+          </div>
+          <dl class="idcard-fields">
+            <div class="field"><dt>姓名 NAME</dt><dd>江屿 / JIANG YU</dd></div>
+            <div class="field"><dt>出生 BIRTH</dt><dd>2003.11 · 22 岁</dd></div>
+            <div class="field"><dt>坐标 LOC</dt><dd>浙江 · 杭州 N30.27°</dd></div>
+            <div class="field"><dt>学历 EDU</dt><dd>本科 · 临江理工大学</dd></div>
+            <div class="field"><dt>专业 MAJOR</dt><dd>计算机科学与技术</dd></div>
+            <div class="field field-orange"><dt>GPA</dt><dd>3.82 / 4.0（前 3%）</dd></div>
+            <div class="field field-blue"><dt>方向 ROLE</dt><dd>前端 / 创意开发</dd></div>
+            <div class="field"><dt>状态 STATUS</dt><dd>秋招进行中</dd></div>
+          </dl>
+          <div class="idcard-foot">
+            <div class="barcode" aria-hidden="true"></div>
+            <span class="idcard-foot-code">HR-ARCHIVE·v2.6·ALL SYSTEMS OK</span>
+          </div>
+          <span class="idcard-chip" aria-hidden="true"></span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <a class="hero-scroll" href="#about" aria-label="向下滚动">
+    <span class="pixel-arrow" aria-hidden="true">▼</span>
+    <span>SCROLL / 下滑查看档案</span>
+  </a>
+</section>
+
+<!-- ══════════════ 横向滚动条 / MARQUEE ══════════════ -->
+<div class="marquee" aria-hidden="true">
+  <div class="marquee-track">
+    <span>OPEN TO WORK ✦ 前端开发 ✦ CREATIVE CODING ✦ REACT / VUE ✦ TypeScript ✦ 三维与动效 ✦ GSAP / THREE.JS ✦ 组件工程化 ✦ 2026 届秋招 ✦ OPEN TO WORK ✦ 前端开发 ✦ CREATIVE CODING ✦ REACT / VUE ✦ TypeScript ✦ 三维与动效 ✦ GSAP / THREE.JS ✦ 组件工程化 ✦ 2026 届秋招 ✦&nbsp;</span>
+  </div>
+</div>
+
+<!-- ══════════════ SEC.01 关于我 ══════════════ -->
+<section class="section" id="about">
+  <div class="section-head">
+    <span class="section-no">SEC.01</span>
+    <h2 class="section-title">关于我 <span class="title-en">ABOUT</span></h2>
+    <span class="section-line" aria-hidden="true"></span>
+    <span class="section-coord" aria-hidden="true">ARCHIVE//BIO-GRAPHY</span>
+  </div>
+  <div class="about-grid">
+    <div class="about-photo-wrap reveal">
+      <div class="about-photo">
+        <img src="images/portrait.jpg" alt="江屿——橙帽衫与圆框眼镜的半身插画肖像" width="500" height="500">
+      </div>
+      <div class="stamp stamp-verified" aria-hidden="true">
+        <span>已审核<br>VERIFIED</span>
+      </div>
+      <span class="about-photo-no" aria-hidden="true">PHOTO NO.001</span>
+    </div>
+    <div class="about-body">
+      <p class="about-lead reveal">
+        你好，我是<strong>江屿</strong>。一个把「写代码」和「做设计」
+        都当认真事来办的计算机应届生。
+      </p>
+      <p class="reveal">
+        大二加入校前端兴趣小组，从此在浏览器里安了家：从切第一个静态页，
+        到维护 1.2k Star 的开源组件库；从临摹 Dribbble 动效，
+        到用 Three.js 给品牌活动页搭 3D 场景。我享受把设计稿逐像素还原的过程，
+        更享受用户「诶，这个细节有点东西」的瞬间。
+      </p>
+      <p class="reveal">
+        工作习惯上：Git 提交信息必须写清楚、组件先写文档再写实现、
+        性能预算写进 README。生活里：书法六级、骑行通勤、给楼下猫写过识别相册。
+      </p>
+      <ul class="about-stats">
+        <li class="reveal"><strong data-count="4">0</strong><span>完整上线项目</span></li>
+        <li class="reveal"><strong data-count="2">0</strong><span>段大厂级实习</span></li>
+        <li class="reveal"><strong data-count="1200" data-suffix="+">0</strong><span>GitHub Stars</span></li>
+        <li class="reveal"><strong data-count="8">0</strong><span>获奖与证书</span></li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════ SEC.02 求职意向 ══════════════ -->
+<section class="section section-tint" id="objective">
+  <div class="section-head">
+    <span class="section-no">SEC.02</span>
+    <h2 class="section-title">求职意向 <span class="title-en">TARGET</span></h2>
+    <span class="section-line" aria-hidden="true"></span>
+    <span class="section-coord" aria-hidden="true">LOCKED//JOB-PREFS</span>
+  </div>
+  <div class="obj-grid">
+    <div class="obj-card obj-main reveal">
+      <span class="obj-tag">意向岗位 POSITION</span>
+      <h3 class="obj-role">前端开发工程师</h3>
+      <p class="obj-role-sub">FRONT-END DEVELOPER · WEB 方向</p>
+      <p class="obj-desc">
+        负责业务 Web 应用的界面开发与体验优化，也乐意在创意技术、
+        数据可视化方向上发光发热。
+      </p>
+    </div>
+    <div class="obj-card reveal">
+      <span class="obj-tag">备选方向 ALT</span>
+      <h3 class="obj-role-sm">创意开发 / 可视化</h3>
+      <p class="obj-desc">H5 活动页、营销站点、大屏与互动装置，把创意落地成代码。</p>
+    </div>
+    <div class="obj-card reveal">
+      <span class="obj-tag">期望城市 CITY</span>
+      <h3 class="obj-role-sm">杭州 · 上海 · 深圳</h3>
+      <p class="obj-desc">接受远程 / 混合办公；坐标杭州，跨城面试随时安排。</p>
+    </div>
+    <div class="obj-card obj-blue-card reveal">
+      <span class="obj-tag">到岗时间 START</span>
+      <h3 class="obj-role-sm">随时到岗</h3>
+      <p class="obj-desc">2026 届毕业生，已完成答辩与离校手续，可立即入职。</p>
+    </div>
+    <div class="obj-card obj-orange-card reveal">
+      <span class="obj-tag">其他 OTHER</span>
+      <h3 class="obj-role-sm">薪资面议</h3>
+      <p class="obj-desc">更看重团队的技术氛围与成长空间，期待和你聊五毛钱的。</p>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════ SEC.03 教育经历 ══════════════ -->
+<section class="section" id="education">
+  <div class="section-head">
+    <span class="section-no">SEC.03</span>
+    <h2 class="section-title">教育经历 <span class="title-en">EDUCATION</span></h2>
+    <span class="section-line" aria-hidden="true"></span>
+    <span class="section-coord" aria-hidden="true">RECORD//SCHOOL-FILE</span>
+  </div>
+  <div class="edu-grid">
+    <div class="edu-card reveal">
+      <div class="edu-card-head">
+        <span class="edu-years">2022.09 — 2026.06</span>
+        <span class="tag tag-orange">本科 · 全日制</span>
+      </div>
+      <h3 class="edu-school">临江理工大学</h3>
+      <p class="edu-major">计算机科学与技术 <span class="edu-en">COMPUTER SCIENCE &amp; TECHNOLOGY</span></p>
+      <div class="edu-stats">
+        <div class="edu-stat"><strong>3.82<span>/4.0</span></strong><em>GPA 绩点</em></div>
+        <div class="edu-stat"><strong>4<span>/126</span></strong><em>专业排名</em></div>
+        <div class="edu-stat edu-stat-blue"><strong>2<span>次</span></strong><em>一等奖学金</em></div>
+      </div>
+      <p class="edu-note">
+        主修课程：数据结构 · 算法设计 · Web 开发技术 · 人机交互 ·
+        数据库原理 · 计算机网络 · 编译原理 · 软件工程
+      </p>
+      <p class="edu-note edu-note-extra">
+        课外：前端兴趣小组核心成员（2023–2025）· 校科协媒体部技术担当 ·
+        「Web 前端修炼手册」校内分享会主讲 3 期
+      </p>
+    </div>
+    <div class="edu-side">
+      <div class="edu-side-card reveal">
+        <span class="side-no">NOTE-A</span>
+        <h4>毕业设计</h4>
+        <p>《基于手写轨迹分析的智能书法陪练系统》——校级优秀毕设，盲评 92 分。</p>
+      </div>
+      <div class="edu-side-card reveal">
+        <span class="side-no">NOTE-B</span>
+        <h4>英语水平</h4>
+        <p>CET-6 587 分，能顺滑阅读英文技术文档与源码注释。</p>
+      </div>
+      <div class="edu-side-card reveal">
+        <span class="side-no">NOTE-C</span>
+        <h4>学习方式</h4>
+        <p>课程之外靠「造轮子」学习：自己写过迷你打包器、迷你响应式框架与像素画板。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════ SEC.04 实习经历 ══════════════ -->
+<section class="section section-tint" id="experience">
+  <div class="section-head">
+    <span class="section-no">SEC.04</span>
+    <h2 class="section-title">实习经历 <span class="title-en">EXPERIENCE</span></h2>
+    <span class="section-line" aria-hidden="true"></span>
+    <span class="section-coord" aria-hidden="true">LOG//INTERNSHIP-TRACE</span>
+  </div>
+  <div class="exp-list">
+    <article class="exp-card reveal">
+      <div class="exp-head">
+        <div>
+          <h3 class="exp-company">序言科技（杭州）有限公司</h3>
+          <p class="exp-role">前端开发实习生 · 电商 SaaS 事业部</p>
+        </div>
+        <span class="exp-time">2025.07 — 2025.11</span>
+      </div>
+      <ul class="exp-points">
+        <li>参与电商 SaaS 中台 <strong>10+ 个业务模块</strong>的 React + TypeScript 重构，独立完成商品、营销两大模块的迁移与单元测试。</li>
+        <li>将核心商品列表页首屏加载从 <strong>3.2s 优化至 1.1s</strong>：虚拟列表、路由级代码分割与图片懒加载三件套。</li>
+        <li>搭建 Storybook 组件文档站，沉淀 24 个业务组件，团队内复用率提升约 <strong>40%</strong>。</li>
+        <li>参与双 11 大促值班，负责 3 个活动页的线上问题 hotfix，零事故。</li>
+      </ul>
+      <div class="exp-tags">
+        <span class="tag">React</span><span class="tag">TypeScript</span><span class="tag">Storybook</span><span class="tag">性能优化</span><span class="tag tag-blue">转正Offer已婉拒</span>
+      </div>
+    </article>
+    <article class="exp-card reveal">
+      <div class="exp-head">
+        <div>
+          <h3 class="exp-company">方寸互动（上海）网络有限公司</h3>
+          <p class="exp-role">创意开发实习生 · 互动技术组</p>
+        </div>
+        <span class="exp-time">2025.01 — 2025.03</span>
+      </div>
+      <ul class="exp-points">
+        <li>参与 <strong>3 个品牌 H5 活动页</strong>开发：负责 GSAP 交互动效编排与 Three.js 3D 场景搭建。</li>
+        <li>其中新春集卡活动峰值 <strong>PV 82 万</strong>，动效掉帧率控制在 1% 以内，获客户返场追加投放。</li>
+        <li>沉淀了一套移动端动效性能 checklist，成为组内评审标准附件。</li>
+      </ul>
+      <div class="exp-tags">
+        <span class="tag">GSAP</span><span class="tag">Three.js</span><span class="tag">Canvas</span><span class="tag">移动端 H5</span>
+      </div>
+    </article>
+  </div>
+</section>
+
+<!-- ══════════════ SEC.05 项目作品 ══════════════ -->
+<section class="section" id="projects">
+  <div class="section-head">
+    <span class="section-no">SEC.05</span>
+    <h2 class="section-title">项目作品 <span class="title-en">WORKS</span></h2>
+    <span class="section-line" aria-hidden="true"></span>
+    <span class="section-coord" aria-hidden="true">SHOWCASE//P-01→P-04</span>
+  </div>
+  <div class="proj-grid" id="projGrid">
+    <article class="proj-card reveal" data-proj="0" tabindex="0" role="button" aria-label="查看项目 拾光 的详情">
+      <div class="proj-media">
+        <img src="images/project-1.jpg" alt="拾光项目封面——书本堆叠与循环箭头插画" width="640" height="360">
+        <span class="proj-no" aria-hidden="true">P-01</span>
+        <span class="proj-hover-ui" aria-hidden="true">
+          <span class="proj-hover-btn">查看详情 <i>▶</i></span>
+        </span>
+      </div>
+      <div class="proj-body">
+        <div class="proj-meta">
+          <span class="tag tag-orange">校园创业金奖</span>
+          <span class="proj-year">2024.03 — 2024.11</span>
+        </div>
+        <h3 class="proj-title">拾光 <span class="proj-title-en">LIGHTDECK</span></h3>
+        <p class="proj-desc">校园二手书循环平台。微信小程序 + Web 双端，让闲置课本在学弟学妹手里再亮一次。</p>
+        <div class="proj-stack"><span>Vue3</span><span>uni-app</span><span>Node.js</span><span>MySQL</span></div>
+      </div>
+    </article>
+
+    <article class="proj-card reveal" data-proj="1" tabindex="0" role="button" aria-label="查看项目 墨阵 的详情">
+      <div class="proj-media">
+        <img src="images/project-2.jpg" alt="墨阵项目封面——毛笔与米字格插画" width="640" height="360">
+        <span class="proj-no" aria-hidden="true">P-02</span>
+        <span class="proj-hover-ui" aria-hidden="true">
+          <span class="proj-hover-btn">查看详情 <i>▶</i></span>
+        </span>
+      </div>
+      <div class="proj-body">
+        <div class="proj-meta">
+          <span class="tag tag-blue">国家级二等奖</span>
+          <span class="proj-year">2024.09 — 2025.05</span>
+        </div>
+        <h3 class="proj-title">墨阵 <span class="proj-title-en">INKGRID</span></h3>
+        <p class="proj-desc">AI 书法陪练 Web 应用。手写轨迹采集 + 笔画识别 + 即时评分，也是我的毕业设计。</p>
+        <div class="proj-stack"><span>React</span><span>Canvas</span><span>MediaPipe</span><span>LSTM</span></div>
+      </div>
+    </article>
+
+    <article class="proj-card reveal" data-proj="2" tabindex="0" role="button" aria-label="查看项目 城市脉搏 的详情">
+      <div class="proj-media">
+        <img src="images/project-3.jpg" alt="城市脉搏项目封面——折线图与地图定位插画" width="640" height="360">
+        <span class="proj-no" aria-hidden="true">P-03</span>
+        <span class="proj-hover-ui" aria-hidden="true">
+          <span class="proj-hover-btn">查看详情 <i>▶</i></span>
+        </span>
+      </div>
+      <div class="proj-body">
+        <div class="proj-meta">
+          <span class="tag tag-orange">课程设计满分</span>
+          <span class="proj-year">2025.03 — 2025.06</span>
+        </div>
+        <h3 class="proj-title">城市脉搏 <span class="proj-title-en">CITYPULSE</span></h3>
+        <p class="proj-desc">杭州公共出行实时数据可视化大屏：地铁客流、慢行系统与天气数据同屏联动。</p>
+        <div class="proj-stack"><span>React</span><span>ECharts</span><span>WebSocket</span><span>Python</span></div>
+      </div>
+    </article>
+
+    <article class="proj-card reveal" data-proj="3" tabindex="0" role="button" aria-label="查看项目 纸鸢 的详情">
+      <div class="proj-media">
+        <img src="images/project-4.jpg" alt="纸鸢项目封面——风筝与UI组件插画" width="640" height="360">
+        <span class="proj-no" aria-hidden="true">P-04</span>
+        <span class="proj-hover-ui" aria-hidden="true">
+          <span class="proj-hover-btn">查看详情 <i>▶</i></span>
+        </span>
+      </div>
+      <div class="proj-body">
+        <div class="proj-meta">
+          <span class="tag tag-blue">GitHub 1.2k★</span>
+          <span class="proj-year">2024.05 — 至今</span>
+        </div>
+        <h3 class="proj-title">纸鸢 <span class="proj-title-en">KITE UI</span></h3>
+        <p class="proj-desc">轻量开源 React 组件库。28 个组件、完整的无障碍支持，文档站像风筝一样轻。</p>
+        <div class="proj-stack"><span>TypeScript</span><span>React</span><span>Rollup</span><span>dts-doc</span></div>
+      </div>
+    </article>
+  </div>
+  <p class="proj-hint"><span class="pixel-arrow" aria-hidden="true">▶▶</span> 点击任意卡片，调出完整项目档案</p>
+</section>
+
+<!-- ══════════════ SEC.06 专业技能 ══════════════ -->
+<section class="section section-tint" id="skills">
+  <div class="section-head">
+    <span class="section-no">SEC.06</span>
+    <h2 class="section-title">专业技能 <span class="title-en">SKILLS</span></h2>
+    <span class="section-line" aria-hidden="true"></span>
+    <span class="section-coord" aria-hidden="true">MATRIX//ABILITY-SCAN</span>
+  </div>
+  <div class="skills-grid">
+    <div class="skills-bars reveal">
+      <div class="skill"><div class="skill-head"><span>HTML / CSS / JavaScript</span><b>92</b></div><div class="skill-bar"><i data-w="92"></i></div></div>
+      <div class="skill"><div class="skill-head"><span>TypeScript</span><b>86</b></div><div class="skill-bar"><i data-w="86"></i></div></div>
+      <div class="skill"><div class="skill-head"><span>React 生态</span><b>88</b></div><div class="skill-bar"><i data-w="88"></i></div></div>
+      <div class="skill"><div class="skill-head"><span>Vue3 生态</span><b>84</b></div><div class="skill-bar"><i data-w="84"></i></div></div>
+      <div class="skill"><div class="skill-head"><span>动效 / 三维（GSAP·Three.js·Canvas）</span><b>80</b></div><div class="skill-bar"><i data-w="80"></i></div></div>
+      <div class="skill"><div class="skill-head"><span>Node.js / 服务端渲染</span><b>72</b></div><div class="skill-bar"><i data-w="72"></i></div></div>
+    </div>
+    <div class="skills-cloud reveal">
+      <h3 class="cloud-title">工具箱 TOOLBOX</h3>
+      <div class="cloud-tags">
+        <span class="tag tag-lg">Git</span><span class="tag tag-lg">Vite</span><span class="tag tag-lg">Webpack</span>
+        <span class="tag tag-lg tag-orange">Figma</span><span class="tag tag-lg">Storybook</span>
+        <span class="tag tag-lg tag-blue">Linux</span><span class="tag tag-lg">Docker 基础</span>
+        <span class="tag tag-lg">Jest / Vitest</span><span class="tag tag-lg">Playwright</span>
+        <span class="tag tag-lg tag-orange">Next.js</span><span class="tag tag-lg">uni-app</span>
+        <span class="tag tag-lg tag-blue">SVG 动画</span><span class="tag tag-lg">REST / WebSocket</span>
+        <span class="tag tag-lg">SQLite / MySQL</span><span class="tag tag-lg">Python 基础</span>
+      </div>
+      <div class="skills-note">
+        <span class="side-no">NOTE</span>
+        <p>技能值代表「能独立交付的熟练度」，不做装饰性满格。持续学习中：WebGPU、设计系统。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════ SEC.07 获奖证书 ══════════════ -->
+<section class="section" id="awards">
+  <div class="section-head">
+    <span class="section-no">SEC.07</span>
+    <h2 class="section-title">获奖证书 <span class="title-en">AWARDS</span></h2>
+    <span class="section-line" aria-hidden="true"></span>
+    <span class="section-coord" aria-hidden="true">PROOF//HONOR-RECORD</span>
+  </div>
+  <div class="cert-grid">
+    <figure class="cert-card reveal">
+      <div class="cert-media">
+        <img src="images/cert-1.jpg" alt="大学英语六级证书插画" width="620" height="446">
+        <span class="cert-stamp" aria-hidden="true">CERT-01</span>
+      </div>
+      <figcaption>
+        <strong>大学英语六级 CET-6</strong>
+        <span>587 分 · 2024.06</span>
+      </figcaption>
+    </figure>
+    <figure class="cert-card reveal">
+      <div class="cert-media">
+        <img src="images/cert-2.jpg" alt="软件设计师职业资格证书插画" width="620" height="446">
+        <span class="cert-stamp cert-stamp-blue" aria-hidden="true">CERT-02</span>
+      </div>
+      <figcaption>
+        <strong>软件设计师（软考中级）</strong>
+        <span>工业与信息化部 · 2025.05</span>
+      </figcaption>
+    </figure>
+    <figure class="cert-card reveal">
+      <div class="cert-media">
+        <img src="images/cert-3.jpg" alt="中国大学生计算机设计大赛获奖证书插画" width="620" height="446">
+        <span class="cert-stamp cert-stamp-orange" aria-hidden="true">CERT-03</span>
+      </div>
+      <figcaption>
+        <strong>中国大学生计算机设计大赛</strong>
+        <span>国家级二等奖 · 2025.08</span>
+      </figcaption>
+    </figure>
+  </div>
+  <ol class="award-list">
+    <li class="reveal"><span class="award-year">2025</span><span class="award-name">第十八届中国大学生计算机设计大赛<span>二等奖 · 国家级</span></span></li>
+    <li class="reveal"><span class="award-year">2025</span><span class="award-name">蓝桥杯 Web 应用开发赛道<span>浙江省一等奖</span></span></li>
+    <li class="reveal"><span class="award-year">2025</span><span class="award-name">全国高校数字艺术设计大赛 NCDA<span>优秀奖</span></span></li>
+    <li class="reveal"><span class="award-year">2024</span><span class="award-name">校园创新创业大赛<span>金奖 · 拾光项目</span></span></li>
+    <li class="reveal"><span class="award-year">2024</span><span class="award-name">校级一等奖学金 ×2 &amp; 三好学生<span>2023 / 2024 学年</span></span></li>
+  </ol>
+</section>
+
+<!-- ══════════════ SEC.08 联系方式 + 简历下载 ══════════════ -->
+<section class="section section-contact" id="contact">
+  <div class="section-head">
+    <span class="section-no">SEC.08</span>
+    <h2 class="section-title">联系方式 <span class="title-en">CONTACT</span></h2>
+    <span class="section-line" aria-hidden="true"></span>
+    <span class="section-coord" aria-hidden="true">SIGNAL//SEND-MESSAGE</span>
+  </div>
+  <h3 class="contact-big reveal">
+    一起做点<br><em>有生命力</em>的界面？
+  </h3>
+  <div class="contact-grid">
+    <a class="contact-card reveal" href="mailto:jiangyu.dev@example.com">
+      <span class="contact-label">EMAIL / 邮箱</span>
+      <span class="contact-value">jiangyu.dev@example.com</span>
+      <span class="pixel-arrow contact-arrow" aria-hidden="true">▶</span>
+    </a>
+    <a class="contact-card reveal" href="tel:+8613822113344">
+      <span class="contact-label">TEL / 电话</span>
+      <span class="contact-value">+86 138 2211 3344</span>
+      <span class="pixel-arrow contact-arrow" aria-hidden="true">▶</span>
+    </a>
+    <a class="contact-card reveal" href="https://github.com/jiangyu-dev" target="_blank" rel="noopener noreferrer">
+      <span class="contact-label">GITHUB / 代码仓库</span>
+      <span class="contact-value">github.com/jiangyu-dev</span>
+      <span class="pixel-arrow contact-arrow" aria-hidden="true">▶</span>
+    </a>
+    <div class="contact-card contact-card-plain reveal">
+      <span class="contact-label">BASE / 常驻</span>
+      <span class="contact-value">浙江省杭州市西湖区</span>
+      <span class="contact-mini">N30.27° · E120.16°</span>
+    </div>
+  </div>
+  <div class="resume-cta reveal">
+    <div class="resume-cta-text">
+      <strong>简历同步开放下载</strong>
+      <p>网页版简历 · 与本档案数据一致 · 可直接打印为 PDF</p>
+    </div>
+    <a class="btn btn-solid btn-lg" href="resume.html" download="江屿-前端开发工程师-简历.html">
+      下载简历 <span class="btn-arrow" aria-hidden="true">↓</span></a>
+    <a class="btn btn-ghost btn-lg" href="resume.html" target="_blank">在线预览</a>
+  </div>
+</section>
+
+<!-- ══════════════ 页脚 / FOOTER ══════════════ -->
+<footer class="footer">
+  <div class="footer-inner">
+    <div class="footer-brand">
+      <span class="brand-mark">JY<span class="brand-dot">.</span></span>
+      <span class="footer-tagline">一份来自 2026 届的求职档案 · 感谢翻阅到底</span>
+    </div>
+    <div class="footer-meta">
+      <span>© 2026 JIANG YU</span>
+      <span>FILE END — EOF</span>
+      <span class="footer-coord">N30.27° / E120.16°</span>
+    </div>
+    <div class="barcode barcode-sm" aria-hidden="true"></div>
+  </div>
+</footer>
+
+<!-- ══════════════ 项目详情模态框 ══════════════ -->
+<div class="modal" id="projModal" role="dialog" aria-modal="true" aria-labelledby="modalTitle" hidden>
+  <div class="modal-backdrop" data-close></div>
+  <div class="modal-panel">
+    <button class="modal-close" data-close aria-label="关闭详情">×</button>
+    <div class="modal-media">
+      <img id="modalImg" src="" alt="" width="640" height="360">
+      <span class="proj-no" id="modalNo" aria-hidden="true">P-01</span>
+    </div>
+    <div class="modal-body">
+      <div class="modal-meta">
+        <span class="tag tag-orange" id="modalBadge"></span>
+        <span class="proj-year" id="modalYear"></span>
+      </div>
+      <h3 class="modal-title" id="modalTitle"></h3>
+      <p class="modal-desc" id="modalDesc"></p>
+      <div class="modal-block">
+        <h4><span class="side-no">01</span>我做了什么</h4>
+        <ul id="modalPoints"></ul>
+      </div>
+      <div class="modal-block">
+        <h4><span class="side-no">02</span>技术栈与产出</h4>
+        <p class="modal-stack" id="modalStack"></p>
+      </div>
+      <div class="modal-block">
+        <h4><span class="side-no">03</span>项目数据</h4>
+        <div class="modal-stats" id="modalStats"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Toast 提示 -->
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script src="js/main.js"></script>
+</body>
+</html>

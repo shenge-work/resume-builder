@@ -113,6 +113,8 @@ ctx.indexedDB = makeIDB();
 /* ---------- 加载源码 ---------- */
 const dataCode = fs.readFileSync(path.join(ROOT, 'js', 'data.js'), 'utf8');
 const appCode = fs.readFileSync(path.join(ROOT, 'js', 'app.js'), 'utf8');
+/* 内容编辑区 schema：必须在 resume-render.js 之前加载（后者从这里取基础件） */
+const editorSchemaCode = fs.readFileSync(path.join(ROOT, 'js', 'render', 'editor-schema.js'), 'utf8');
 const storeCode = fs.readFileSync(path.join(ROOT, 'js', 'store', 'resume-store.js'), 'utf8');
 const renderCode = fs.readFileSync(path.join(ROOT, 'js', 'render', 'resume-render.js'), 'utf8');
 const exportPdfCode = fs.existsSync(path.join(ROOT, 'js', 'export', 'export-pdf.js'))
@@ -131,6 +133,7 @@ const nativeBridgeCode = fs.readFileSync(path.join(ROOT, 'js', 'store', 'native-
 const layoutCssCode = fs.readFileSync(path.join(ROOT, 'css', 'layout.css'), 'utf8');
 const serveCode = fs.readFileSync(path.join(ROOT, 'tools', 'serve.js'), 'utf8');
 const feishuSyncToolCode = fs.readFileSync(path.join(ROOT, 'tools', 'feishu-sync.js'), 'utf8');
+const menuActionsCode = fs.readFileSync(path.join(ROOT, 'js', 'ui', 'menu-actions.js'), 'utf8');
 
 vm.createContext(ctx);
 
@@ -142,9 +145,24 @@ const F = (name, cond) => fileResults.push({ name, pass: !!cond });
    注意：resume-store.js 是零依赖 IIFE，挂 window.ResumeStore；app.js 的 pushRepo 会引用它，
    测试里必须按真实 index.html 的加载顺序先加载 store，否则防抖保存的 setTimeout 触发时会 ReferenceError。 */
 try {
-  vm.runInContext(dataCode + '\n' + renderCode + '\n' + exportPdfCode + '\n' + feishuSyncCode + '\n' + paneMobileCode + '\n' + storeCode + '\n' + appCode, ctx, { filename: 'resume-bundle.js' });
+  vm.runInContext(dataCode + '\n' + editorSchemaCode + '\n' + renderCode + '\n' + exportPdfCode + '\n' + feishuSyncCode + '\n' + paneMobileCode + '\n' + storeCode + '\n' + appCode, ctx, { filename: 'resume-bundle.js' });
 } catch (e) {
   fileResults.push({ name: '加载期异常: ' + (e && e.message ? e.message : e), pass: false });
+}
+
+/* ---------- 统一入口清单（js/ui/menu-actions.js）----------
+   桌面工具菜单与手机 sync-pane 的按钮都由这份清单渲染，index.html 里已不再手写按钮。
+   因此「某个入口是否存在」必须问**渲染结果**，不能再拿 index.html 做正则 ——
+   那正是「只匹配文本、从不运行」的老毛病（serve.js 的 P0 就是那么漏掉的）。
+   这里提前加载，供下方所有入口类断言使用。 */
+let menuDesktop = '';
+let menuMobile = '';
+try {
+  vm.runInContext(menuActionsCode, ctx, { filename: 'menu-actions.js' });
+  menuDesktop = ctx.ResumeMenu.htmlFor('desktop');
+  menuMobile = ctx.ResumeMenu.htmlFor('mobile');
+} catch (e) {
+  fileResults.push({ name: '加载期异常（js/ui/menu-actions.js）: ' + (e && e.message ? e.message : e), pass: false });
 }
 
 /* ---------- 封装回归断言（必须在桥接前检查“未泄漏”）---------- */
@@ -325,15 +343,16 @@ F('打印样式存在 @media print', /@media\s+print/.test(cssCode));
 F('打印时隐藏编辑区与侧边面板', /@media\s+print[\s\S]*?\.side-rail,\.side-panel[^;]*display\s*:\s*none/.test(cssCode));
 F('打印条目分页保护 break-inside:avoid', /break-inside\s*:\s*avoid/.test(cssCode));
 F('打印纸张为 A4', /@page\{[^}]*size\s*:\s*A4/.test(cssCode));
-F('工具菜单面板含 PDF 预览按钮', /ResumeEditor\.exportPDF\(\)/.test(htmlCode));
-F('工具菜单面板含导出图片版按钮', /ResumeEditor\.exportLongImage\(\)/.test(htmlCode));
-F('工具菜单面板含导出单文件 HTML 按钮', /ResumeEditor\.exportSingleFileHTML\(\)/.test(htmlCode));
-F('工具菜单面板含文件名输入框', /id="filenameBase"/.test(htmlCode));
+/* 入口类断言统一问「清单渲染出了什么」，不再问 index.html 里写了什么 */
+F('工具菜单面板含 PDF 预览按钮', /ResumeEditor\.exportPDF\(\)/.test(menuDesktop));
+F('工具菜单面板含导出图片版按钮', /ResumeEditor\.exportLongImage\(\)/.test(menuDesktop));
+F('工具菜单面板含导出单文件 HTML 按钮', /ResumeEditor\.exportSingleFileHTML\(\)/.test(menuDesktop));
+F('工具菜单面板含文件名输入框', /id="filenameBase"/.test(menuDesktop));
 F('导出预览弹层存在（exportModal）', /id="exportModal"/.test(htmlCode));
 F('导出预览弹层含下载按钮 closeExportModal', /ResumeEditor\.closeExportModal\(\)/.test(htmlCode));
-F('图片版导出按钮标注为「导出（图片版）"', /导出（图片版）/.test(htmlCode));
-F('入口已接入 ResumeEditor 命名空间（toggleGuides）', /onclick="ResumeEditor\.toggleGuides\(\)"/.test(htmlCode));
-F('入口已接入 ResumeEditor 命名空间（exportPDF）', /onclick="ResumeEditor\.exportPDF\(\)"/.test(htmlCode));
+F('图片版导出按钮标注为「导出（图片版）"', /导出（图片版）/.test(menuDesktop));
+F('入口已接入 ResumeEditor 命名空间（toggleGuides）', /onclick="ResumeEditor\.toggleGuides\(\)"/.test(menuDesktop));
+F('入口已接入 ResumeEditor 命名空间（exportPDF）', /onclick="ResumeEditor\.exportPDF\(\)"/.test(menuDesktop));
 
 /* ---------- 文件级冒烟断言：T7 投递链路的接线（防「写了但没接」）----------
    源 index.html 常被外部编辑器注入 data-page-node-id，断言前先剥离，避免误判。 */
@@ -343,11 +362,11 @@ F('index.html 引入 js/audit.js', /<script src="js\/audit\.js"><\/script>/.test
 F('T7 模块排在 app.js 之后（依赖其暴露的 getData）',
   htmlClean.indexOf('js/app.js') < htmlClean.indexOf('js/export-extra.js') &&
   htmlClean.indexOf('js/app.js') < htmlClean.indexOf('js/audit.js'));
-F('工具栏含投递体检入口', /ResumeAudit\.toggle\(\)/.test(htmlClean));
-F('导出菜单含 Word（.docx）', /ResumeExport\.exportDocx\(\)/.test(htmlClean));
-F('导出菜单含纯文本', /ResumeExport\.exportTxt\(\)/.test(htmlClean));
-F('导出菜单含 Markdown', /ResumeExport\.exportMarkdown\(\)/.test(htmlClean));
-F('导出菜单含静默 PDF', /ResumeExport\.exportPdfSilent\(\)/.test(htmlClean));
+F('工具栏含投递体检入口', /ResumeAudit\.toggle\(\)/.test(menuDesktop));
+F('导出菜单含 Word（.docx）', /ResumeExport\.exportDocx\(\)/.test(menuDesktop));
+F('导出菜单含纯文本', /ResumeExport\.exportTxt\(\)/.test(menuDesktop));
+F('导出菜单含 Markdown', /ResumeExport\.exportMarkdown\(\)/.test(menuDesktop));
+F('导出菜单含静默 PDF', /ResumeExport\.exportPdfSilent\(\)/.test(menuDesktop));
 F('体检面板容器存在（#auditBody）', /id="auditBody"/.test(htmlClean));
 
 /* ---------- 文件级冒烟断言：打印 / 静默导出的页边距跟随「页面边距」设置（7d）----------
@@ -425,10 +444,12 @@ F('index.html 引入 vendor/qrcode-generator.js（二维码渲染）',
   /<script src="vendor\/qrcode-generator\.js"><\/script>/.test(htmlClean));
 F('build-single.js 也将 qrcode-generator.js 内联（单文件版可用）',
   /vendor\/qrcode-generator\.js/.test(fs.readFileSync(path.join(ROOT, 'tools', 'build-single.js'), 'utf8')));
-F('飞书设置页含「扫码注册个人应用」入口（regStartBtn）',
-  /id="regStartBtn"/.test(settingsViewCode) && /onclick="ResumeEditor\.startFeishuRegister\(\)"/.test(settingsViewCode));
-F('飞书设置页含二维码展示容器（regQr）与状态位（regStatus/regResult）',
-  /id="regQr"/.test(settingsViewCode) && /id="regStatus"/.test(settingsViewCode) && /id="regResult"/.test(settingsViewCode));
+F('飞书设置页含「连接飞书」合并入口（oauthStartBtn + revokeOauthBtn，注册/授权合一）',
+  /id="oauthStartBtn"/.test(settingsViewCode) && /id="revokeOauthBtn"/.test(settingsViewCode) &&
+  !/id="regStartBtn"/.test(settingsViewCode));
+F('飞书设置页含高级设置折叠项（fs-advanced）与二维码/状态容器（regQr/regStatus/regResult）',
+  /class="fs-card fs-advanced"/.test(settingsViewCode) && /id="regQr"/.test(settingsViewCode) &&
+  /id="regStatus"/.test(settingsViewCode) && /id="regResult"/.test(settingsViewCode));
 F('app.js 暴露 startFeishuRegister / cancelFeishuRegister（接入 UI）',
   /startFeishuRegister: startFeishuRegister/.test(appCode) &&
   /cancelFeishuRegister: cancelFeishuRegister/.test(appCode));
@@ -451,9 +472,9 @@ F('上传走 XHR 上传进度（upload.onprogress）',
 F('设置页含「拉取最新」入口（setPullBtn）',
   /id="setPullBtn"/.test(settingsViewCode) && /ResumeEditor\.pullFromFeishu\(\)/.test(settingsViewCode));
 F('移动端同步面板含拉取 / 历史 / 消息通知入口',
-  /ResumeEditor\.pullFromFeishu\(\)/.test(htmlClean) &&
-  /ResumeRouter\.navigate\('\/history'\)/.test(htmlClean) &&
-  /ResumeNotifier\.togglePanel\(\)/.test(htmlClean));
+  /ResumeEditor\.pullFromFeishu\(\)/.test(menuMobile) &&
+  /ResumeRouter\.navigate\('\/history'\)/.test(menuMobile) &&
+  /ResumeNotifier\.togglePanel\(\)/.test(menuMobile));
 F('app.js 暴露 pullFromFeishu / startAutoSync 并在启动后调用',
   /pullFromFeishu: pullFromFeishu/.test(appCode) &&
   /startAutoSync\(\)/.test(appCode));
@@ -491,8 +512,95 @@ F('通知模块暴露 notify / unreadCount / togglePanel',
   /notify: notify/.test(fs.readFileSync(path.join(ROOT, 'js', 'ui', 'notifier.js'), 'utf8')) &&
   /unreadCount: unreadCount/.test(fs.readFileSync(path.join(ROOT, 'js', 'ui', 'notifier.js'), 'utf8')));
 
+/* ---------- 统一入口清单（js/ui/menu-actions.js）----------
+   在 vm 里按浏览器同路径加载。它的 render() 在加载时就会跑一次（沙箱 document 是桩，
+   getElementById 返回临时元素，赋值 innerHTML 无副作用），所以这里只测纯函数 htmlFor()。 */
+const menuCases = require(path.join(ROOT, 'test', 'cases-menu.js'));
+const menuCtx = {
+  ResumeMenu: ctx.ResumeMenu,
+  assert(cond, msg) { fileResults.push({ name: 'menu › ' + msg, pass: !!cond }); },
+};
+let menuChain = Promise.resolve();
+for (const c of menuCases) {
+  menuChain = menuChain.then(() => c.fn(menuCtx))
+    .catch((e) => { fileResults.push({ name: 'menu › ' + c.name + '（抛错: ' + (e && e.message ? e.message : e) + '）', pass: false }); });
+}
+
+/* ---------- 撤销栈按简历隔离（#7）+ 输入框放行原生撤销 ----------
+   走 ResumeEditor 公共 API（js/app.js 已暴露 undo/redo/recordHistory/setActiveResumeId/getData/isEditableTarget）。 */
+const undoCases = require(path.join(ROOT, 'test', 'cases-undo.js'));
+const undoCtx = {
+  ResumeEditor: ctx.ResumeEditor,
+  assert(cond, msg) { fileResults.push({ name: 'undo › ' + msg, pass: !!cond }); },
+};
+let undoChain = Promise.resolve();
+for (const c of undoCases) {
+  undoChain = undoChain.then(() => c.fn(undoCtx))
+    .catch((e) => { fileResults.push({ name: 'undo › ' + c.name + '（抛错: ' + (e && e.message ? e.message : e) + '）', pass: false }); });
+}
+
+/* ---------- 倒数第二步：保存状态条（保存三态 + 存储降级通知）----------
+   在 vm 里按浏览器同路径加载；用例既测状态机纯逻辑，也**真的**把演示 fetch 换成
+   必然失败的实现，验证「写盘失败 → 降级通知」这条唯一可感知通道确实发出。 */
+try {
+  const ssCode = fs.readFileSync(path.join(ROOT, 'js', 'ui', 'save-status.js'), 'utf8');
+  vm.runInContext(ssCode, ctx, { filename: 'save-status.js' });
+} catch (e) {
+  fileResults.push({ name: '加载期异常（js/ui/save-status.js）: ' + (e && e.message ? e.message : e), pass: false });
+}
+
+const ssCases = require(path.join(ROOT, 'test', 'cases-save-status.js'));
+const ssCtx = {
+  SaveStatus: ctx.ResumeSaveStatus,
+  ResumeLibrary: ctx.ResumeLibrary,
+  vmGlobal: ctx,   // 用于注入「必然失败的 fetch」以走通降级分支
+  assert(cond, msg) { fileResults.push({ name: 'savestatus › ' + msg, pass: !!cond }); },
+};
+let ssChain = Promise.resolve();
+for (const c of ssCases) {
+  ssChain = ssChain.then(() => c.fn(ssCtx))
+    .catch((e) => { fileResults.push({ name: 'savestatus › ' + c.name + '（抛错: ' + (e && e.message ? e.message : e) + '）', pass: false }); });
+}
+
+/* ---------- 末步：本地写服务的 HTTP 冒烟测试（真起子进程）----------
+   这是整个 run.js 里**唯一真正执行 serve.js** 的用例：其它关于 serve.js 的断言都只是把源码
+   读成字符串做正则匹配，于是「一次普通 GET 请求就把服务进程杀掉」这种缺陷能一路逃过全绿。
+   本组用例起随机端口的子进程打真实请求，并断言服务在该请求后仍存活、各接口状态码分类正确。 */
+/* ---------- 倒数第一步：JD 匹配分析（js/jd-match.js）----------
+   在主 vm 里按浏览器同路径加载（它只读 ResumeEditor.getData()，不写数据，不污染其它用例）。
+   用例既测纯逻辑（术语抽取 / 词边界 / 分桶），也钉住「JD 原文不进简历数据」这条隐私边界。 */
+try {
+  const jdCode = fs.readFileSync(path.join(ROOT, 'js', 'jd-match.js'), 'utf8');
+  vm.runInContext(jdCode, ctx, { filename: 'jd-match.js' });
+} catch (e) {
+  fileResults.push({ name: '加载期异常（js/jd-match.js）: ' + (e && e.message ? e.message : e), pass: false });
+}
+
+const jdCases = require(path.join(ROOT, 'test', 'cases-jd.js'));
+const jdCtx = {
+  ResumeJd: ctx.ResumeJd,
+  ResumeMenu: ctx.ResumeMenu,   // JD 入口在两端清单里是否都在，由 menu-actions 的清单说话
+  vmGlobal: ctx,   // 用例需要临时替换 document.getElementById 来喂 textarea
+  assert(cond, msg) { fileResults.push({ name: 'jd › ' + msg, pass: !!cond }); },
+};
+let jdChain = Promise.resolve();
+for (const c of jdCases) {
+  jdChain = jdChain.then(() => c.fn(jdCtx))
+    .catch((e) => { fileResults.push({ name: 'jd › ' + c.name + '（抛错: ' + (e && e.message ? e.message : e) + '）', pass: false }); });
+}
+
+const httpCases = require(path.join(ROOT, 'test', 'cases-serve-http.js'));
+const httpCtx = {
+  assert(cond, msg) { fileResults.push({ name: 'http › ' + msg, pass: !!cond }); },
+};
+let httpChain = Promise.resolve();
+for (const c of httpCases) {
+  httpChain = httpChain.then(() => c.fn(httpCtx))
+    .catch((e) => { fileResults.push({ name: 'http › ' + c.name + '（抛错: ' + (e && e.message ? e.message : e) + '）', pass: false }); });
+}
+
 /* ---------- 报告（等异步的 library 用例跑完再输出） ---------- */
-libChain.then(() => {
+libChain.then(() => ssChain).then(() => jdChain).then(() => menuChain).then(() => undoChain).then(() => httpChain).then(() => {
   const all = ctx.__results.concat(fileResults);
   let pass = 0, fail = 0;
   for (const r of all) {

@@ -6,6 +6,7 @@
  */
 mod config;
 mod feishu;
+mod storage;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -18,7 +19,12 @@ pub fn run() {
             config::feishu_config_load,
             config::feishu_config_save,
             config::state_load,
-            config::state_save
+            config::state_save,
+            storage::resume_index_load,
+            storage::resume_index_save,
+            storage::resume_doc_load,
+            storage::resume_doc_save,
+            storage::resume_doc_remove
         ])
         .run(tauri::generate_context!())
         .expect("启动 Resume Studio 桌面壳失败");

@@ -27,6 +27,16 @@
     return T(x).trim().length > 0;
   }
 
+  /* **xxx** → <b>xxx</b>，其余字符转义（与简历预览的高亮语义一致） */
+  function boldHtml(s) {
+    return esc(s).replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>');
+  }
+  /* 矩阵式技能行：按 · 切段 → 各段加粗处理 → 统一分隔点拼接 */
+  function kwHtml(s) {
+    var parts = T(s).split(/[·・•]/).map(function (x) { return x.trim(); }).filter(Boolean);
+    return parts.length ? parts.map(boldHtml).join('<span class="pf-sep">·</span>') : '';
+  }
+
   /* ---------- 各板块类型渲染（字段名与 js/render/resume-render.js 保持一致） ---------- */
   function renderSection(sec) {
     var title = esc(sec.title || '');
@@ -55,6 +65,15 @@
 
     } else if (sec.type === 'skills') {
       body = (sec.groups || []).map(function (grp) {
+        if (!grp) return '';
+        var kw = kwHtml(grp.keywords), dt = kwHtml(grp.detail);
+        /* 矩阵式技能行：漏了这段，新格式在作品集页会整块消失 */
+        if (kw || dt) {
+          return '<div class="pf-block"><div class="pf-subhead"><span class="pf-subhead-title">' +
+            esc(T(grp.name)) + '</span></div>' +
+            (kw ? '<p class="pf-skill-kw">' + kw + '</p>' : '') +
+            (dt ? '<p class="pf-skill-detail">' + dt + '</p>' : '') + '</div>';
+        }
         var lis = (grp.items || []).filter(hasText).map(function (it) {
           return '<li>' + esc(T(it)) + '</li>';
         }).join('');

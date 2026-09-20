@@ -307,4 +307,30 @@ module.exports = [
     ctx.assert(!threw && r && r.text, 'exportTxt 在桩环境下不抛错并返回文本');
   }},
 
+  /* ================= G. 矩阵式技能行（keywords / detail） =================
+     失效面：导出层没跟上新字段 → 技能板块在 Word / Markdown 里整块变空，
+     只有一个光秃秃的「专业技能」标题（内容丢失比排版错更难发现）。 */
+  { name: '技能矩阵导出', fn: function (ctx) {
+    const data = {
+      name: 'X', subtitle: '', meta: '', contact: [],
+      sections: [{ id: 's', type: 'skills', title: '专业技能', groups: [
+        { name: 'AI / Agent', keywords: '**Multi-Agent 协作编排** · RAG 增强检索',
+          detail: 'LangChain / LangGraph · Few-Shot 自学习框架', items: [] },
+        /* 同一板块里混排：有 keywords 的走矩阵，没有的仍走旧的逐条列表 */
+        { name: '语言', items: ['Python', 'Go'] }
+      ]}]
+    };
+    const b = ctx.ResumeExport.buildBlocks(data);
+    ctx.assert(b.some(function (x) { return x.kind === 'h2' && x.text === '专业技能'; }), 'skills → h2 板块标题');
+    ctx.assert(b.some(function (x) {
+      return x.kind === 'li' && x.text === '**AI / Agent**：**Multi-Agent 协作编排** · RAG 增强检索';
+    }), '矩阵行合成「分组名：关键词行」且保留 **加粗** 高亮标记');
+    ctx.assert(b.some(function (x) { return x.kind === 'p' && x.text === 'LangChain / LangGraph · Few-Shot 自学习框架'; }),
+      '补充说明行单独成段（含掌握程度 / 成果）');
+    ctx.assert(b.some(function (x) { return x.kind === 'li' && x.text === '**语言**：Python、Go'; }),
+      '同板块内无 keywords 的分组仍走旧版「、」连接');
+    const doc = ctx.ResumeExport.buildDocx({ data: data, fonts: {}, spacing: {} });
+    ctx.assert(doc && doc.bytes && doc.bytes.length > 0, '含矩阵技能行的 DOCX 能正常构建');
+  }},
+
 ];

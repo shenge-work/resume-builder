@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>江屿 · 前端开发工程师 · 求职简历</title>
+<link rel="icon" type="image/png" sizes="32x32" href="favicon-64.png">
+<link rel="apple-touch-icon" href="favicon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Noto+Sans+SC:wght@400;500;700;900&display=swap" rel="stylesheet">
+<style>
+:root {
+  --paper: #F3EEE2; --card: #FFFCF4; --ink: #141311; --ink-soft: #4A463F;
+  --orange: #FF5A1E; --blue: #2B4BE0;
+  --border: 3px solid var(--ink);
+  --font-cn: 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --font-display: 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --font-mono: 'Space Mono', 'SF Mono', Consolas, monospace;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-cn);
+  font-size: 14px;
+  line-height: 1.7;
+  padding: 28px 18px 80px;
+}
+.sheet {
+  max-width: 860px;
+  margin: 0 auto;
+  background: var(--card);
+  border: 4px solid var(--ink);
+  box-shadow: 10px 10px 0 var(--ink);
+}
+.sheet-head {
+  display: flex;
+  gap: 22px;
+  padding: 26px 30px;
+  border-bottom: var(--border);
+  align-items: center;
+  flex-wrap: wrap;
+}
+.avatar {
+  width: 96px; height: 96px;
+  border: var(--border);
+  flex-shrink: 0;
+  overflow: hidden;
+}
+.avatar img { width: 100%; height: 100%; object-fit: cover; }
+.head-main { flex: 1; min-width: 240px; }
+.head-name {
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: 42px;
+  line-height: 1.1;
+  letter-spacing: .02em;
+  text-shadow: 3px 3px 0 rgba(255, 90, 30, .8);
+}
+.head-role { font-family: var(--font-mono); font-size: 12.5px; font-weight: 700; letter-spacing: .06em; margin-top: 4px; }
+.head-role em { font-style: normal; color: var(--blue); }
+.head-meta {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-weight: 700;
+  line-height: 2;
+  color: var(--ink-soft);
+}
+.head-meta b { color: var(--ink); }
+.file-no {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  background: var(--ink);
+  color: var(--paper);
+  padding: 4px 9px;
+  align-self: flex-start;
+}
+.sec { padding: 22px 30px; border-bottom: 2px solid var(--ink); }
+.sec:last-child { border-bottom: none; }
+.sec-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.sec-no {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  background: var(--orange);
+  color: #fff;
+  padding: 3px 8px;
+  border: 2px solid var(--ink);
+}
+.sec-title h2 {
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 900;
+  line-height: 1;
+}
+.sec-line { flex: 1; border-top: 2px solid var(--ink); }
+
+.item { margin-bottom: 16px; }
+.item:last-child { margin-bottom: 0; }
+.item-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.item-title { font-size: 16px; font-weight: 900; }
+.item-title span { font-weight: 500; color: var(--ink-soft); font-size: 13.5px; margin-left: 8px; }
+.item-time { font-family: var(--font-mono); font-size: 11.5px; font-weight: 700; color: var(--blue); white-space: nowrap; }
+.pts { margin-top: 6px; }
+.pts li {
+  position: relative;
+  padding-left: 18px;
+  color: var(--ink-soft);
+  margin-bottom: 3px;
+  list-style: none;
+}
+.pts li::before { content: '▪'; position: absolute; left: 2px; color: var(--orange); }
+.pts strong { color: var(--ink); }
+.kv { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px 24px; }
+.kv li { list-style: none; font-size: 14px; }
+.kv b { color: var(--blue); font-family: var(--font-mono); font-size: 12px; margin-right: 6px; }
+.tags { display: flex; flex-wrap: wrap; gap: 8px; }
+.tags span {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  border: 2px solid var(--ink);
+  padding: 4px 9px;
+  background: var(--paper);
+}
+.tags .t-o { background: var(--orange); color: #fff; }
+.tags .t-b { background: var(--blue); color: #fff; }
+
+.actions {
+  max-width: 860px;
+  margin: 26px auto 0;
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 700;
+  padding: 14px 24px;
+  border: 3px solid var(--ink);
+  background: var(--card);
+  color: var(--ink);
+  cursor: pointer;
+  text-decoration: none;
+  box-shadow: 4px 4px 0 var(--ink);
+  transition: transform .15s ease, box-shadow .15s ease;
+  font-family: var(--font-cn);
+}
+.btn:hover { transform: translate(-2px, -2px); box-shadow: 6px 6px 0 var(--ink); }
+.btn-solid { background: var(--orange); color: #fff; }
+
+@media print {
+  body { padding: 0; background: #fff; font-size: 12.5px; }
+  .sheet { border: 2.5px solid #141311; box-shadow: none; max-width: 100%; }
+  .actions { display: none; }
+  .sec { padding: 14px 22px; }
+  .sheet-head { padding: 18px 22px; }
+}
+@media (max-width: 620px) {
+  .head-name { font-size: 32px; }
+  .kv { grid-template-columns: 1fr; }
+  .sheet-head { padding: 20px; }
+  .sec { padding: 18px 20px; }
+}
+</style>
+</head>
+<body>
+
+<div class="sheet">
+  <!-- 头部 -->
+  <header class="sheet-head">
+    <div class="avatar"><img src="images/portrait.jpg" alt="江屿的个人形象照"></div>
+    <div class="head-main">
+      <h1 class="head-name">江屿</h1>
+      <p class="head-role">前端开发工程师 / <em>FRONT-END DEVELOPER</em> · 2026 届应届</p>
+      <div class="head-meta">
+        <p><b>电话</b> +86 138 2211 3344　<b>邮箱</b> jiangyu.dev@example.com</p>
+        <p><b>坐标</b> 浙江杭州　<b>GitHub</b> github.com/jiangyu-dev　<b>到岗</b> 随时</p>
+      </div>
+    </div>
+    <span class="file-no">FILE JY-2026-0117</span>
+  </header>
+
+  <!-- 教育经历 -->
+  <section class="sec">
+    <div class="sec-title"><span class="sec-no">01</span><h2>教育经历</h2><span class="sec-line"></span></div>
+    <div class="item">
+      <div class="item-head">
+        <p class="item-title">临江理工大学 <span>计算机科学与技术 · 本科</span></p>
+        <span class="item-time">2022.09 — 2026.06</span>
+      </div>
+      <ul class="pts">
+        <li>GPA <strong>3.82 / 4.0</strong>，专业排名 <strong>4 / 126（前 3%）</strong>；两次校级一等奖学金、三好学生</li>
+        <li>主修：数据结构 · 算法设计 · Web 开发技术 · 人机交互 · 数据库原理 · 计算机网络 · 软件工程</li>
+        <li>前端兴趣小组核心成员；「Web 前端修炼手册」校内分享主讲 3 期</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- 实习经历 -->
+  <section class="sec">
+    <div class="sec-title"><span class="sec-no">02</span><h2>实习经历</h2><span class="sec-line"></span></div>
+    <div class="item">
+      <div class="item-head">
+        <p class="item-title">序言科技（杭州）有限公司 <span>前端开发实习生 · 电商 SaaS 事业部</span></p>
+        <span class="item-time">2025.07 — 2025.11</span>
+      </div>
+      <ul class="pts">
+        <li>参与电商 SaaS 中台 <strong>10+ 业务模块</strong> React + TypeScript 重构，独立完成商品、营销两大模块迁移与单测</li>
+        <li>商品列表页首屏从 <strong>3.2s 优化至 1.1s</strong>（虚拟列表 / 路由级代码分割 / 图片懒加载）</li>
+        <li>搭建 Storybook 组件文档站，沉淀 24 个业务组件，团队复用率提升约 <strong>40%</strong></li>
+        <li>双 11 大促值班，负责 3 个活动页 hotfix，零事故</li>
+      </ul>
+    </div>
+    <div class="item">
+      <div class="item-head">
+        <p class="item-title">方寸互动（上海）网络有限公司 <span>创意开发实习生 · 互动技术组</span></p>
+        <span class="item-time">2025.01 — 2025.03</span>
+      </div>
+      <ul class="pts">
+        <li>参与 <strong>3 个品牌 H5 活动页</strong>开发：GSAP 动效编排 + Three.js 3D 场景搭建</li>
+        <li>新春集卡活动峰值 <strong>PV 82 万</strong>，动效掉帧率控制在 1% 以内，获客户返场追加</li>
+        <li>沉淀移动端动效性能 checklist，成为组内评审标准附件</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- 项目经历 -->
+  <section class="sec">
+    <div class="sec-title"><span class="sec-no">03</span><h2>项目经历</h2><span class="sec-line"></span></div>
+    <div class="item">
+      <div class="item-head">
+        <p class="item-title">墨阵 INKGRID <span>AI 书法陪练 Web 应用 · 毕业设计（国家级二等奖）</span></p>
+        <span class="item-time">2024.09 — 2025.05</span>
+      </div>
+      <ul class="pts">
+        <li>Canvas 240Hz 采样手写轨迹，MediaPipe 姿势提醒 + LSTM 笔画评分，与教师评分一致率 <strong>91.3%</strong></li>
+        <li>内置 1,860 字标准字库；离线优先架构，断网可练、联网同步</li>
+        <li>校级优秀毕设，盲评 <strong>92 分</strong></li>
+      </ul>
+    </div>
+    <div class="item">
+      <div class="item-head">
+        <p class="item-title">纸鸢 KITE UI <span>开源 React 组件库 · GitHub 1.2k Stars</span></p>
+        <span class="item-time">2024.05 — 至今</span>
+      </div>
+      <ul class="pts">
+        <li><strong>28 个组件</strong>全部支持键盘交互与 ARIA；按需引入平均 4.8KB(gzip)</li>
+        <li>处理 Issue 130+，合并外部 PR 23 个；npm 周下载 900+</li>
+      </ul>
+    </div>
+    <div class="item">
+      <div class="item-head">
+        <p class="item-title">拾光 LIGHTDECK <span>校园二手书循环平台 · 校园创业金奖</span></p>
+        <span class="item-time">2024.03 — 2024.11</span>
+      </div>
+      <ul class="pts">
+        <li>uni-app 一套代码双端输出（小程序 + Web），注册用户 <strong>3,200+</strong>，成交 <strong>1,100+</strong> 单</li>
+        <li>Node.js + MySQL + Redis 支撑开学季 380+ QPS 峰值</li>
+      </ul>
+    </div>
+    <div class="item">
+      <div class="item-head">
+        <p class="item-title">城市脉搏 CITYPULSE <span>杭州公共出行实时可视化大屏 · 课程设计满分</span></p>
+        <span class="item-time">2025.03 — 2025.06</span>
+      </div>
+      <ul class="pts">
+        <li>ECharts + WebSocket 增量渲染，1.2 万点位稳定 <strong>60fps</strong>；地铁/慢行/天气三源联动</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- 专业技能 -->
+  <section class="sec">
+    <div class="sec-title"><span class="sec-no">04</span><h2>专业技能</h2><span class="sec-line"></span></div>
+    <div class="tags">
+      <span class="t-o">JavaScript / TypeScript</span><span class="t-o">React</span><span class="t-o">Vue3</span>
+      <span class="t-b">GSAP / Three.js</span><span class="t-b">Canvas / SVG</span>
+      <span>Node.js</span><span>Next.js</span><span>uni-app</span>
+      <span>Vite / Rollup</span><span>Jest / Playwright</span><span>Storybook</span>
+      <span>Figma</span><span>Git / Linux</span><span>MySQL / Redis</span>
+    </div>
+  </section>
+
+  <!-- 获奖与证书 -->
+  <section class="sec">
+    <div class="sec-title"><span class="sec-no">05</span><h2>获奖与证书</h2><span class="sec-line"></span></div>
+    <ul class="kv">
+      <li><b>2025</b> 中国大学生计算机设计大赛 · 国家级二等奖</li>
+      <li><b>2025</b> 蓝桥杯 Web 应用开发 · 浙江省一等奖</li>
+      <li><b>2025</b> 软件设计师（软考中级）</li>
+      <li><b>2025</b> 全国高校数字艺术设计大赛 NCDA · 优秀奖</li>
+      <li><b>2024</b> 校园创新创业大赛 · 金奖</li>
+      <li><b>2024</b> 大学英语六级 CET-6（587 分）</li>
+    </ul>
+  </section>
+</div>
+
+<div class="actions">
+  <button class="btn btn-solid" onclick="window.print()">打印 / 保存为 PDF ⎙</button>
+  <a class="btn" href="index.html">← 返回作品集主页</a>
+</div>
+
+</body>
+</html>

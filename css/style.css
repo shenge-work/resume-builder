@@ -96,6 +96,8 @@
     --paper-tag-border:#c2c2c2;
     --paper-tag-text:#333;
     --paper-arrow:#999;         /* 成长时间线箭头 */
+    --paper-kw-bg:#ebebeb;      /* 技能关键词高亮底 */
+    --paper-kw-text:#111;       /* 技能关键词高亮字 */
   }
 
   /* =============================================================
@@ -194,6 +196,8 @@
     --paper-tag-border:#4a4a4a;
     --paper-tag-text:#c8c8c8;
     --paper-arrow:#8a8a8a;
+    --paper-kw-bg:#333;         /* 技能关键词高亮底（夜间纸张） */
+    --paper-kw-text:#f0f0f0;
   }
 
   *{box-sizing:border-box;}
@@ -234,6 +238,10 @@
   .side-panel-body{flex:1;min-height:0;overflow-y:auto;padding:8px 8px 10px;display:flex;flex-direction:column;gap:2px;}
   /* 内容超高时由 body 滚动，行高本身不许被 flex 压扁（否则按钮被压成 12px 高的碎条） */
   .side-panel-body > *{flex-shrink:0;}
+  /* 按钮清单由 js/ui/menu-actions.js 渲染进 #toolsMenuBody，按钮降了一级 ——
+     这条必须跟上，否则按钮会被 flex 压成碎条（这条规则本来就是为防这个加的）。 */
+  #toolsMenuBody{display:flex;flex-direction:column;gap:2px;}
+  #toolsMenuBody > *{flex-shrink:0;}
   .side-group{
     font-size:11px;font-weight:700;color:var(--ui-muted);
     padding:10px 6px 4px;margin-top:6px;border-top:1px solid var(--ui-border-soft);
@@ -353,6 +361,25 @@
   .form-btn:disabled{opacity:.6;cursor:default;}
 
   .preview-frame{flex:1;overflow:auto;padding:18px;position:relative;}
+  /* 保存状态条：常驻预览区顶部，如实呈现「改动是否已落盘」。
+     配色严格留在灰阶变量内，用字重与下边框区分严重程度，不引入彩色；
+     失败 / 降级两态同时给出「重试」按钮，避免用户只能干等。 */
+  .save-bar{flex-shrink:0;display:flex;align-items:center;gap:8px;padding:5px 14px;
+    min-height:26px;font-size:12px;color:var(--ui-faint);
+    border-bottom:1px solid var(--ui-border-soft);background:var(--ui-bg);}
+  .save-bar[hidden]{display:none;}
+  .save-bar-text{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .save-bar-retry{flex-shrink:0;height:20px;padding:0 8px;font-size:11px;cursor:pointer;
+    border:1px solid var(--ui-border);border-radius:6px;background:transparent;color:var(--ui-text);}
+  .save-bar-retry[hidden]{display:none;}
+  .save-bar-retry:hover{background:var(--ui-panel-head-hover);}
+  .save-bar:focus-within .save-bar-retry,
+  .save-bar-retry:focus-visible{outline:2px solid var(--ui-focus-ring);outline-offset:1px;}
+  .save-bar[data-state="editing"],.save-bar[data-state="saving"]{color:var(--ui-text);}
+  .save-bar[data-state="failed"],.save-bar[data-state="degraded"]{
+    color:var(--ui-text);font-weight:500;border-bottom-color:var(--ui-border);}
+  /* 打印一律不带状态条 */
+  @media print{.save-bar{display:none !important;}}
 
   /* 右侧编辑区 */
   .editor-pane{width:460px;flex-shrink:0;display:flex;flex-direction:column;background:var(--ui-panel);border-left:1px solid var(--ui-border);min-width:0;}
@@ -397,6 +424,17 @@
   .add-btn.sub{font-size:12px;padding:6px;border-style:dotted;background:var(--ui-card);margin-top:2px;}
   .sub-row{border:1px dotted var(--ui-border-dashed);border-radius:4px;padding:8px;margin:8px 0;background:var(--ui-card);}
   .item-row .item-row{margin-bottom:8px;}
+  /* 「单行值」列表（联系方式 / 量化成果 / 技能点 / 标签芯片）：比板块条目更轻，
+     仍带行标题与 ↑↓× 操作。此前这几类没有增删移按钮，只能改已有行。 */
+  .line-row{border:1px dashed var(--ui-border);border-radius:4px;padding:6px 8px;margin-bottom:7px;background:var(--ui-card);}
+  .line-row .item-head{margin-bottom:4px;}
+  .line-row .field{margin-bottom:0;}
+  .sub-row .line-row{background:var(--ui-row);}
+  /* 列表空态提示：告诉用户「这里可以点下面的按钮加一条」，而不是只有一行空白 */
+  .list-empty{padding:6px 8px;margin-bottom:7px;font-size:11.5px;line-height:1.6;color:var(--ui-faint);border:1px dashed var(--ui-border-dashed);border-radius:4px;background:var(--ui-input-disabled-bg);}
+  /* 勾选 / 取色这类「标签 + 控件」单行字段（原先靠内联 style 写死，现改为类） */
+  .field.field-inline{display:flex;align-items:center;gap:10px;}
+  .field.field-inline > label{margin-bottom:0;}
 
   /* ===== 简历本身样式（黑白灰） ===== */
   .resume{
@@ -433,6 +471,23 @@
   .resume .job-summary{color:var(--paper-mid);font-size:var(--font-base);line-height:1.7;margin:0;}
   .resume .skill-group{cursor:grab;}
   .resume .skill-group h4{font-size:calc(var(--font-base) + 1px);margin:0;color:var(--paper-text);font-weight:700;}
+  /* —— 矩阵式技能行（2026-09-20）：左列分组名 + 右列「关键词行 / 补充说明行」——
+     行间用极细分隔线切出表格感；关键词走浅灰底高亮（纯灰阶，打印同样可见）。 */
+  /* 左列宽度随基础字号等比缩放（≈7.2 个汉字宽）：字号调大时列宽同步变宽，
+     各行仍共用同一宽度，所以左右两列始终对齐。 */
+  .resume .skill-group.skill-matrix{display:grid;grid-template-columns:calc(var(--font-base,12px) * 7.2) minmax(0,1fr);column-gap:12px;align-items:start;padding:5px 0;border-bottom:1px solid var(--paper-rule-soft);}
+  .resume .skill-group.skill-matrix:last-child{border-bottom:none;padding-bottom:0;}
+  .resume .skill-name{font-size:calc(var(--font-base) + 0.5px);font-weight:700;color:var(--paper-text);line-height:1.75;}
+  .resume .skill-body{min-width:0;}
+  /* keep-all：中文只在「·」分隔处换行，避免出现「LLM 评测体 / 系」这种把短语拦腰截断的孤儿行；
+     anywhere 兜底——万一单段比整列还长，仍能强制断行而不是撑破版面。 */
+  .resume .skill-kw{color:var(--paper-mid);line-height:1.75;word-break:keep-all;overflow-wrap:anywhere;}
+  .resume .skill-detail{color:var(--paper-weak);font-size:calc(var(--font-base) - 1px);line-height:1.7;word-break:keep-all;overflow-wrap:anywhere;}
+  .resume .skill-kw strong,.resume .skill-detail strong{background:var(--paper-kw-bg);color:var(--paper-kw-text);font-weight:700;padding:0 4px;border-radius:2px;}
+  /* 每个专业名词自成一段：整体换行，绝不从词中间断开。
+     max-width 兜底——万一某段比整列还长，宽度收到列宽后段内再断行。 */
+  .resume .skill-kw .skill-seg,.resume .skill-detail .skill-seg{display:inline-block;max-width:100%;vertical-align:top;}
+  .resume .skill-sep{color:var(--paper-weak);margin:0 5px;}
   .resume .project{cursor:grab;}
   .resume .project.nested{}
   .resume .project.nested .project-title{font-size:calc(var(--font-job) - 1px);}
@@ -595,6 +650,16 @@
       cursor:pointer;text-align:left;
     }
     .sync-pane button:active{background:var(--ui-btn-hover);}
+    /* 手机端按钮清单同样由 js/ui/menu-actions.js 渲染（与桌面同一份 ACTIONS） */
+    #syncMenuBody{display:flex;flex-direction:column;gap:8px;}
+    /* 文件名输入框是从桌面清单带过来的，桌面那条规则挂在 .side-panel 下，手机拿不到 */
+    .sync-inner .filename-wrap{display:flex;align-items:center;gap:8px;padding:2px 6px;}
+    .sync-inner .filename-wrap label{font-size:12px;color:var(--ui-muted);font-weight:400;white-space:nowrap;}
+    .sync-inner .filename-wrap input{
+      flex:1;min-width:0;height:36px;padding:0 8px;font-size:13px;
+      background:var(--ui-card);color:var(--ui-text);
+      border:1px solid var(--ui-border);border-radius:6px;
+    }
 
     /* 多简历抽屉在手机上全屏滑出（覆盖桌面常驻布局） */
     .resume-drawer{
@@ -670,3 +735,41 @@
   .audit-foot{display:flex;gap:8px;padding-top:2px;}
   /* 体检面板展开时给它一个上限高度，避免挤占「内容编辑」的可视空间 */
   #panel-audit .panel-body{max-height:46vh;overflow:auto;}
+
+  /* =============================================================
+     JD 匹配分析：输入区 + 关键词三档
+     -------------------------------------------------------------
+     与投递体检共用同一套灰阶词汇（--ui-*），三档差异只靠「边框线型 + 灰度深浅 +
+     字重」表达：缺失＝实线深、弱覆盖＝虚线中、已覆盖＝浅底，保证黑白打印仍可分辨。
+     ============================================================= */
+  .jd-input-wrap{margin-bottom:10px;}
+  .jd-input{
+    width:100%;box-sizing:border-box;resize:vertical;
+    min-height:76px;padding:8px 9px;
+    font:12px/1.7 inherit;color:var(--ui-text);
+    background:var(--ui-card);border:1px solid var(--ui-border-soft);border-radius:6px;
+  }
+  .jd-input:focus{outline:none;border-color:var(--ui-muted);}
+  .jd-input-foot{display:flex;align-items:center;gap:8px;margin-top:6px;}
+  .jd-input-hint{font-size:11px;color:var(--ui-faint);}
+  .jd-groups{display:flex;flex-direction:column;gap:10px;}
+  .jd-group-title{
+    display:flex;flex-wrap:wrap;align-items:baseline;gap:8px;
+    margin:0 0 6px;font-size:11.5px;font-weight:500;color:var(--ui-muted);
+  }
+  .jd-group-hint{font-weight:400;font-size:11px;color:var(--ui-faint);}
+  .jd-chips{display:flex;flex-wrap:wrap;gap:6px;}
+  .jd-chip{
+    display:inline-flex;align-items:baseline;gap:4px;
+    padding:3px 7px;font-size:11.5px;line-height:1.5;
+    background:var(--ui-card);border:1px solid var(--ui-border-soft);border-radius:4px;
+    color:var(--ui-text);
+  }
+  .jd-chip i{font-style:normal;font-size:10.5px;color:var(--ui-faint);}
+  /* 缺失：实心深边 —— 投递前最该补的 */
+  .jd-chip.missing{border-style:solid;border-color:var(--ui-text);font-weight:500;}
+  /* 弱覆盖：虚线 —— 写到了但只出现 1 次 */
+  .jd-chip.weak{border-style:dashed;border-color:var(--ui-muted);}
+  /* 已覆盖：浅底，视觉退到后面 */
+  .jd-chip.covered{background:var(--ui-row);border-color:transparent;color:var(--ui-muted);}
+  #panel-jd .panel-body{max-height:52vh;overflow:auto;}

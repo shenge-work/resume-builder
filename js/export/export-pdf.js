@@ -178,15 +178,38 @@ async function exportLongImage(){
 }
 
 /* ============ 导出单文件 HTML：仅含简历本身，内联样式，先预览再下载 ============ */
-function exportSingleFileHTML(){
+/* 收集页面全部生效样式：
+   1) 文档内所有 <style>（含运行期注入的打印页边距规则；单文件版的全部样式也在其中）
+   2) 所有 <link rel="stylesheet">（多文件版的 css/style.css 等）——经 fetch 拉文本内联
+   ⚠️ 不能只用 document.querySelector('style')：多文件版 index.html 的样式全在 <link> 里，
+   页面上第一个 <style> 是运行期注入的打印规则，拿到它导出的 HTML 会完全没有视觉样式。 */
+async function collectCssText(){
+  const parts = [];
+  try{
+    document.querySelectorAll('style').forEach(n=>{ parts.push(n.textContent || ''); });
+  }catch(e){}
+  try{
+    const links = Array.prototype.slice.call(document.querySelectorAll('link[rel="stylesheet"]'));
+    const fetched = await Promise.all(links.map(function(l){
+      const href = l.getAttribute('href') || '';
+      return fetch(href, { cache: 'no-store' })
+        .then(function(r){ return r.ok ? r.text() : ''; })
+        .catch(function(){ return ''; });   // file:// 等取不到时跳过（页面本身也没加载出该样式）
+    }));
+    fetched.forEach(function(cssText){
+      if(cssText) parts.push('/* ' + 'inlined stylesheet' + ' */\n' + cssText);
+    });
+  }catch(e){}
+  return parts.filter(Boolean).join('\n');
+}
+async function exportSingleFileHTML(){
   const live = preview.querySelector('.resume');
   if(!live){ alert('预览未渲染，请稍候重试。'); return; }
   const clone = live.cloneNode(true);
   clone.querySelectorAll('[data-drag]').forEach(n=>n.removeAttribute('data-drag'));
   clone.querySelectorAll('[draggable]').forEach(n=>n.removeAttribute('draggable'));
   clone.querySelectorAll('.dragging,.drop-before,.drop-after').forEach(n=>n.classList.remove('dragging','drop-before','drop-after'));
-  const styleEl = document.querySelector('style');
-  const css = styleEl ? styleEl.textContent : '';
+  const css = await collectCssText();
   const html = `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>

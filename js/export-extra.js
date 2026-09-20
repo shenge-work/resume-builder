@@ -108,6 +108,16 @@
         (sec.groups || []).forEach(g => {
           if (!g) return;
           const name = trim(T(g.name));
+          const kw = trim(T(g.keywords));
+          const dt = trim(T(g.detail));
+          /* 矩阵式技能行（2026-09-20 新增）：关键词行 + 补充说明行。
+             **加粗** 原样保留——DOCX 走 parseRuns 变粗体，Markdown 直接渲染，
+             HR / ATS 抓取时专业名词全在。 */
+          if (kw || dt) {
+            if (kw) li(name ? '**' + name + '**：' + kw : kw);
+            if (dt) p(dt);
+            return;
+          }
           // 技能点多为整句，各自结尾常带句号；连接前去掉尾部标点，避免出现「。。、」这类粘连
           const items = (g.items || []).map(x => trim(stripBold(T(x))).replace(/[。．.；;，,、\s]+$/, '')).filter(Boolean);
           if (!name && !items.length) return;
@@ -415,10 +425,20 @@
   function exportPdfSilent() {
     const payload = currentPayload();
     if (!payload) { notify('读取简历数据失败，无法导出'); return null; }
-    const btn = typeof document === 'undefined' ? null : document.getElementById('pdfSilentBtn');
-    const label = btn ? btn.textContent : '';
-    if (btn) { btn.disabled = true; btn.textContent = 'PDF 生成中…'; }
-    const finish = function () { if (btn) { btn.disabled = false; btn.textContent = label; } };
+    /* 两端各一个「静默 PDF」按钮（同一份入口清单），都要进入忙碌态 */
+    const btns = typeof document === 'undefined' ? []
+      : ['pdfSilentBtn', 'pdfSilentBtnMobile']
+        .map(id => document.getElementById(id))
+        .filter(Boolean);
+    const idle = btns.map(b => b.textContent);
+    const setBusy = function (busy) {
+      btns.forEach((b, i) => {
+        b.disabled = busy;
+        b.textContent = busy ? 'PDF 生成中…' : idle[i];
+      });
+    };
+    if (btns.length) setBusy(true);
+    const finish = function () { setBusy(false); };
     const fallback = function (msg) {
       notify(msg + '，已回退到打印对话框');
       try { if (global.print) global.print(); } catch (e) { }

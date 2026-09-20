@@ -74,9 +74,24 @@ try {
   const cssCode = fs.readFileSync(path.join(ROOT, 'css', 'style.css'), 'utf8');
   // P0 数据门面：app.js 的防抖写回会调用 window.ResumeStore，必须一并加载（顺序同 index.html）
   const storeCode = fs.readFileSync(path.join(ROOT, 'js', 'store', 'resume-store.js'), 'utf8');
+  // 渲染引擎物理拆分后，app.js 顶部会从以下全局解构；静态渲染也要按 index.html 的顺序把它们
+  // 一起塞进 vm 沙箱，否则 app.js 首行就抛「Cannot destructure property ... of undefined」。
+  // 依赖链：editor-schema(ResumeEditorSchema) → resume-render(ResumeRender) → export-pdf(ResumeExport)；
+  // feishu-sync(ResumeFeishu) 仅运行时用到 ResumeStore/ResumeLibrary，放 app.js 之前即可。
+  const editorSchemaCode = fs.readFileSync(path.join(ROOT, 'js', 'render', 'editor-schema.js'), 'utf8');
+  const renderCode = fs.readFileSync(path.join(ROOT, 'js', 'render', 'resume-render.js'), 'utf8');
+  const exportPdfCode = fs.readFileSync(path.join(ROOT, 'js', 'export', 'export-pdf.js'), 'utf8');
+  const feishuSyncCode = fs.readFileSync(path.join(ROOT, 'js', 'feishu', 'feishu-sync.js'), 'utf8');
+  // app.js 还会从 global.ResumeUI 解构（setPaneCollapsed 等），由 pane-mobile.js 暴露，无全局依赖
+  const paneMobileCode = fs.readFileSync(path.join(ROOT, 'js', 'ui', 'pane-mobile.js'), 'utf8');
 
   vm.createContext(ctx);
-  vm.runInContext(storeCode + '\n' + dataCode + '\n' + appCode, ctx, { filename: 'resume-bundle.js' });
+  vm.runInContext(
+    storeCode + '\n' + dataCode + '\n' +
+    editorSchemaCode + '\n' + renderCode + '\n' + exportPdfCode + '\n' + feishuSyncCode + '\n' +
+    paneMobileCode + '\n' + appCode,
+    ctx, { filename: 'resume-bundle.js' }
+  );
   if (!ctx.ResumeEditor || typeof ctx.ResumeEditor.applyImported !== 'function') {
     throw new Error('未能从 app.js 暴露 ResumeEditor.applyImported（封装接口异常）');
   }
@@ -118,7 +133,12 @@ try {
   .resume{margin:0 auto;}
   @media print{ body{background:#fff;padding:0;} .resume{box-shadow:none;} }
 `;
-  const title = (payload.data.name || '简历') + ' · 简历（迁移版）';
+  /* title 拼进 HTML 前必须转义：payload.data.name 来自请求体（不可信），
+     含 </title><script> 时会在无 CSP 的 headless Chrome 里执行脚本、外传简历内容 */
+  const escHtml = (s) => String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  const title = escHtml(payload.data.name || '简历') + ' · 简历（迁移版）';
   const doc = `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
