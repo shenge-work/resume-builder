@@ -10,8 +10,35 @@
 const { getPageMargins, mmToPx, esc } = global.ResumeRender;
 const preview = document.getElementById('preview');
 
+/* ============ 通用下载分流：原生壳走 save_file 落盘，浏览器走 <a download> ============
+   背景：打包成 App 后，Blob + <a download> 不落盘（macOS WKWebView 不支持 blob: 下载，
+   WebKit bug 216918），必须改走 Rust 的 save_file（弹系统保存对话框写盘）。
+   浏览器（npm start / 单文件 HTML）保持原样，零回归。 */
+async function downloadBlob(blob, filename){
+  const N = (typeof window !== 'undefined') ? window.__RESUME_NATIVE__ : null;
+  if(N && typeof N.saveFile === 'function'){
+    try{
+      const bytes = new Uint8Array(await blob.arrayBuffer());
+      const saved = await N.saveFile(filename, bytes);
+      if(saved){ RB.notify && RB.notify('已保存到 ' + saved); }
+      return;   // 原生路径到此结束（用户取消 saved 为 null，静默不报错）
+    }catch(e){
+      // 原生保存失败（如 Android content://）→ 明确提示，不静默吞掉、也不回退到无效的 <a download>
+      alert('保存失败：' + (e && e.message ? e.message : e));
+      return;
+    }
+  }
+  /* 浏览器路径：原样不动 */
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+
 /* ============ 导出 PDF：按实时预览的分页逐页截图，再拼成 PDF ============ */
 let currentPdfBlobUrl = null;
+let currentPdfBlob = null;   // 原生壳落盘需要 Blob 对象（blob: URL 在 WKWebView 下不能 download）
 // 把实时预览里的 .resume 克隆到屏幕外容器中（固定 A4 宽度并按页边距留白），用于 html2canvas 整页截图
 function makeCaptureClone(live){
   const margins = getPageMargins();
@@ -96,6 +123,7 @@ function exportPDF(){
   RB.beginPaperGuard();
   buildImagePdf().then(({blob, pages})=>{
     if(currentPdfBlobUrl) URL.revokeObjectURL(currentPdfBlobUrl);
+    currentPdfBlob = blob;                       // 原生壳落盘用
     currentPdfBlobUrl = URL.createObjectURL(blob);
     document.getElementById('pdfFrame').src = currentPdfBlobUrl;
     document.getElementById('pdfPageInfo').textContent = '共 ' + pages + ' 页';
@@ -108,7 +136,8 @@ function exportPDF(){
   });
 }
 function downloadPDFNow(){
-  if(!currentPdfBlobUrl){ exportPDF(); return; }
+  if(!currentPdfBlob && !currentPdfBlobUrl){ exportPDF(); return; }
+  if(currentPdfBlob){ downloadBlob(currentPdfBlob, RB.getFileName('', 'pdf')); return; }
   const a = document.createElement('a');
   a.href = currentPdfBlobUrl; a.download = RB.getFileName('', 'pdf');
   document.body.appendChild(a); a.click(); a.remove();
@@ -121,11 +150,13 @@ function closePdfModal(){
 /* ============ 通用导出预览弹层（图片版 / 单文件 HTML 共用） ============ */
 /* 先看预览，弹层内再点「下载」真正落盘；关闭时自动回收 blob URL。 */
 let currentExportBlobUrl = null;
+let currentExportBlob = null;   // 原生壳落盘需要 Blob 对象
 let currentExportName = '';
-function showExportModal(kind, blobUrl, downloadName, title){
+function showExportModal(kind, blob, blobUrl, downloadName, title){
   const img = document.getElementById('exportModalImg');
   const frame = document.getElementById('exportModalFrame');
   document.getElementById('exportModalTitle').textContent = title;
+  currentExportBlob = blob || null;
   currentExportBlobUrl = blobUrl;
   currentExportName = downloadName;
   if(kind === 'image'){
@@ -142,8 +173,10 @@ function closeExportModal(){
   img.style.display = 'none'; img.removeAttribute('src');
   frame.style.display = 'none'; frame.src = 'about:blank';
   if(currentExportBlobUrl){ URL.revokeObjectURL(currentExportBlobUrl); currentExportBlobUrl = null; }
+  currentExportBlob = null;
 }
 function doExportDownload(){
+  if(currentExportBlob){ downloadBlob(currentExportBlob, currentExportName); return; }
   if(!currentExportBlobUrl) return;
   const a = document.createElement('a');
   a.href = currentExportBlobUrl; a.download = currentExportName;
@@ -168,7 +201,7 @@ async function exportLongImage(){
     });
     const blob = await new Promise(res=>canvas.toBlob(res, 'image/png'));
     const url = URL.createObjectURL(blob);
-    showExportModal('image', url, RB.getFileName('_长图', 'png'), '图片版预览（长图）');
+    showExportModal('image', blob, url, RB.getFileName('_长图', 'png'), '图片版预览（长图）');
   }catch(err){
     alert('长图导出失败：' + (err && err.message ? err.message : err));
   }finally{
@@ -238,7 +271,7 @@ ${clone.outerHTML}
 </html>`;
   const blob = new Blob([html], {type:'text/html;charset=utf-8'});
   const url = URL.createObjectURL(blob);
-  showExportModal('html', url, RB.getFileName('', 'html'), '单文件 HTML 预览');
+  showExportModal('html', blob, url, RB.getFileName('', 'html'), '单文件 HTML 预览');
 }
 
 /* ============ 导出分享页：只读展示用，带「仅查看」斜置水印 ============ */
@@ -312,7 +345,7 @@ async function exportSharePage(){
   const html = buildSharePageHtml({ resumeHtml: clone.outerHTML, cssText: css, name: data.name, watermarkText: '仅供查看' });
   const blob = new Blob([html], {type:'text/html;charset=utf-8'});
   const url = URL.createObjectURL(blob);
-  showExportModal('html', url, RB.getFileName('_分享页', 'html'), '分享页预览（只读 · 带水印）');
+  showExportModal('html', blob, url, RB.getFileName('_分享页', 'html'), '分享页预览（只读 · 带水印）');
 }
 
 global.ResumeExport = Object.assign(global.ResumeExport || {}, {
@@ -326,6 +359,7 @@ global.ResumeExport = Object.assign(global.ResumeExport || {}, {
   exportSingleFileHTML: exportSingleFileHTML,
   exportSharePage: exportSharePage,
   buildSharePageHtml: buildSharePageHtml,
-  buildWatermark: buildWatermark
+  buildWatermark: buildWatermark,
+  downloadBlob: downloadBlob
 });
 })(typeof window !== "undefined" ? window : globalThis);

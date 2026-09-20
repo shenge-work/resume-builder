@@ -666,6 +666,19 @@ for (const c of jdCases) {
     .catch((e) => { fileResults.push({ name: 'jd › ' + c.name + '（抛错: ' + (e && e.message ? e.message : e) + '）', pass: false }); });
 }
 
+/* ---------- App 导出落盘（原生分流）----------
+   自建隔离 vm 沙箱桩 __TAURI__，验证 native-bridge 挂载 saveFile/printPage 及字节 base64 编码；
+   源码级断言 export-extra / export-pdf 复用统一 downloadBlob 落盘、fallback 走 printPage。 */
+const nativeExportCases = require(path.join(ROOT, 'test', 'cases-native-export.js'));
+const nativeExportCtx = {
+  assert(cond, msg) { fileResults.push({ name: 'native-export › ' + msg, pass: !!cond }); },
+};
+let nativeExportChain = Promise.resolve();
+for (const c of nativeExportCases) {
+  nativeExportChain = nativeExportChain.then(() => c.fn(nativeExportCtx))
+    .catch((e) => { fileResults.push({ name: 'native-export › ' + c.name + '（抛错: ' + (e && e.message ? e.message : e) + '）', pass: false }); });
+}
+
 const httpCases = require(path.join(ROOT, 'test', 'cases-serve-http.js'));
 const httpCtx = {
   assert(cond, msg) { fileResults.push({ name: 'http › ' + msg, pass: !!cond }); },
@@ -677,7 +690,7 @@ for (const c of httpCases) {
 }
 
 /* ---------- 报告（等异步的 library 用例跑完再输出） ---------- */
-libChain.then(() => ssChain).then(() => jdChain).then(() => menuChain).then(() => undoChain).then(() => reorderChain).then(() => perfChain).then(() => httpChain).then(() => {
+libChain.then(() => ssChain).then(() => jdChain).then(() => nativeExportChain).then(() => menuChain).then(() => undoChain).then(() => reorderChain).then(() => perfChain).then(() => httpChain).then(() => {
   const all = ctx.__results.concat(fileResults);
   let pass = 0, fail = 0;
   for (const r of all) {

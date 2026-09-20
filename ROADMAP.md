@@ -60,14 +60,16 @@
 
 ## 高优先级（直接影响「敢放心用 / 真开源可用」）
 
-- 🚧 **打包成 App 后「导出」不落盘（已定位，待实施）**
-  现状：桌面 / 安卓 App 里点导出 PDF / 长图 / 单文件 HTML / 数据 JSON **不产生任何文件**；
-  点 PDF 导出还会把**整个编辑器界面顶掉**。桌面端 PDF 的三条路（静默导出 / 打印兜底 / 预览下载）**全是死的**。
-  根因：导出全走浏览器时代的 `Blob` + `<a download>`，而 macOS 底层 WKWebView 不支持 `blob:` URL 配 `download`
-  （WebKit bug 216918）；实测 `data:` 方案与 Tauri `on_download` 均无效；`window.print()` 在 WKWebView 里是静默空操作。
-  目标：改走原生保存命令（弹系统保存对话框 + 写盘）+ 原生打印命令；浏览器路径保持不变。
-  完整证据与方案见 [docs/App导出不落盘问题-根因与改造方案.md](./docs/App导出不落盘问题-根因与改造方案.md)。**尚未实施。**
-  ⚠️ 一期只覆盖桌面三端；Android 的 SAF 返回 `content://` URI，写法不同，需单独立项。
+- ✅ **打包成 App 后「导出」不落盘（已实施，2026-09-21）**
+  现状（已修）：桌面 App 里点导出 PDF / 长图 / 单文件 HTML / 数据 JSON / Word / TXT / MD 现在走原生保存命令
+  （`src-tauri/src/export.rs` 的 `save_file`：弹系统保存对话框 + `std::fs::write` 写盘），不再依赖失效的
+  `Blob + <a download>`（WKWebView 不支持 blob: 下载，WebKit bug 216918）。静默 PDF 失败回退改为
+  `print_page`（`Webview::print()`），弥补 `window.print()` 在 WKWebView 里静默空操作。
+  前端经 `downloadBlob`（`js/export/export-pdf.js`）统一分流：原生壳走 `__RESUME_NATIVE__.saveFile`，浏览器走 `<a download>`（零回归）。
+  新增 `tauri-plugin-dialog` 依赖 + `capabilities/default.json`（`dialog:allow-save`）。
+  完整证据与方案见 [docs/App导出不落盘问题-根因与改造方案.md](./docs/App导出不落盘问题-根因与改造方案.md)。
+  ⚠️ 一期只覆盖桌面三端；Android 的 SAF 返回 `content://` URI（`FilePath::Url`），`save_file` 对此明确报错，
+  需单独立项（存应用私有目录 + 分享 intent）。**Android 尚未做。**
 
 - 📋 **跨端编辑冲突合并**
   现状：手机与电脑可同时编辑同一份简历（经飞书或 `data/resume.json` 交换），但后写入者会**整体覆盖**先写入者。

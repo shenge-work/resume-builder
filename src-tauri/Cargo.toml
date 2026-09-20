@@ -16,6 +16,8 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 # features = []：只用核心能力，插件按需追加（本项目不含任何 Tauri 官方插件）
 tauri = { version = "2", features = [] }
+# 导出落盘：弹系统保存对话框（App 内导出 PDF/长图/HTML/JSON 用，替代失效的 blob: 下载）
+tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 base64 = "0.22"

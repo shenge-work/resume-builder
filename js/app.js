@@ -11,7 +11,7 @@ const { esc, boldText, getSection, getVarStr, spacingStyle, z, getPageMargins, m
 /* 从 js/feishu/feishu-sync.js 解构飞书 / 导入函数（物理拆分，不改变行为） */
 const { showFeishuStatus, reportToFeishu, pullFromFeishu, restoreFromFeishu, toggleMenu, openFeishuConfig, closeFeishuConfig, saveFeishuConfig, probeFeishuConfig, localApi, checkFeishuOauthStatus, startFeishuOauth, refreshFeishuOauth, revokeFeishuOauth, startFeishuRegister, cancelFeishuRegister, importResumeFile, importResumePayload, startAutoSync } = global.ResumeFeishu;
 /* 从 js/export/export-pdf.js 解构导出函数（物理拆分，不改变行为） */
-const { exportPDF, downloadPDFNow, closePdfModal, showExportModal, closeExportModal, doExportDownload, exportLongImage, exportSingleFileHTML, exportSharePage } = global.ResumeExport;
+const { exportPDF, downloadPDFNow, closePdfModal, showExportModal, closeExportModal, doExportDownload, exportLongImage, exportSingleFileHTML, exportSharePage, downloadBlob } = global.ResumeExport;
 /* 从 js/ui/pane-mobile.js 解构面板 / 移动端 UI 函数（物理拆分，不改变行为） */
 const { setPaneCollapsed, toggleEditorPane, syncSideRail, setSidePanelOpen, toggleSidePanel, setMobileView, currentMobileView, visibleModal, closeVisibleModal, handleMobileBack, setupNativeBack, setupMobileBackGesture, setupVisualViewport, setupKeyboardFocusGuard } = global.ResumeUI;
 /* 保存状态条（js/ui/save-status.js）。缺失时退化为空实现 —— 保存链路本身不该因为
@@ -695,11 +695,7 @@ function showAutosave(){
 function exportJSON(){
   const payload = {data, fonts: currentFonts, spacing: currentSpacing, v: SAVE_VERSION};
   const blob = new Blob([JSON.stringify(payload, null, 2)], {type:'application/json'});
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url; a.download = getFileName('_数据', 'json');
-  document.body.appendChild(a); a.click(); a.remove();
-  URL.revokeObjectURL(url);
+  downloadBlob(blob, getFileName('_数据', 'json'));
 }
 /* 导出为标准 JSON Resume（jsonresume.org/schema），供 resume-cli / Reactive Resume 等生态消费 */
 function exportJSONResume(){
@@ -709,11 +705,7 @@ function exportJSONResume(){
   try { jr = adapter.toJsonResume({ data: data }); }
   catch(e){ alert('导出 JSON Resume 失败：' + (e && e.message ? e.message : e)); return; }
   const blob = new Blob([JSON.stringify(jr, null, 2)], {type:'application/json'});
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url; a.download = getFileName('_JSONResume', 'json');
-  document.body.appendChild(a); a.click(); a.remove();
-  URL.revokeObjectURL(url);
+  downloadBlob(blob, getFileName('_JSONResume', 'json'));
 }
 /* 导入标准 JSON Resume：识别 jsonresume 结构（有 basics/work/education/skills 任一即视为），
    转为本项目模型后走 applyImported 覆盖导入；识别不出则回退到普通 JSON 导入 */

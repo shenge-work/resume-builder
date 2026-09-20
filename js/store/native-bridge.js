@@ -132,6 +132,15 @@
   function resumeDocSave(id, payload) { return invoke('resume_doc_save', { id: id, payload: payload }); }
   function resumeDocRemove(id) { return invoke('resume_doc_remove', { id: id }); }
 
+  /* ============ 导出落盘 + 原生打印（对应 src-tauri/src/export.rs） ============
+     背景：App 内浏览器式 Blob + <a download> 不落盘（WKWebView bug 216918），
+     改走 Rust 弹系统保存对话框写盘；window.print() 在 WKWebView 静默空操作，
+     改走 WebView.print() 原生打印。详见 docs/App导出不落盘问题-根因与改造方案.md。 */
+  function saveFile(defaultName, bytes) {
+    return invoke('save_file', { fileName: defaultName, bytesB64: bytesToBase64(bytes) });
+  }
+  function printPage() { return invoke('print_page'); }
+
   /* ResumeLibrary 可注入的本地文件后端（与 serve.js /api/library/* 同构） */
   function localLibraryBackend() {
     return {
@@ -298,6 +307,16 @@
     /* 一键绑定探测：验证凭证 + 自动建「简历数据」文件夹，返回默认项（M3） */
     feishuProbe: function (req) {
       return invoke('feishu_probe', { req: req || {} });
+    },
+
+    /* 导出落盘：弹系统保存对话框写盘，返回保存路径；用户取消 → null */
+    saveFile: function (defaultName, bytes) {
+      return saveFile(defaultName, bytes);
+    },
+
+    /* 原生打印：弥补 window.print() 在 WKWebView 里静默空操作 */
+    printPage: function () {
+      return printPage();
     }
   };
 

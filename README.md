@@ -301,7 +301,7 @@ node tools/render-resume.js                          # 用项目真实渲染管�
 ## 🧪 测试与构建
 
 ```bash
-npm test               # 纯 Node、零依赖：905 条断言
+npm test               # 纯 Node、零依赖：919 条断言
 npm run build          # 重建单文件版 → dist/简历编辑器-单文件.html
 npm run verify:assets  # 资源完整性门禁：引用缺失 / 漏打包 / 模块未接线 / 隐私目录泄漏
 npm run clean:html     # 剥离 index.html 中被外部编辑器注入的 data-page-node-id（提交前跑）

@@ -354,9 +354,16 @@
     if (re && typeof re.getFileName === 'function') { try { return re.getFileName(suffix || '', ext); } catch (e) { } }
     return '简历.' + ext;
   }
+  /* 统一落盘：优先复用 export-pdf.js 的 downloadBlob（原生壳走 save_file，浏览器走 <a download>）。
+     返回 true 表示已接手（含异步原生路径）；拿不到 downloadBlob 时退回旧的同步 <a download>。 */
   function saveBytes(bytes, filename) {
-    if (typeof document === 'undefined' || !document.createElement || typeof Blob === 'undefined') return false;
+    if (typeof Blob === 'undefined') return false;
     const blob = new Blob([bytes], { type: 'application/octet-stream' });
+    if (global.ResumeExport && typeof global.ResumeExport.downloadBlob === 'function') {
+      global.ResumeExport.downloadBlob(blob, filename);
+      return true;
+    }
+    if (typeof document === 'undefined' || !document.createElement) return false;
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url; a.download = filename;
@@ -369,8 +376,13 @@
     return true;
   }
   function saveText(text, filename, mime) {
-    if (typeof document === 'undefined' || !document.createElement || typeof Blob === 'undefined') return false;
+    if (typeof Blob === 'undefined') return false;
     const blob = new Blob([text], { type: (mime || 'text/plain') + ';charset=utf-8' });
+    if (global.ResumeExport && typeof global.ResumeExport.downloadBlob === 'function') {
+      global.ResumeExport.downloadBlob(blob, filename);
+      return true;
+    }
+    if (typeof document === 'undefined' || !document.createElement) return false;
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url; a.download = filename;
@@ -441,7 +453,9 @@
     const finish = function () { setBusy(false); };
     const fallback = function (msg) {
       notify(msg + '，已回退到打印对话框');
-      try { if (global.print) global.print(); } catch (e) { }
+      const N = (typeof window !== 'undefined') ? window.__RESUME_NATIVE__ : null;
+      if (N && typeof N.printPage === 'function') { N.printPage(); return; }   // 原生壳：window.print() 是空操作
+      try { if (global.print) global.print(); } catch (e) { }                     // 浏览器
     };
     if (typeof fetch !== 'function') { finish(); fallback('当前环境不支持静默导出'); return null; }
     const name = fileNameFor('', 'pdf');
