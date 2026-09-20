@@ -148,6 +148,7 @@ resume-builder/
 │   ├── theme.js             # 日间 / 夜间主题（黑白灰）
 │   ├── audit.js             # 投递体检（纯规则、只读，暴露 window.ResumeAudit）
 │   ├── jd-match.js          # JD 匹配分析（纯规则、只读，暴露 window.ResumeJd）
+│   ├── jd-derive.js         # JD 派生版本：缺失/弱覆盖关键词 → 定制版（暴露 window.ResumeJdDerive）
 │   └── ui/
 │       ├── menu-actions.js  # 统一入口清单：桌面工具菜单 + 手机 sync-pane 同源渲染（window.ResumeMenu）
 │       ├── save-status.js   # 保存状态条（保存三态 + 存储降级告警）
@@ -158,6 +159,7 @@ resume-builder/
 │   │   └── jsonresume-adapter.js # JSON Resume 标准双向适配（暴露 window.ResumeJSONResume；双环境模块）
 │   └── store/
 │       ├── resume-store.js  # 数据门面：Local / Browser / Feishu 三种实现
+│       ├── snippet-library.js # 经历素材库：STAR 片段复用（暴露 window.ResumeSnippets）
 │       └── native-bridge.js # 原生桥：仅在 Tauri 壳内注入 window.__RESUME_NATIVE__
 ├── src-tauri/               # 桌面 / 移动原生壳（Rust）：7 个命令 + 凭证保管（app_secret 只在原生进程）
 ├── vendor/                  # 第三方库（本地存放，离线可用）
@@ -183,6 +185,8 @@ resume-builder/
 │   ├── cases-undo.js        #   撤销栈按简历隔离 + 输入框放行原生撤销（跨份污染 / 单份回归 / isEditableTarget 契约）
 │   ├── cases-pdfparse.js    #   PDF 结构化解析（姓名/联系方式/经历/教育/技能字段抽取，纯函数）
 │   ├── cases-jsonresume.js  #   JSON Resume 双向适配（fromJsonResume / toJsonResume，纯函数）
+│   ├── cases-jd-derive.js   #   JD 派生版本（buildDerivedPayload / fillGroupFor 等纯函数）
+│   ├── cases-snippets.js    #   经历素材库（normalizeTags / matchSnippets 等纯函数）
 │   └── cases-export.js      #   多格式导出用例（自带独立 zip 解析器，逐字节校验 OOXML）
 ├── docs/
 │   ├── 跨平台简历编辑器-技术设计与架构方案.md  # 跨平台改造方案
@@ -295,7 +299,7 @@ node tools/render-resume.js                          # 用项目真实渲染管�
 ## 🧪 测试与构建
 
 ```bash
-npm test               # 纯 Node、零依赖：841 条断言
+npm test               # 纯 Node、零依赖：871 条断言
 npm run build          # 重建单文件版 → dist/简历编辑器-单文件.html
 npm run verify:assets  # 资源完整性门禁：引用缺失 / 漏打包 / 模块未接线 / 隐私目录泄漏
 npm run clean:html     # 剥离 index.html 中被外部编辑器注入的 data-page-node-id（提交前跑）

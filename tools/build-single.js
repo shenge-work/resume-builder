@@ -68,6 +68,7 @@ const files = [
   ['js/store/resume-store.js', 'js/store/resume-store.js（P0 数据门面）'],
   ['js/store/resume-library.js', 'js/store/resume-library.js（M1 多简历仓库）'],
   ['js/store/native-bridge.js', 'js/store/native-bridge.js（P2 原生桥）'],
+  ['js/store/snippet-library.js', 'js/store/snippet-library.js（A5 经历素材库）'],
   ['js/store/datasource.js', 'js/store/datasource.js（M4 数据源契约与注册表）'],
   ['js/store/adapter-local.js', 'js/store/adapter-local.js（M4 本地适配器）'],
   ['js/store/adapter-feishu.js', 'js/store/adapter-feishu.js（M4 飞书适配器）'],
@@ -96,7 +97,8 @@ const files = [
   ['js/router/bootstrap.js', 'js/router/bootstrap.js（P0 路由启动）'],
   ['js/export-extra.js', 'js/export-extra.js（T7 DOCX / 纯文本 / Markdown / 静默 PDF 导出）'],
   ['js/audit.js', 'js/audit.js（T7 投递体检）'],
-  ['js/jd-match.js', 'js/jd-match.js（JD 匹配分析：岗位关键词覆盖三档）']
+  ['js/jd-match.js', 'js/jd-match.js（JD 匹配分析：岗位关键词覆盖三档）'],
+  ['js/jd-derive.js', 'js/jd-derive.js（A4 JD 派生版本：缺失/弱覆盖关键词整理为定制版）']
 ];
 for (const [file, name] of files) {
   const tag = '<script src="' + file + '"></script>';

@@ -156,6 +156,7 @@
             oninput="ResumeJd.setJd(this.value)"></textarea>
           <div class="jd-input-foot">
             <button class="mini-btn" onclick="ResumeJd.analyzeNow()" title="按当前 JD 与当前简历重新匹配">分析匹配度</button>
+            <button class="mini-btn" onclick="ResumeEditor.resumeDeriveFromJd()" title="复制当前简历为「JD 定制版」，把缺失/弱覆盖关键词整理成待补提示">生成定制版</button>
             <button class="mini-btn" onclick="ResumeJd.clearJd()" title="清空 JD 与分析结果">清空</button>
             <span class="jd-input-hint">改完简历再点一次即刷新</span>
           </div>
@@ -250,6 +251,8 @@
 <script src="js/store/resume-library.js"></script>
 <!-- P2 原生桥：仅在 Tauri 壳内注入 window.__RESUME_NATIVE__，浏览器下不做任何事 -->
 <script src="js/store/native-bridge.js"></script>
+<!-- A5 经历素材库：STAR 片段复用（localStorage，独立于简历数据，不随飞书同步） -->
+<script src="js/store/snippet-library.js"></script>
 <!-- M4 多数据源：契约注册表 + 本地/飞书适配器（须在 resume-store / resume-library 之后） -->
 <script src="js/store/datasource.js"></script>
 <script src="js/store/adapter-local.js"></script>
@@ -294,5 +297,7 @@
 <!-- JD 匹配分析（粘贴岗位 JD → 关键词覆盖三档）：同样只读消费 ResumeEditor.getData()，
      与 audit.js 平级、互不依赖，放在最后便于两者共用一套面板视觉词汇。 -->
 <script src="js/jd-match.js"></script>
+<!-- JD 派生版本（基于匹配结果生成「JD 定制版」）：纯函数，依赖 ResumeJd 的分析结果 -->
+<script src="js/jd-derive.js"></script>
 </body>
 </html>

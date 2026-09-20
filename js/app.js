@@ -329,6 +329,39 @@ async function resumeDuplicate(id){
   }catch(e){ alert('复制失败：' + (e && e.message ? e.message : e)); return null; }
 }
 
+/* 基于当前 JD 匹配结果，生成一份「JD 定制版」派生简历（不覆盖主简历）。
+   流程：复制主简历 → 用 jd-derive 的 buildDerivedPayload 把缺失/弱覆盖关键词
+   整理成「JD 定制待补」技能分组插入 → 落盘 → 激活。可撤销（进历史栈）。 */
+async function resumeDeriveFromJd(){
+  if(!_libraryReady || !activeResumeId) return;
+  const derive = global.ResumeJdDerive;
+  const jd = global.ResumeJd;
+  if(!derive){ alert('JD 派生模块未加载'); return; }
+  const analysis = jd && jd.last ? jd.last() : null;
+  if(!analysis || !analysis.stats || !analysis.stats.total){
+    alert('请先在「JD 匹配分析」里粘贴 JD 并点「分析匹配度」，再生成定制版。');
+    return;
+  }
+  try{
+    const idx = await global.ResumeLibrary.list();
+    const m = idx.filter(x=>x.id===activeResumeId)[0];
+    const baseTitle = (m && m.title) || data.name || '简历';
+    const doc = await global.ResumeLibrary.load(activeResumeId);
+    if(!doc || !doc.data){ alert('主简历数据读取失败'); return; }
+    // 派生：深拷贝 + 插入「JD 定制待补」分组（不改原 doc）
+    const derivedPayload = derive.buildDerivedPayload(doc, analysis);
+    const title = derive.deriveTitle(baseTitle, jd ? jd.getJd() : '');
+    const meta = await global.ResumeLibrary.create({ title: title, payload: derivedPayload });
+    activeResumeId = meta.id;
+    openTabs.push(meta.id);
+    const loaded = await global.ResumeLibrary.load(meta.id);
+    if(loaded && loaded.data) applyPayloadWithoutSave(loaded);
+    await global.ResumeLibrary.setActive(meta.id);
+    renderResumeTabs(); renderResumeDrawer();
+    return meta;
+  }catch(e){ alert('生成 JD 定制版失败：' + (e && e.message ? e.message : e)); return null; }
+}
+
 /* 删除简历 */
 async function resumeRemove(id){
   if(!_libraryReady || !id) return;
@@ -999,6 +1032,7 @@ global.ResumeEditor = {
   setActiveResumeId: function (v) { activeResumeId = v; },
   resumeNew: resumeNew,
   resumeDuplicate: resumeDuplicate,
+  resumeDeriveFromJd: resumeDeriveFromJd,
   resumeRemove: resumeRemove,
   resumeRename: resumeRename,
   resumeSetTags: resumeSetTags,

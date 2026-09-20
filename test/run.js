@@ -273,6 +273,37 @@ for (const c of jsonResumeCases) {
   catch (e) { fileResults.push({ name: 'jsonresume › ' + c.name + '（抛错: ' + (e && e.message ? e.message : e) + '）', pass: false }); }
 }
 
+/* ---------- JD 派生版本：buildDerivedPayload 等纯函数用例 ----------
+   jd-derive.js 是 IIFE + CommonJS 双环境模块，require 时安全、不触发 DOM。 */
+const jdDerive = require(path.join(ROOT, 'js', 'jd-derive.js'));
+const jdDeriveCases = require(path.join(ROOT, 'test', 'cases-jd-derive.js'));
+const jdDeriveCtx = {
+  buildDerivedPayload: jdDerive.buildDerivedPayload,
+  fillGroupFor: jdDerive.fillGroupFor,
+  suggestSentence: jdDerive.suggestSentence,
+  deriveTitle: jdDerive.deriveTitle,
+  assert(cond, msg) { fileResults.push({ name: 'jd-derive › ' + msg, pass: !!cond }); },
+};
+for (const c of jdDeriveCases) {
+  try { c.fn(jdDeriveCtx); }
+  catch (e) { fileResults.push({ name: 'jd-derive › ' + c.name + '（抛错: ' + (e && e.message ? e.message : e) + '）', pass: false }); }
+}
+
+/* ---------- 经历素材库：normalizeTags/matchSnippets/makeSnippet 纯函数用例 ----------
+   snippet-library.js 是 IIFE + CommonJS 双环境模块，require 时安全（不触发 localStorage）。 */
+const snippetLib = require(path.join(ROOT, 'js', 'store', 'snippet-library.js'));
+const snippetCases = require(path.join(ROOT, 'test', 'cases-snippets.js'));
+const snippetCtx = {
+  normalizeTags: snippetLib.normalizeTags,
+  matchSnippets: snippetLib.matchSnippets,
+  makeSnippet: snippetLib.makeSnippet,
+  assert(cond, msg) { fileResults.push({ name: 'snippets › ' + msg, pass: !!cond }); },
+};
+for (const c of snippetCases) {
+  try { c.fn(snippetCtx); }
+  catch (e) { fileResults.push({ name: 'snippets › ' + c.name + '（抛错: ' + (e && e.message ? e.message : e) + '）', pass: false }); }
+}
+
 /* ---------- 飞书扫码授权：buildAuthorizeUrl 纯函数用例 ----------
    feishu-oauth.js 是纯 Node CommonJS 模块；buildAuthorizeUrl 是纯函数（不触发网络）。
    测试里用临时 mock 覆盖 sync.config.json 读取，不依赖本机真实配置。 */

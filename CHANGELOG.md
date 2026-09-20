@@ -47,6 +47,21 @@
 
 ### 新增
 
+- **JD 派生版本（A4，借鉴 Resume Matcher，`js/jd-derive.js`）**：在「JD 匹配分析」之上，
+  一键生成**针对该 JD 的定制版简历**——复制主简历（不覆盖），把「缺失 / 弱覆盖」关键词整理成
+  「JD 定制待补」技能分组插入副本，供用户逐条改写为真实经历（STAR 占位模板，绝不凭空编造）。
+  - 纯函数：`buildDerivedPayload`（深拷贝插入，不改入参）/ `fillGroupFor`（缺失/弱覆盖分开标注+去重）/
+    `suggestSentence`（STAR 占位）/ `deriveTitle`（标题带 JD 来源，可回溯）。
+  - 入口：JD 面板「生成定制版」按钮 → `ResumeEditor.resumeDeriveFromJd()`。
+  - 测试 `test/cases-jd-derive.js`（17 条）+ 四轮变异测试全抓到（浅拷贝改入参/去标记/不去重/后缀错）。
+
+- **经历素材库（A5，STAR 片段复用，`js/store/snippet-library.js`）**：把一段段 STAR 经历作为
+  可复用片段存起来（localStorage，独立于简历数据、不随飞书同步），投不同岗位时按需勾选组装。
+  - 纯函数：`normalizeTags`（去重去空）/ `matchSnippets`（按 JD 缺失关键词命中数降序推荐）/
+    `makeSnippet`；门面 `ResumeSnippets` 的 list/add/remove/get/count。
+  - 与 A4 天然衔接：派生简历时可用 `matchSnippets` 按缺失关键词推荐素材片段。
+  - 测试 `test/cases-snippets.js`（13 条）+ 四轮变异测试全抓到（不去重/不排序/大小写敏感/标题不 trim）。
+
 - **PDF 结构化解析（A3，借鉴 OpenResume，`tools/pdf-parse.js`）**：在原有「识别姓名+联系方式+原文全保留」之上，
   新增**字段级抽取**——工作经历（公司/岗位/时间）、教育背景（学校/学位）、技能关键词，落到 `career`/`skills`
   结构化板块，供用户在编辑器里「一键套用/逐项确认」，而非手工重打。
