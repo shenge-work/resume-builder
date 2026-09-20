@@ -90,5 +90,113 @@ module.exports = [
       const r = ctx.buildResumeData({ lines: ['张三', '正文'], pageCount: 3 });
       ctx.assert(/3\s*页/.test(r.data.meta || ''), 'meta 含页数标记');
     }
+  },
+
+  /* ---------- A3：结构化字段抽取 ---------- */
+  {
+    name: 'classifySectionLine：板块标题归一化',
+    fn: (ctx) => {
+      ctx.assert(ctx.classifySectionLine('工作经历') === 'career', '工作经历→career');
+      ctx.assert(ctx.classifySectionLine('教育背景') === 'education', '教育背景→education');
+      ctx.assert(ctx.classifySectionLine('专业技能') === 'skills', '专业技能→skills');
+      ctx.assert(ctx.classifySectionLine('这是很长的一行正文不会命中板块标题') === null, '长正文不误判为标题');
+      // 关键失效面：含关键词但整行过长（非板块标题）→ 必须仍返回 null，否则正文会被误切
+      ctx.assert(ctx.classifySectionLine('这里有一大段非常长的文字其中提到了工作经历这个词汇但整行远超板块标题该有的长度') === null, '含关键词但超长不误判为板块标题');
+    }
+  },
+  {
+    name: 'extractDateRange：抽取日期段',
+    fn: (ctx) => {
+      ctx.assert(ctx.extractDateRange('2023.03 - 2025.06') === '2023.03 - 2025.06', '点分日期段');
+      ctx.assert(ctx.extractDateRange('2019.06-至今') === '2019.06-至今', '至今日期段');
+      ctx.assert(ctx.extractDateRange('负责后端开发') === null, '非日期行返回 null');
+    }
+  },
+  {
+    name: 'extractCareer：识别公司/岗位/时间',
+    fn: (ctx) => {
+      const lines = [
+        '工作经历',
+        '2023.03 - 2025.06',
+        '云启科技',
+        '全栈工程师',
+        '参与企业 SaaS 平台的功能研发'
+      ];
+      const items = ctx.extractCareer(lines);
+      ctx.assert(items.length === 1, '识别出一段经历');
+      ctx.assert(items[0].company === '云启科技', '公司名识别');
+      ctx.assert(items[0].role === '全栈工程师', '岗位识别');
+      ctx.assert(items[0].date === '2023.03 - 2025.06', '时间识别');
+    }
+  },
+  {
+    name: 'extractCareer：多段经历切分',
+    fn: (ctx) => {
+      const lines = [
+        '工作经历',
+        '2023.03 - 2025.06', '云启科技', '全栈工程师',
+        '2021.07 - 2023.02', '智联数据', '后端工程师'
+      ];
+      const items = ctx.extractCareer(lines);
+      ctx.assert(items.length === 2, '切分为两段');
+      ctx.assert(items[0].company === '云启科技' && items[1].company === '智联数据', '两段公司名各自正确');
+    }
+  },
+  {
+    name: 'extractCareer：低置信度标注',
+    fn: (ctx) => {
+      const lines = ['工作经历', '2023.03 - 2025.06', '一段只有时间没有公司岗位的行'];
+      const items = ctx.extractCareer(lines);
+      ctx.assert(items.length === 1, '识别出一段');
+      ctx.assert(items[0].__lowConfidence === true, '缺公司/岗位标低置信度');
+    }
+  },
+  {
+    name: 'extractEducation：识别学校/学位',
+    fn: (ctx) => {
+      const lines = ['教育背景', '示例大学', '计算机科学与技术 · 本科', '2019 - 2023'];
+      const items = ctx.extractEducation(lines);
+      ctx.assert(items.length >= 1, '识别出教育经历');
+      ctx.assert(/示例大学/.test(items[0].school), '学校识别');
+      ctx.assert(/本科/.test(items[0].degree), '学位识别');
+    }
+  },
+  {
+    name: 'extractSkills：抽取技能关键词去重',
+    fn: (ctx) => {
+      const lines = ['专业技能', 'Java、Python、Docker、Kubernetes', '熟悉 Java 与 Spring Boot'];
+      const s = ctx.extractSkills(lines);
+      ctx.assert(s.indexOf('Java') >= 0, 'Java 被抽取');
+      ctx.assert(s.indexOf('Docker') >= 0, 'Docker 被抽取');
+      ctx.assert(s.filter(x => x === 'Java').length === 1, 'Java 去重');
+    }
+  },
+  {
+    name: 'buildResumeData：结构化落到 career section',
+    fn: (ctx) => {
+      const lines = ['张三', 'demo@example.com', '工作经历', '2023.03 - 2025.06', '云启科技', '全栈工程师'];
+      const r = ctx.buildResumeData({ lines, pageCount: 1 });
+      const career = r.data.sections.find(s => s.type === 'career');
+      ctx.assert(!!career, '生成 career section');
+      ctx.assert(career.items[0].company === '云启科技', '公司落到 career.items');
+    }
+  },
+  {
+    name: 'buildResumeData：结构化不丢原文兜底',
+    fn: (ctx) => {
+      const lines = ['张三', '工作经历', '2023.03 - 2025.06', '云启科技', '全栈工程师'];
+      const r = ctx.buildResumeData({ lines, pageCount: 1 });
+      const hasImport = r.data.sections.some(s => s.type === 'advantages' && /导入原文/.test(s.title));
+      ctx.assert(hasImport, '导入原文兜底 section 仍存在');
+    }
+  },
+  {
+    name: 'buildResumeData：无结构化板块时行为同旧版',
+    fn: (ctx) => {
+      const lines = ['测试者', '一段普通工作描述没有明确板块标题'];
+      const r = ctx.buildResumeData({ lines, pageCount: 1 });
+      ctx.assert(!r.data.sections.some(s => s.type === 'career'), '无板块标题不臆造 career');
+      ctx.assert(r.data.sections[0].type === 'advantages', '落点为 advantages（原文）');
+    }
   }
 ];

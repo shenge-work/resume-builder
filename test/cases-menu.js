@@ -24,6 +24,7 @@ const MUST_BE_BOTH = [
   { label: '重做', run: 'ResumeEditor.redo()' },
   { label: '打印 / 另存为 PDF', run: 'window.print()' },
   { label: '导出 Word（.docx）', run: 'ResumeExport.exportDocx()' },
+  { label: '导出 JSON Resume', run: 'ResumeEditor.exportJSONResume()' },
   { label: '上报到飞书', run: 'ResumeEditor.reportToFeishu()' },
   { label: '拉取最新', run: 'ResumeEditor.pullFromFeishu()' },
   { label: '历史版本', run: "ResumeRouter.navigate('/history')" },

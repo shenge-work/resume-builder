@@ -88,6 +88,7 @@ const files = [
   ['js/ui/save-status.js', 'js/ui/save-status.js（保存状态条：保存三态 + 存储降级告警）'],
   ['js/ui/notifier.js', 'js/ui/notifier.js（消息通知中心）'],
   ['js/ui/pane-mobile.js', 'js/ui/pane-mobile.js（面板 / 移动端 UI）'],
+  ['js/io/jsonresume-adapter.js', 'js/io/jsonresume-adapter.js（JSON Resume 互操作适配器）'],
   ['js/ai/presets.js', 'js/ai/presets.js（AI 厂商预设）'],
   ['js/ai/provider.js', 'js/ai/provider.js（AI 调用层 + SSE 解析）'],
   ['js/ai/ui/panel.js', 'js/ai/ui/panel.js（AI 面板壳）'],

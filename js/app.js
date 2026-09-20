@@ -656,6 +656,42 @@ function exportJSON(){
   document.body.appendChild(a); a.click(); a.remove();
   URL.revokeObjectURL(url);
 }
+/* 导出为标准 JSON Resume（jsonresume.org/schema），供 resume-cli / Reactive Resume 等生态消费 */
+function exportJSONResume(){
+  const adapter = global.ResumeJSONResume;
+  if(!adapter){ alert('JSON Resume 适配器未加载'); return; }
+  let jr;
+  try { jr = adapter.toJsonResume({ data: data }); }
+  catch(e){ alert('导出 JSON Resume 失败：' + (e && e.message ? e.message : e)); return; }
+  const blob = new Blob([JSON.stringify(jr, null, 2)], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = getFileName('_JSONResume', 'json');
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+}
+/* 导入标准 JSON Resume：识别 jsonresume 结构（有 basics/work/education/skills 任一即视为），
+   转为本项目模型后走 applyImported 覆盖导入；识别不出则回退到普通 JSON 导入 */
+function importJSONResume(input){
+  const file = input.files && input.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = e=>{
+    let obj;
+    try { obj = JSON.parse(e.target.result); }
+    catch(err){ alert('导入失败：文件不是有效的 JSON\n' + (err && err.message ? err.message : err)); input.value=''; return; }
+    const adapter = global.ResumeJSONResume;
+    const looksLikeJsonResume = obj && (obj.basics || obj.work || obj.education || obj.skills);
+    if(adapter && looksLikeJsonResume){
+      try { obj = adapter.fromJsonResume(obj); }
+      catch(err){ alert('导入 JSON Resume 失败：' + (err && err.message ? err.message : err)); input.value=''; return; }
+    }
+    applyImported(obj);
+    input.value='';
+  };
+  reader.onerror = ()=>{ alert('导入失败：文件读取错误'); input.value=''; };
+  reader.readAsText(file);
+}
 /* 由隐藏 file input 触发：读取并校验 JSON，覆盖式导入 */
 function importJSON(input){
   const file = input.files && input.files[0];
@@ -909,12 +945,14 @@ global.ResumeEditor = {
   toggleGuides: toggleGuides,
   exportPDF: exportPDF,
   exportJSON: exportJSON,
+  exportJSONResume: exportJSONResume,
   exportLongImage: exportLongImage,
   exportSingleFileHTML: exportSingleFileHTML,
   closeExportModal: closeExportModal,
   doExportDownload: doExportDownload,
   setFileNameBase: setFileNameBase,
   importJSON: importJSON,
+  importJSONResume: importJSONResume,
   loadRepoData: loadRepoData,
   clearSaved: clearSaved,
   reportToFeishu: reportToFeishu,

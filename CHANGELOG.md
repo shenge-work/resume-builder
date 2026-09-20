@@ -47,6 +47,27 @@
 
 ### 新增
 
+- **PDF 结构化解析（A3，借鉴 OpenResume，`tools/pdf-parse.js`）**：在原有「识别姓名+联系方式+原文全保留」之上，
+  新增**字段级抽取**——工作经历（公司/岗位/时间）、教育背景（学校/学位）、技能关键词，落到 `career`/`skills`
+  结构化板块，供用户在编辑器里「一键套用/逐项确认」，而非手工重打。
+  - 新增纯函数：`extractCareer` / `extractEducation` / `extractSkills` / `extractDateRange` / `classifySectionLine`。
+  - **诚实原则不变**：缺公司/岗位的经历标 `__lowConfidence`（编辑器显示「（未识别，请补）」），
+    识别不出结构的正文仍全保留进「导入原文」兜底，**绝不臆造、绝不丢内容**。
+  - 测试 `test/cases-pdfparse.js` 新增 22 条；**四轮变异测试全部证伪有效**（长度阈值放宽 / 去低置信度标注 /
+    去 career 落地 / 技能不去重 → 断言均变红）。
+
+- **JSON Resume 双向适配（A2，互操作，`js/io/jsonresume-adapter.js`）**：`fromJsonResume` / `toJsonResume`
+  把本项目简历模型与 JSON Resume 标准（jsonresume.org/schema）互转，用户可自由迁入/迁出。
+  - 双环境模块（IIFE + CommonJS）：浏览器挂 `window.ResumeJSONResume`，Node 测试直接 `require`。
+  - 字段映射尽力而为：work→career、education→教育、skills→矩阵式技能、projects→项目经历、
+    basics→姓名/头衔/联系方式；无法映射的板块（highlights/growth）**并入 summary 兜底，绝不丢内容**。
+  - 入口：菜单「导出」组新增「导出 JSON Resume」；`ResumeEditor.importJSONResume` 识别 jsonresume
+    结构自动转换后导入（识别不出回退普通 JSON 导入）。
+  - 测试 `test/cases-jsonresume.js`（26 条）+ 菜单一致性断言 1 条；**四轮变异测试全抓到**
+    （company 错映射 / keywords 不加粗 / 丢 highlights.cards / 空输入不抛错）。
+  - 真浏览器 e2e：单文件版 `ResumeJSONResume` / `exportJSONResume` / `importJSONResume` 均可用，
+    往返转换 `basics.name`/`work.name`/`skills.keywords` 一致。
+
 - **预览内 ↑↓ 排序（#8 触屏替代拖拽，`js/render/resume-render.js`）**：HTML5 DnD 在移动端不可用，
   给预览内所有可拖拽元素（板块 / 优势条目 / 经历 job / job 内 project / 技能分组 / 项目板块条目）
   加 `↑↓` 按钮，点按即同层级重排一位，复用已有的 `moveSection/moveItem/moveJob/moveProj/reInsert`。

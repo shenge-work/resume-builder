@@ -247,11 +247,30 @@ const pdfCtx = {
   extractName: pdfParse.extractName,
   extractContact: pdfParse.extractContact,
   buildResumeData: pdfParse.buildResumeData,
+  extractCareer: pdfParse.extractCareer,
+  extractEducation: pdfParse.extractEducation,
+  extractSkills: pdfParse.extractSkills,
+  extractDateRange: pdfParse.extractDateRange,
+  classifySectionLine: pdfParse.classifySectionLine,
   assert(cond, msg) { fileResults.push({ name: 'pdfparse › ' + msg, pass: !!cond }); },
 };
 for (const c of pdfCases) {
   try { c.fn(pdfCtx); }
   catch (e) { fileResults.push({ name: 'pdfparse › ' + c.name + '（抛错: ' + (e && e.message ? e.message : e) + '）', pass: false }); }
+}
+
+/* ---------- JSON Resume 适配器：fromJsonResume/toJsonResume 纯函数用例 ----------
+   jsonresume-adapter.js 是双环境模块（IIFE + CommonJS），require 时安全、不触发 DOM。 */
+const jsonResumeAdapter = require(path.join(ROOT, 'js', 'io', 'jsonresume-adapter.js'));
+const jsonResumeCases = require(path.join(ROOT, 'test', 'cases-jsonresume.js'));
+const jsonResumeCtx = {
+  fromJsonResume: jsonResumeAdapter.fromJsonResume,
+  toJsonResume: jsonResumeAdapter.toJsonResume,
+  assert(cond, msg) { fileResults.push({ name: 'jsonresume › ' + msg, pass: !!cond }); },
+};
+for (const c of jsonResumeCases) {
+  try { c.fn(jsonResumeCtx); }
+  catch (e) { fileResults.push({ name: 'jsonresume › ' + c.name + '（抛错: ' + (e && e.message ? e.message : e) + '）', pass: false }); }
 }
 
 /* ---------- 飞书扫码授权：buildAuthorizeUrl 纯函数用例 ----------

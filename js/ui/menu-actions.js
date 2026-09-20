@@ -102,6 +102,10 @@
       label: '导出单文件 HTML', title: '导出仅含简历本身的独立 HTML 文件，可直接双击打开',
       run: 'ResumeEditor.exportSingleFileHTML()', d: '导出', m: '导出'
     },
+    {
+      label: '导出 JSON Resume', title: '导出为 JSON Resume 标准格式，可被 resume-cli / Reactive Resume 等生态工具消费',
+      run: 'ResumeEditor.exportJSONResume()', d: '导出', m: '导出'
+    },
 
     /* 飞书同步（此前只有手机有，桌面完全够不着） */
     {

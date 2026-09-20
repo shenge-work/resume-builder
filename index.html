@@ -279,6 +279,8 @@
 <!-- 消息通知中心（自动同步告警等）：不依赖其他业务模块，app.js 前加载 -->
 <script src="js/ui/notifier.js"></script>
 <script src="js/ui/pane-mobile.js"></script>
+<!-- JSON Resume 互操作适配器（纯函数，无依赖）：app.js 前加载，供导入/导出 JSON Resume 使用 -->
+<script src="js/io/jsonresume-adapter.js"></script>
 <script src="js/app.js"></script>
 <!-- P0 路由启动：注册路由并 start（必须在 app.js 之后，因为 view.onEnter 会调 ResumeEditor） -->
 <!-- AI 助手（阶段 1：presets / provider / panel 壳） -->

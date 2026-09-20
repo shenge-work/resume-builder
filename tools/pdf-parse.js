@@ -127,18 +127,205 @@ function extractName(lines) {
   return null;
 }
 
+/* ============ 结构化字段抽取（A3：借鉴 OpenResume，尽力结构化 + 不臆造） ============ */
+/* 在「识别姓名+联系方式」之上，进一步识别工作经历 / 教育 / 技能三个板块，
+   抽取字段级信息（公司、岗位、时间、学校、学位、技能关键词），落到 career/skills 结构，
+   供用户在编辑器里「一键套用 / 逐项确认」，而非手工重打。
+   诚实原则不变：低置信度一律标注待确认，原文永远全保留兜底，绝不静默填错。 */
+
+/* section 边界识别：简历常见板块标题关键词 → 归一化板块类型 */
+const SECTION_ALIASES = [
+  { type: 'career', re: /工作经历|工作经验|职业经历|项目经历|实习经历|WORK\s*EXPERIENCE|EXPERIENCE|EMPLOYMENT/i },
+  { type: 'education', re: /教育背景|教育经历|学习经历|学历|EDUCATION/i },
+  { type: 'skills', re: /专业技能|技能特长|技能|技术栈|SKILLS|TECHNICAL/i },
+  { type: 'projects', re: /项目经验|项目经历|个人项目|PROJECTS/i }
+];
+
+/* 归一化一行文本到板块类型（命中返回 type，否则 null） */
+function classifySectionLine(t) {
+  const s = t.trim();
+  if (!s || s.length > 20) return null;      // 板块标题一般较短
+  for (const a of SECTION_ALIASES) {
+    if (a.re.test(s)) return a.type;
+  }
+  return null;
+}
+
+/* 日期段匹配：2021.07 - 2023.02 / 2021-2023 / 2021年-2023年 / 2019.06-至今 */
+const DATE_RANGE_RE = /(?:19|20)\d{2}(?:[.年\/-]\s?\d{1,2})?\s*(?:[—–\-~～至]\s*(?:至今|现在|今|(?:19|20)\d{2}(?:[.年\/-]\s?\d{1,2})?))/;
+
+/* 从一行文本中抽出日期段（命中返回字符串，否则 null） */
+function extractDateRange(t) {
+  const m = t.match(DATE_RANGE_RE);
+  return m ? m[0] : null;
+}
+
+/* 工作经历板块：逐行扫描，识别「公司 / 岗位 / 时间」块。
+   策略：一段经历通常包含一行公司名、一行岗位（或公司+岗位同行）、一行时间。
+   这里只对「时间行 + 紧邻的前 1~2 行」做低置信度猜测，抽不出就归入 summary 原文。 */
+function extractCareer(lines) {
+  const items = [];
+  let cur = null;
+  const flush = () => { if (cur && (cur.company || cur.role || cur.date)) items.push(cur); cur = null; };
+
+  for (let i = 0; i < lines.length; i++) {
+    const t = lines[i].trim();
+    if (!t) continue;
+    const cls = classifySectionLine(t);
+    if (cls === 'education' || cls === 'skills' || cls === 'projects') { flush(); break; } // 离开工作经历区
+    if (cls === 'career') { flush(); continue; } // 板块标题本身跳过
+
+    const date = extractDateRange(t);
+    if (date) {
+      // 命中时间行：可能是新一段经历的起点，或当前经历的补全
+      if (!cur) cur = { company: '', role: '', date: date, summary: '', __lowConfidence: false };
+      else if (!cur.date) cur.date = date;
+      else { flush(); cur = { company: '', role: '', date: date, summary: '', __lowConfidence: false }; }
+      continue;
+    }
+
+    // 非时间行：尝试识别公司/岗位。公司名常含「公司/科技/集团/有限」等后缀；岗位含「工程师/经理/实习生」等
+    if (!cur) {
+      // 尚未进入一段经历，跳过（可能是板块说明）
+      continue;
+    }
+    const isCompany = /公司|集团|科技|网络|信息|数据|软件|技术有限公司|实验室|研究院|bank|Inc\.?|Ltd\.?|Co\.?/i.test(t);
+    const isRole = /工程师|开发|经理|负责人|实习生|顾问|设计师|产品|运营|架构师|主管|总监|专家|lead|engineer|developer|manager|intern/i.test(t);
+    if (isCompany && !cur.company) cur.company = t;
+    else if (isRole && !cur.role) cur.role = t;
+    else if (cur.summary) cur.summary += '\n' + t;
+    else cur.summary = t;
+  }
+  flush();
+
+  // 诚实标注：公司或岗位为空时，标为低置信度（用户需确认）
+  items.forEach(it => { if (!it.company || !it.role) it.__lowConfidence = true; });
+  return items;
+}
+
+/* 教育板块：识别「学校 / 学位 / 时间」。学校含「大学/学院」；学位含「本科/硕士/博士/学士」 */
+function extractEducation(lines) {
+  const items = [];
+  let cur = null;
+  const flush = () => { if (cur && (cur.school || cur.degree || cur.date)) items.push(cur); cur = null; };
+
+  let inEdu = false;
+  for (const raw of lines) {
+    const t = raw.trim();
+    if (!t) continue;
+    const cls = classifySectionLine(t);
+    if (cls === 'education') { inEdu = true; flush(); continue; }
+    if (cls && cls !== 'education' && inEdu) { flush(); break; }   // 离开教育区
+    if (!inEdu) continue;
+
+    const date = extractDateRange(t);
+    const isSchool = /大学|学院|学校|University|College|Institute/i.test(t);
+    const isDegree = /本科|硕士|博士|学士|专科|统招|全日制|Bachelor|Master|PhD|博士研究生|硕士研究生/i.test(t);
+
+    if (date && !cur) { cur = { school: '', degree: '', date: date, __lowConfidence: false }; continue; }
+    if (!cur) cur = { school: '', degree: '', date: '', __lowConfidence: false };
+
+    if (isSchool && !cur.school) cur.school = t;
+    else if (isDegree && !cur.degree) cur.degree = t;
+    else if (date && !cur.date) cur.date = date;
+    else if (isSchool) cur.school = t;
+  }
+  flush();
+  items.forEach(it => { if (!it.school && !it.degree) it.__lowConfidence = true; });
+  return items;
+}
+
+/* 技能板块：抽取技能关键词（常见技术词 / 工具 / 框架）。
+   用一份白名单正则匹配，命中即收集（去重），避免把整段描述当技能。 */
+const SKILL_TOKEN_RE = /(?:Java|Python|Golang|Go|C\+\+|C#|JavaScript|TypeScript|Node\.js|Vue|React|Angular|Spring|Spring\s*Boot|MyBatis|Docker|Kubernetes|K8s|MySQL|PostgreSQL|Redis|MongoDB|Kafka|RocketMQ|RabbitMQ|Flink|Spark|Hadoop|ClickHouse|Linux|Git|Nginx|Elasticsearch|LangChain|LangGraph|RAG|PyTorch|TensorFlow|LLM|机器学习|深度学习|微服务|分布式|高并发|性能优化)/gi;
+
+function extractSkills(lines) {
+  const found = [];
+  let inSkills = false;
+  for (const raw of lines) {
+    const t = raw.trim();
+    if (!t) continue;
+    const cls = classifySectionLine(t);
+    if (cls === 'skills') { inSkills = true; continue; }
+    if (cls && cls !== 'skills' && inSkills) break;
+    if (!inSkills) continue;
+    const matches = t.match(SKILL_TOKEN_RE);
+    if (matches) {
+      for (const m of matches) {
+        const norm = m.replace(/\s+/g, '');
+        if (found.indexOf(norm) < 0) found.push(norm);
+      }
+    }
+  }
+  return found;
+}
+
 /* ============ 构建简历数据模型 ============ */
 /* 生成一个「可直接进编辑器」的 {data,fonts,spacing,v}。
-   结构策略（诚实优先）：
+   结构策略（A3 升级，仍诚实优先）：
    - name / contact 尽力识别
-   - 正文全部保留进一个 advantages 类型 section「导入原文」（每行一条 text），
-     让用户在编辑器里校对、拆分、重组，而不是交给不可靠的自动解析硬凑字段。 */
+   - career / education / skills 尽力结构化（低置信度标注待确认，绝不臆造）
+   - 未能结构化的正文，仍全保留进一个 advantages 类型 section「导入原文」兜底，
+     让用户在编辑器里校对、拆分、重组，绝不丢内容。 */
 function buildResumeData(pdf) {
   const { lines, pageCount } = pdf;
   const name = extractName(lines) || '';
   const contact = extractContact(lines);
 
   const sections = [];
+
+  // —— A3：结构化板块 ——
+  const careerItems = extractCareer(lines);
+  if (careerItems.length) {
+    sections.push({
+      id: 'career_' + Date.now().toString(36),
+      type: 'career',
+      title: '工作经历（AI 识别，请校对）',
+      pageBreak: false,
+      items: careerItems.map(it => ({
+        company: it.company || '（未识别，请补）',
+        logo: '',
+        role: it.role || '（未识别，请补）',
+        date: it.date || '',
+        summary: it.summary || '',
+        projects: []
+      }))
+    });
+  }
+
+  const eduItems = extractEducation(lines);
+  if (eduItems.length) {
+    // 教育经历落到 career 里不太贴切；这里用 advantages 承载「学校 · 学位 · 时间」便于编辑器直接改
+    sections.push({
+      id: 'edu_' + Date.now().toString(36),
+      type: 'advantages',
+      title: '教育背景（AI 识别，请校对）',
+      pageBreak: false,
+      items: eduItems.map(it => ({
+        label: '',
+        text: [it.school, it.degree, it.date].filter(Boolean).join(' · ') || '（未识别，请补）',
+        labelBold: false,
+        spacing: { mt: 0, mb: 4 }
+      }))
+    });
+  }
+
+  const skillTokens = extractSkills(lines);
+  if (skillTokens.length) {
+    sections.push({
+      id: 'skills_' + Date.now().toString(36),
+      type: 'skills',
+      title: '专业技能（AI 识别，请校对）',
+      pageBreak: false,
+      groups: [{
+        name: '技能关键词',
+        keywords: skillTokens.map(k => '**' + k + '**').join(' · '),
+        detail: '以下关键词由 PDF 自动识别，请校对分组与描述。',
+        items: []
+      }]
+    });
+  }
+
   // 「导入原文」板块：正文行（剔除已识别为姓名/联系方式的短行）逐行保留
   const bodyLines = lines.filter(ln => {
     const t = ln.trim();
@@ -188,4 +375,7 @@ async function parsePdfToResume(buffer) {
   return { resume, pdf };
 }
 
-module.exports = { extractText, buildResumeData, extractContact, extractName, parsePdfToResume, getPdfjs };
+module.exports = {
+  extractText, buildResumeData, extractContact, extractName, parsePdfToResume, getPdfjs,
+  extractCareer, extractEducation, extractSkills, extractDateRange, classifySectionLine
+};

@@ -47,7 +47,7 @@
 | 功能 | 说明 |
 |---|---|
 | 数据导入 / 导出 | 全量内容导出为 JSON 备份，换设备 / 浏览器后导入恢复 |
-| 上传 PDF / JSON 简历 | 左抽屉「上传」按钮：JSON 直接入库为一份新简历；PDF 经本地服务用 pdf.js 提取文本，识别姓名/联系方式，正文保留进「导入原文」板块供校对整理（需 `npm start`） |
+| 上传 PDF / JSON 简历 | 左抽屉「上传」按钮：JSON 直接入库为一份新简历；PDF 经本地服务用 pdf.js 提取文本，识别姓名/联系方式，并尽力结构化工作经历/教育/技能（低置信度标注待确认），正文仍全保留进「导入原文」板块供校对整理（需 `npm start`） |
 | 自动保存 | 统一「分文件」模型：一份简历 = 一个文档（`resumes/<id>.json`），编辑经 `stableHash` 内容指纹比对后写盘（内容未变不写）；桌面端落系统用户数据目录，浏览器开发模式落 `data/resumes/` |
 | 飞书同步（可选） | 手动「上报到飞书」/「从飞书恢复」，借飞书文档与云盘文件的版本历史留存每次更改；应用凭证只存本机，**绝不进浏览器** |
 | 飞书绑定（可选） | 两种方式：**① 扫码授权**——手机飞书扫码后以**用户身份**（user_access_token）读写自己的云盘/文档；**② 扫码注册个人应用**——手机飞书扫码由飞书自动创建「个人应用」并保存 App ID / App Secret（无需在开放平台手动抄写），自动探测绑定云盘文件夹。两种凭证都只存本机、绝不进浏览器 |
@@ -154,6 +154,8 @@ resume-builder/
 │       ├── notifier.js      # 消息通知中心
 │       └── pane-mobile.js   # 面板 / 移动端 UI
 │   ├── export-extra.js      # Word / 纯文本 / Markdown / 静默 PDF（暴露 window.ResumeExport）
+│   ├── io/
+│   │   └── jsonresume-adapter.js # JSON Resume 标准双向适配（暴露 window.ResumeJSONResume；双环境模块）
 │   └── store/
 │       ├── resume-store.js  # 数据门面：Local / Browser / Feishu 三种实现
 │       └── native-bridge.js # 原生桥：仅在 Tauri 壳内注入 window.__RESUME_NATIVE__
@@ -179,6 +181,8 @@ resume-builder/
 │   ├── cases-save-status.js #   保存状态条 + 存储降级通知（含隔离沙箱里的真实降级行为验证）
 │   ├── cases-jd.js          #   JD 匹配分析（术语抽取 / 词边界 / 分桶 / 只读性 / 隐私边界 / 接线）
 │   ├── cases-undo.js        #   撤销栈按简历隔离 + 输入框放行原生撤销（跨份污染 / 单份回归 / isEditableTarget 契约）
+│   ├── cases-pdfparse.js    #   PDF 结构化解析（姓名/联系方式/经历/教育/技能字段抽取，纯函数）
+│   ├── cases-jsonresume.js  #   JSON Resume 双向适配（fromJsonResume / toJsonResume，纯函数）
 │   └── cases-export.js      #   多格式导出用例（自带独立 zip 解析器，逐字节校验 OOXML）
 ├── docs/
 │   ├── 跨平台简历编辑器-技术设计与架构方案.md  # 跨平台改造方案
@@ -291,7 +295,7 @@ node tools/render-resume.js                          # 用项目真实渲染管�
 ## 🧪 测试与构建
 
 ```bash
-npm test               # 纯 Node、零依赖：784 条断言
+npm test               # 纯 Node、零依赖：841 条断言
 npm run build          # 重建单文件版 → dist/简历编辑器-单文件.html
 npm run verify:assets  # 资源完整性门禁：引用缺失 / 漏打包 / 模块未接线 / 隐私目录泄漏
 npm run clean:html     # 剥离 index.html 中被外部编辑器注入的 data-page-node-id（提交前跑）
