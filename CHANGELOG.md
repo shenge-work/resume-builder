@@ -47,6 +47,11 @@
 
 ### 新增
 
+- **性能：每键渲染不再同步重画分页线（`#9`）**：`renderPreview` 每键调用 `drawPageGuides`（DOM 查询 + `getBoundingClientRect` + 建碎片），改为 `scheduleDrawPageGuides` 经 `requestAnimationFrame` 合并到单帧，避免逐键同步重画。`saveState` 写盘本就有 800ms 防抖（`pushRepoDebounced`），本项补上渲染侧合并。
+  - 新增 `test/cases-perf.js` 断言「连续 3 次 renderPreview 只调度 1 次 rAF」；变异删合并守卫 → 断言变红（证伪有效）。断言计数 903 → **905**。
+
+- **`ResumeExport` 命名空间合并（`#10`）**：`export-pdf.js` 与 `export-extra.js` 的挂载都改为 `Object.assign(global.ResumeExport = global.ResumeExport || {}, { ... })`，顺序无关、互不覆盖（修掉评估文档 §4.3 的「后加载者整包覆盖前者、丢 8 个函数」隐患）。
+
 - **简历血缘（Resume Matcher master→tailored 模型，`js/store/resume-library.js`）**：多简历库补上「母简历 ↔ JD 派生版」的显式血缘。
   - meta 新增 `parentId`（母简历 id）/ `kind`（`master` | `derived`，缺省 `master`）/ `jobId`（关联 JD）/ `jdText`（JD 原文），
     全部可选、向后兼容；`create`/`save`/`patchMeta` 三处白名单透传。

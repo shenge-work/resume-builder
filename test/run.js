@@ -603,6 +603,19 @@ for (const c of reorderCases) {
     .catch((e) => { fileResults.push({ name: 'reorder › ' + c.name + '（抛错: ' + (e && e.message ? e.message : e) + '）', pass: false }); });
 }
 
+/* ---------- 性能回归（#9）：分页线 rAF 合并，防每键同步重画 ---------- */
+const perfCases = require(path.join(ROOT, 'test', 'cases-perf.js'));
+const perfCtx = {
+  ResumeRender: ctx.ResumeRender,
+  global: ctx,
+  assert(cond, msg) { fileResults.push({ name: 'perf › ' + msg, pass: !!cond }); },
+};
+let perfChain = Promise.resolve();
+for (const c of perfCases) {
+  perfChain = perfChain.then(() => c.fn(perfCtx))
+    .catch((e) => { fileResults.push({ name: 'perf › ' + c.name + '（抛错: ' + (e && e.message ? e.message : e) + '）', pass: false }); });
+}
+
 /* ---------- 倒数第二步：保存状态条（保存三态 + 存储降级通知）----------
    在 vm 里按浏览器同路径加载；用例既测状态机纯逻辑，也**真的**把演示 fetch 换成
    必然失败的实现，验证「写盘失败 → 降级通知」这条唯一可感知通道确实发出。 */
@@ -664,7 +677,7 @@ for (const c of httpCases) {
 }
 
 /* ---------- 报告（等异步的 library 用例跑完再输出） ---------- */
-libChain.then(() => ssChain).then(() => jdChain).then(() => menuChain).then(() => undoChain).then(() => reorderChain).then(() => httpChain).then(() => {
+libChain.then(() => ssChain).then(() => jdChain).then(() => menuChain).then(() => undoChain).then(() => reorderChain).then(() => perfChain).then(() => httpChain).then(() => {
   const all = ctx.__results.concat(fileResults);
   let pass = 0, fail = 0;
   for (const r of all) {

@@ -253,7 +253,7 @@ function renderPreview(){
   const marginStyle = `width:210mm;max-width:none;box-sizing:border-box;padding-top:${mmToPx(m.top)}px;padding-right:${mmToPx(m.right)}px;padding-bottom:${mmToPx(m.bottom)}px;padding-left:${mmToPx(m.left)}px;`;
   preview.innerHTML = `<div class="resume" style="${getVarStr()}${marginStyle}">${renderResumeInner()}</div>`;
   syncPrintPageMargin();
-  drawPageGuides();
+  scheduleDrawPageGuides();
   RB.saveState();
 }
 
@@ -552,6 +552,18 @@ function drawPageGuides(){
   }
   preview.appendChild(frag);
 }
+/* #9：drawPageGuides 合并到下一帧，避免每键 renderPreview 同步重画分页线
+   （DOM 查询 + getBoundingClientRect + 建碎片，逐键同步很贵）。rAF 不存在时（测试桩 / 老浏览器）
+   直接同步执行，保证行为一致；已有待执行帧则合并，不堆叠。 */
+let _guideRaf = null;
+function scheduleDrawPageGuides(){
+  if(_guideRaf) return;
+  if(typeof requestAnimationFrame !== 'function'){ drawPageGuides(); return; }
+  _guideRaf = requestAnimationFrame(function(){
+    _guideRaf = null;
+    drawPageGuides();
+  });
+}
 function toggleGuides(){
   guidesOn = !guidesOn;
   /* 两端各一个按钮（桌面 / 手机同一份入口清单）→ 都更新；
@@ -562,7 +574,7 @@ function toggleGuides(){
   });
   drawPageGuides();
 }
-window.addEventListener('resize', ()=>{ if(guidesOn) drawPageGuides(); });
+window.addEventListener('resize', ()=>{ if(guidesOn) scheduleDrawPageGuides(); });
 
 /* ============ 预览等比缩放：窄屏下让 A4 整页可见 ============
    为什么用 transform 而不是 zoom / 改宽度：
