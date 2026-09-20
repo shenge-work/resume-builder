@@ -539,6 +539,20 @@ for (const c of undoCases) {
     .catch((e) => { fileResults.push({ name: 'undo › ' + c.name + '（抛错: ' + (e && e.message ? e.message : e) + '）', pass: false }); });
 }
 
+/* ---------- 预览内 ↑↓ 排序（#8 触屏替代拖拽）----------
+   纯逻辑 reorderWithin / 渲染 reorderBtns / renderResumeInner 都挂在主 vm 全局，直接调用即可。 */
+const reorderCases = require(path.join(ROOT, 'test', 'cases-reorder.js'));
+const reorderCtx = {
+  ResumeEditor: ctx.ResumeEditor,
+  ResumeRender: ctx.ResumeRender,
+  assert(cond, msg) { fileResults.push({ name: 'reorder › ' + msg, pass: !!cond }); },
+};
+let reorderChain = Promise.resolve();
+for (const c of reorderCases) {
+  reorderChain = reorderChain.then(() => c.fn(reorderCtx))
+    .catch((e) => { fileResults.push({ name: 'reorder › ' + c.name + '（抛错: ' + (e && e.message ? e.message : e) + '）', pass: false }); });
+}
+
 /* ---------- 倒数第二步：保存状态条（保存三态 + 存储降级通知）----------
    在 vm 里按浏览器同路径加载；用例既测状态机纯逻辑，也**真的**把演示 fetch 换成
    必然失败的实现，验证「写盘失败 → 降级通知」这条唯一可感知通道确实发出。 */
@@ -600,7 +614,7 @@ for (const c of httpCases) {
 }
 
 /* ---------- 报告（等异步的 library 用例跑完再输出） ---------- */
-libChain.then(() => ssChain).then(() => jdChain).then(() => menuChain).then(() => undoChain).then(() => httpChain).then(() => {
+libChain.then(() => ssChain).then(() => jdChain).then(() => menuChain).then(() => undoChain).then(() => reorderChain).then(() => httpChain).then(() => {
   const all = ctx.__results.concat(fileResults);
   let pass = 0, fail = 0;
   for (const r of all) {

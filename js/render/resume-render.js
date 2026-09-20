@@ -84,18 +84,18 @@ function renderResumeInner(){
     const secBreak = sec.pageBreak ? ' page-break-before' : '';
     const secIdEsc = esc(sec.id); /* sec.id 来自可导入 JSON，拼属性前必须转义 */
     h+=`<section class="section${secBreak}" data-drag="section:${secIdEsc}" draggable="true" style="${spacingStyle('section', sec.spacing)}">`;
-    h+=`<h2 class="section-title">${esc(sec.title)}</h2>`;
+    h+=`<h2 class="section-title"><span class="section-title-text">${esc(sec.title)}</span>${reorderBtns('section', secIdEsc, null, null)}</h2>`;
     if(sec.type==='advantages'){
       h+='<ul class="adv">';
       sec.items.forEach((it,i)=>{
         const tag = it.labelBold!==false ? 'b' : 'span';
-        h+=`<li class="adv-li" data-drag="item:${secIdEsc}:${i}" draggable="true" style="${spacingStyle('adv', it.spacing)}"><${tag}>${esc(it.label)}</${tag}>：${esc(T(it.text))}</li>`;
+        h+=`<li class="adv-li" data-drag="item:${secIdEsc}:${i}" draggable="true" style="${spacingStyle('adv', it.spacing)}">${reorderBtns('item', secIdEsc, i, null)}<${tag}>${esc(it.label)}</${tag}>：${esc(T(it.text))}</li>`;
       });
       h+='</ul>';
     } else if(sec.type==='career'){
       sec.items.forEach((job,i)=>{
         const jobBreak = job.pageBreak ? ' page-break-before' : '';
-        h+=`<div class="job${jobBreak}" data-drag="job:${secIdEsc}:${i}" draggable="true" style="${spacingStyle('job', job.spacing)}">`;
+        h+=`<div class="job${jobBreak}" data-drag="job:${secIdEsc}:${i}" draggable="true" style="${spacingStyle('job', job.spacing)}">${reorderBtns('job', secIdEsc, i, null)}`;
         h+=`<div class="job-header">`;
         let wrapStyle='';
         const lg = Number(job.logoGap);
@@ -120,7 +120,7 @@ function renderResumeInner(){
         }
         (job.projects||[]).forEach((p,pi)=>{
           const projBreak = p.pageBreak ? ' page-break-before' : '';
-          h+=`<div class="project nested${projBreak}" data-drag="proj:${secIdEsc}:${i}:${pi}" draggable="true" style="${spacingStyle('project', p.spacing)}">`;
+          h+=`<div class="project nested${projBreak}" data-drag="proj:${secIdEsc}:${i}:${pi}" draggable="true" style="${spacingStyle('project', p.spacing)}">${reorderBtns('proj', secIdEsc, i, pi)}`;
           h+=`<p class="project-title" style="${spacingStyle('pTitle', p.nameSpacing)}">${esc(T(p.name))}</p>`
             +`<span class="stack" style="${spacingStyle('pStack', p.stackSpacing)}">${esc(T(p.stack))}</span>`;
           const pQuote = p.descQuote !== false;
@@ -140,7 +140,7 @@ function renderResumeInner(){
     } else if(sec.type==='projects'){
       sec.items.forEach((p,i)=>{
         const projBreak = p.pageBreak ? ' page-break-before' : '';
-        h+=`<div class="project nested${projBreak}" style="${spacingStyle('project', p.spacing)}">`;
+        h+=`<div class="project nested${projBreak}" data-drag="item:${secIdEsc}:${i}" draggable="true" style="${spacingStyle('project', p.spacing)}">${reorderBtns('item', secIdEsc, i, null)}`;
         h+=`<p class="project-title" style="${spacingStyle('pTitle', p.nameSpacing)}">${esc(T(p.name))}</p>`
           +`<span class="stack" style="${spacingStyle('pStack', p.stackSpacing)}">${esc(T(p.stack))}</span>`;
         const pQuote = p.descQuote !== false;
@@ -163,7 +163,7 @@ function renderResumeInner(){
           /* 矩阵式技能行（2026-09-20）：左列分组名，右列「关键词行 + 补充说明行」。
              关键词走 **xxx** 高亮——专业名词完整保留（供 HR / AI 检索定位），
              同时把掌握程度与成果压在同一视觉块里，扫一眼就能读出强弱。 */
-          h+=`<div class="skill-group skill-matrix" ${drag} style="${spacingStyle('skillMatrix', grp.spacing)}">`
+          h+=`<div class="skill-group skill-matrix" ${drag} style="${spacingStyle('skillMatrix', grp.spacing)}">${reorderBtns('item', secIdEsc, g, null)}`
             +`<div class="skill-name" style="${spacingStyle('skillTitle', grp.nameSpacing)}">${esc(T(grp.name))}</div>`
             +`<div class="skill-body">`;
           if(kw.trim()) h+=`<div class="skill-kw" style="${spacingStyle('skillKw', grp.keywordsSpacing)}">${kwText(kw)}</div>`;
@@ -172,7 +172,7 @@ function renderResumeInner(){
           return;
         }
         /* 旧版逐条列表：分组内没填 keywords / detail 时保持原样，老数据零改动 */
-        h+=`<div class="skill-group" ${drag} style="${spacingStyle('skillGroup', grp.spacing)}"><h4 style="${spacingStyle('skillTitle', grp.nameSpacing)}">${esc(T(grp.name))}</h4><ul>`;
+        h+=`<div class="skill-group" ${drag} style="${spacingStyle('skillGroup', grp.spacing)}">${reorderBtns('item', secIdEsc, g, null)}<h4 style="${spacingStyle('skillTitle', grp.nameSpacing)}">${esc(T(grp.name))}</h4><ul>`;
         grp.items.forEach((it,ii)=>{
           const itt = T(it);
           if(!itt.trim()) return;
@@ -260,6 +260,7 @@ function renderPreview(){
 /* ============ 拖拽重排（左侧预览） ============ */
 let drag = null;
 preview.addEventListener('dragstart', e=>{
+  if(e.target.closest('[data-reorder]')){ e.preventDefault(); drag=null; return; } // ↑↓ 按钮不触发拖拽
   const el = e.target.closest('[data-drag]'); if(!el) return;
   const p = el.dataset.drag.split(':');
   drag = {kind:p[0], secId:p[1], idx:p[2], pidx:p[3], el};
@@ -298,8 +299,54 @@ preview.addEventListener('drop', e=>{
   clearDrag(); renderPreview(); renderEditor();
 });
 preview.addEventListener('dragend', clearDrag);
+/* 触屏 / 键盘可用的 ↑↓ 排序：点按即重排，替代 HTML5 DnD（移动端不支持拖拽） */
+preview.addEventListener('click', e=>{
+  const b = e.target.closest('[data-reorder]'); if(!b) return;
+  e.preventDefault();
+  const ds = b.dataset;
+  const dir = ds.reorder === 'up' ? -1 : 1;
+  const moved = reorderWithin(ds.kind, ds.sec, ds.idx !== undefined ? +ds.idx : undefined, ds.pidx !== undefined ? +ds.pidx : undefined, dir);
+  if(moved){ RB.recordHistory('action'); renderPreview(); renderEditor(); }
+});
 function clearDrop(){ preview.querySelectorAll('.drop-before,.drop-after').forEach(x=>x.classList.remove('drop-before','drop-after')); }
 function clearDrag(){ clearDrop(); if(drag&&drag.el) drag.el.classList.remove('dragging'); drag=null; }
+
+/* ↑↓ 排序按钮的 HTML（触屏替代拖拽；桌面 hover 时显示，移动端常显） */
+function reorderBtns(kind, secId, idx, pidx){
+  const di = (idx===null||idx===undefined) ? '' : ` data-idx="${idx}"`;
+  const dp = (pidx===null||pidx===undefined) ? '' : ` data-pidx="${pidx}"`;
+  return `<span class="reorder-btns" role="group" aria-label="调整顺序">`
+    + `<button type="button" class="reorder-btn" data-reorder="up" data-kind="${kind}" data-sec="${secId}"${di}${dp} aria-label="上移" title="上移">↑</button>`
+    + `<button type="button" class="reorder-btn" data-reorder="down" data-kind="${kind}" data-sec="${secId}"${di}${dp} aria-label="下移" title="下移">↓</button>`
+    + `</span>`;
+}
+
+/* 纯重排逻辑（不触碰渲染）：在「同板块同层级」内上/下移一位。返回是否真的发生移动。 */
+function reorderWithin(kind, secId, idx, pidx, dir){
+  if(kind==='section'){
+    const arr = data.sections; const from = arr.findIndex(s=>s.id===secId); if(from<0) return false;
+    if((dir<0 && from===0) || (dir>0 && from===arr.length-1)) return false;
+    moveSection(secId, arr[from+dir].id, dir<0); return true;
+  }
+  if(kind==='job'){
+    const sec = getSection(secId); if(!sec || !sec.items) return false;
+    const arr = sec.items; const from = +idx;
+    if((dir<0 && from===0) || (dir>0 && from===arr.length-1)) return false;
+    reInsert(arr, from, from+dir, dir<0); return true;
+  }
+  if(kind==='proj'){
+    const sec = getSection(secId); if(!sec || !sec.items[+idx]) return false;
+    const arr = sec.items[+idx].projects; if(!arr) return false;
+    const from = +pidx;
+    if((dir<0 && from===0) || (dir>0 && from===arr.length-1)) return false;
+    reInsert(arr, from, from+dir, dir<0); return true;
+  }
+  // item：advantages 条目 / skills 分组 / projects 板块条目（均挂在 sec.items 或 sec.groups）
+  const sec = getSection(secId); if(!sec) return false;
+  const arr = sec.type==='skills' ? sec.groups : sec.items; const from = +idx;
+  if((dir<0 && from===0) || (dir>0 && from===arr.length-1)) return false;
+  reInsert(arr, from, from+dir, dir<0); return true;
+}
 
 function moveSection(fromId,toId,before){
   const arr=data.sections; const from=arr.findIndex(s=>s.id===fromId); if(from<0) return;
@@ -688,6 +735,8 @@ global.ResumeRender = {
   // preview + drag
   safeMm: safeMm, syncPrintPageMargin: syncPrintPageMargin,
   renderPreview: renderPreview,
+  // 触屏 ↑↓ 排序（#8）：纯重排逻辑 + 按钮 HTML，均不碰 DOM
+  reorderWithin: reorderWithin, reorderBtns: reorderBtns,
   // editor form
   renderEditor: renderEditor, handleListAction: handleListAction,
   // settings panels

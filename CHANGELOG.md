@@ -47,6 +47,17 @@
 
 ### 新增
 
+- **预览内 ↑↓ 排序（#8 触屏替代拖拽，`js/render/resume-render.js`）**：HTML5 DnD 在移动端不可用，
+  给预览内所有可拖拽元素（板块 / 优势条目 / 经历 job / job 内 project / 技能分组 / 项目板块条目）
+  加 `↑↓` 按钮，点按即同层级重排一位，复用已有的 `moveSection/moveItem/moveJob/moveProj/reInsert`。
+  - 触屏与键盘可用：桌面 hover 显形、移动端（`@media (hover:none)` / `max-width:640px`）常显、打印隐藏；
+    `↑↓` 按钮不触发拖拽（`dragstart` 对 `[data-reorder]` 直接 `preventDefault`）。
+  - 补齐缺口：原先 `projects` 板块条目既不能拖也不能 ↑↓，现在一并加上 `draggable` + `data-drag` + `↑↓`。
+  - 导出 PDF 两处 clone 路径均剥离 `.reorder-btns`，按钮不会进 PDF。
+  - 测试：`test/cases-reorder.js`（50 条）覆盖六类上/下移、首尾越界返回 false、非法输入，
+    并做变异测试（翻转首位边界判据 → 9 条断言变红）；真浏览器 e2e 确认点击「板块↑」真实 DOM 重排。
+  - 测试总数 734 → **784**。
+
 - **本地写服务的 HTTP 冒烟测试（`test/cases-serve-http.js`）**：真起 `serve.js` 子进程（随机端口）、
   打**真实 HTTP 请求**，这是整个 `test/run.js` 里唯一真正执行 serve.js 的一组用例。
   - 覆盖：索引读写、文档写入 → 读回 → 删除的完整往返（含 `savedAt` 时间戳）、

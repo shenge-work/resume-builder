@@ -33,6 +33,7 @@ function makeCaptureClone(live){
   clone.querySelectorAll('[data-drag]').forEach(n=>n.removeAttribute('data-drag'));
   clone.querySelectorAll('[draggable]').forEach(n=>n.removeAttribute('draggable'));
   clone.querySelectorAll('.dragging,.drop-before,.drop-after').forEach(n=>n.classList.remove('dragging','drop-before','drop-after'));
+  clone.querySelectorAll('.reorder-btns').forEach(n=>n.remove());
   wrapper.appendChild(clone);
   document.body.appendChild(wrapper);
   return { wrapper, clone, totalW, totalH, pt, pr, pb, pl };
@@ -209,6 +210,7 @@ async function exportSingleFileHTML(){
   clone.querySelectorAll('[data-drag]').forEach(n=>n.removeAttribute('data-drag'));
   clone.querySelectorAll('[draggable]').forEach(n=>n.removeAttribute('draggable'));
   clone.querySelectorAll('.dragging,.drop-before,.drop-after').forEach(n=>n.classList.remove('dragging','drop-before','drop-after'));
+  clone.querySelectorAll('.reorder-btns').forEach(n=>n.remove());
   const css = await collectCssText();
   const html = `<!DOCTYPE html>
 <html lang="zh-CN">
