@@ -605,14 +605,28 @@ function applyPreviewScale(){
   // 视觉高度变为 naturalH*s，用负 margin 把布局高度补回缩放后的高度，避免底部出现大片空白
   resume.style.marginBottom = (-(1 - s) * naturalH) + 'px';
 }
+/* 性能债第 3 层（评估文档 §4.4）：applyPreviewScale 每次读 getComputedStyle + clientWidth +
+   offsetWidth/offsetHeight（强制 reflow），而 MutationObserver（每键 renderPreview 重建 .resume 节点）
+   + ResizeObserver + resize/orientationchange 都会直接触发它 → 每键一次完整 reflow。
+   改为 rAF 合并到单帧（与 #9 分页线同款）：高频的 observer/resize 触发统一走 schedulePreviewScale，
+   同一帧内多次触发只执行一次；rAF 缺失时（测试桩/老浏览器）回退同步执行保持行为一致。 */
+let _scaleRaf = null;
+function schedulePreviewScale(){
+  if(_scaleRaf) return;
+  if(typeof requestAnimationFrame !== 'function'){ applyPreviewScale(); return; }
+  _scaleRaf = requestAnimationFrame(function(){
+    _scaleRaf = null;
+    applyPreviewScale();
+  });
+}
 if(typeof MutationObserver === 'function'){
-  new MutationObserver(applyPreviewScale).observe(preview, {childList:true});
+  new MutationObserver(schedulePreviewScale).observe(preview, {childList:true});
 }
 if(typeof ResizeObserver === 'function'){
-  new ResizeObserver(applyPreviewScale).observe(preview);
+  new ResizeObserver(schedulePreviewScale).observe(preview);
 }
-window.addEventListener('resize', applyPreviewScale);
-window.addEventListener('orientationchange', applyPreviewScale);
+window.addEventListener('resize', schedulePreviewScale);
+window.addEventListener('orientationchange', schedulePreviewScale);
 
 function migrateQuoteColors(d){
   (d.sections||[]).forEach(sec=>{
@@ -759,6 +773,7 @@ global.ResumeRender = {
   getPageMetrics: getPageMetrics, computePageBreaks: computePageBreaks,
   drawPageGuides: drawPageGuides, toggleGuides: toggleGuides,
   applyPreviewScale: applyPreviewScale,
+  schedulePreviewScale: schedulePreviewScale,
   migrateQuoteColors: migrateQuoteColors,
   migrateSpacing: migrateSpacing,
   migrateSpacingDefaults: migrateSpacingDefaults,

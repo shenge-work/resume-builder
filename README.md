@@ -8,7 +8,7 @@
 |---|---|---|
 | **浏览器版** | `npm start` → `http://127.0.0.1:8000` | 日常编辑；每次改动**分文件实时写回** `data/resumes/`（清单 + 每份简历一个文件） |
 | **单文件版** | `npm run build` → `dist/简历编辑器-单文件.html`，双击即开 | 离线使用、分享给他人 |
-| **桌面 / 安卓 App** | 见 [docs/桌面版构建说明.md](./docs/桌面版构建说明.md)、[docs/Android版构建说明.md](./docs/Android版构建说明.md) | 免装 Node；飞书凭证由原生层保管，不经浏览器 |
+| **桌面 / 安卓 App** | 见 [docs/构建与发版/桌面版构建说明.md](./docs/构建与发版/桌面版构建说明.md)、[docs/构建与发版/Android版构建说明.md](./docs/构建与发版/Android版构建说明.md) | 免装 Node；飞书凭证由原生层保管，不经浏览器 |
 
 > 本项目最初是一份单文件 HTML，后拆分为多文件便于 Git 协作；单文件版由 `npm run build` 自动生成到 `dist/`（`git` 忽略，断网可用）。
 
@@ -107,7 +107,7 @@ npm run mobile:android:build   # 产出 APK / AAB（需 JDK 17 + Android SDK/NDK
 
 > **不想装 Rust / SDK？直接用 CI 出包。** push 到 GitHub 后，`Build Desktop` 与 `Build Android`
 > 会在三平台矩阵上产出安装包，到 Actions 页对应 run 的 **Artifacts** 下载即可。
-> 细节与排错见 [docs/桌面版构建说明.md](./docs/桌面版构建说明.md)、[docs/Android版构建说明.md](./docs/Android版构建说明.md)。
+> 细节与排错见 [docs/构建与发版/桌面版构建说明.md](./docs/构建与发版/桌面版构建说明.md)、[docs/构建与发版/Android版构建说明.md](./docs/构建与发版/Android版构建说明.md)。
 
 ---
 
@@ -130,7 +130,7 @@ npm run mobile:android:build   # 产出 APK / AAB（需 JDK 17 + Android SDK/NDK
 > Windows 可能弹 SmartScreen「未知发布者」，Android 需允许「安装未知来源的应用」。
 > 详见对应 Release 的说明。
 
-发版流程（维护者）：见 [docs/发版说明.md](./docs/发版说明.md) —— 改版本号 + 写 CHANGELOG +
+发版流程（维护者）：见 [docs/构建与发版/发版说明.md](./docs/构建与发版/发版说明.md) —— 改版本号 + 写 CHANGELOG +
 推 `v*` 标签，流水线自动构建三平台 + 安卓包并创建 Release。
 
 ---
@@ -189,13 +189,13 @@ resume-builder/
 │   ├── cases-snippets.js    #   经历素材库（normalizeTags / matchSnippets 等纯函数）
 │   └── cases-export.js      #   多格式导出用例（自带独立 zip 解析器，逐字节校验 OOXML）
 ├── docs/
-│   ├── 跨平台简历编辑器-技术设计与架构方案.md  # 跨平台改造方案
-│   ├── 桌面版构建说明.md         # 桌面端构建与排错
-│   ├── Android版构建说明.md         # 安卓端构建与排错
-│   ├── 发版说明.md               # 发版流程（打标签 → 自动出包 → 创建 Release）
-│   ├── 跨平台改造-验收标准与验收记录.md            # 逐任务验收标准与验收记录
-│   ├── 统一存储分文件模型-技术设计方案.md          # 分文件存储模型（本地/飞书同构、存储抽象）
-│   └── AI辅助写简历-技术设计方案.md                # AI 辅助写简历（⏸ 暂不实施）
+│   ├── 需求文档/               # 需求清单（D/N 编号，00-需求总览 为入口）
+│   ├── 技术设计方案/           # 路由/存储/跨平台/导出等模块的技术设计与架构方案
+│   ├── AI能力/                 # AI 辅助写简历设计方案 + AI 助手配置与使用
+│   ├── 构建与发版/             # 桌面/安卓构建说明 + 发版流程
+│   ├── 产品与竞品分析/         # 产品评估、竞品对照、开源项目借鉴落地方案
+│   ├── 验收与记录/             # 跨平台改造验收标准与验收记录
+│   └── Bug库/                  # Bug 记录（模板 + 分类）
 ├── .github/workflows/
 │   ├── ci.yml               # push/PR：测试 + 构建 + 资源完整性门禁
 │   ├── build-desktop.yml    # 三平台矩阵出包（dmg / msi+nsis / deb+AppImage），亦可被 release 复用
@@ -342,11 +342,11 @@ CI（`.github/workflows/ci.yml`）在每次 push / PR 自动运行前两项与�
 
 - **下载各平台安装包**：[Releases](../../releases)（每个版本都带更新说明与校验和）。
 - 各版本变更记录：见 [CHANGELOG.md](./CHANGELOG.md)。
-- 发版流程（维护者）：见 [docs/发版说明.md](./docs/发版说明.md)。
+- 发版流程（维护者）：见 [docs/构建与发版/发版说明.md](./docs/构建与发版/发版说明.md)。
 - 后续优化方向：见 [ROADMAP.md](./ROADMAP.md)。
-- 跨平台改造的**逐任务验收标准与验收记录**：见 [docs/跨平台改造-验收标准与验收记录.md](./docs/跨平台改造-验收标准与验收记录.md)。
+- 跨平台改造的**逐任务验收标准与验收记录**：见 [docs/验收与记录/跨平台改造-验收标准与验收记录.md](./docs/验收与记录/跨平台改造-验收标准与验收记录.md)。
 
-> ⏸ **关于「AI 辅助写简历」**：仓库内 [docs/AI辅助写简历-技术设计方案.md](./docs/AI辅助写简历-技术设计方案.md) 存有一份完整的技术设计方案
+> ⏸ **关于「AI 辅助写简历」**：仓库内 [docs/AI能力/AI辅助写简历-技术设计方案.md](./docs/AI能力/AI辅助写简历-技术设计方案.md) 存有一份完整的技术设计方案
 > （选型调研、功能设计、UI 设计、目录结构），但**那只是未来演进方向，当前尚未实施** ——
 > 本工具目前不含 AI 能力，请以本文描述的功能为准。
 

@@ -33,4 +33,28 @@ module.exports = [
       try { rafCalls[0](); } catch (e) { ctx.assert(false, '合并帧执行 drawPageGuides 不应抛错（' + (e && e.message ? e.message : e) + '）'); }
     }
   }},
+
+  { name: '预览缩放rAF合并', fn: function (ctx) {
+    const X = ctx.ResumeRender;
+    ctx.assert(typeof X.schedulePreviewScale === 'function', 'schedulePreviewScale 可访问（第 3 层可测前提）');
+    // 桩 rAF：只捕获「被调度了几次」，不真正执行 applyPreviewScale（避免触发 reflow 读数）。
+    const vmGlobal = ctx.global || ctx;
+    let rafCalls = [];
+    const origRaf = vmGlobal.requestAnimationFrame;
+    vmGlobal.requestAnimationFrame = function (cb) { rafCalls.push(cb); return rafCalls.length; };
+    try {
+      // 模拟 MutationObserver + ResizeObserver + resize + orientationchange 的连续高频触发
+      X.schedulePreviewScale();
+      X.schedulePreviewScale();
+      X.schedulePreviewScale();
+      X.schedulePreviewScale();
+    } catch (e) {
+      vmGlobal.requestAnimationFrame = origRaf;
+      ctx.assert(false, '连续 4 次 schedulePreviewScale 不应抛错（' + (e && e.message ? e.message : e) + '）');
+      return;
+    }
+    vmGlobal.requestAnimationFrame = origRaf;
+    ctx.assert(rafCalls.length === 1,
+      '连续 4 次 schedulePreviewScale 只调度 1 次 rAF（缩放 reflow 合并到单帧），实际 ' + rafCalls.length + ' 次');
+  }},
 ];

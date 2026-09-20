@@ -11,6 +11,7 @@
     "desktop:assets": "node tools/build-desktop-frontend.js",
     "desktop:dev": "npm run desktop:assets && tauri dev",
     "desktop:build": "npm run desktop:assets && tauri build",
+    "desktop:dmg": "node tools/build-dmg.js",
     "mobile:android:init": "npm run desktop:assets && tauri android init",
     "mobile:android:dev": "npm run desktop:assets && tauri android dev",
     "mobile:android:build": "npm run desktop:assets && tauri android build",

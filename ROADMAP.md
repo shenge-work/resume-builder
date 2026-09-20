@@ -1,7 +1,7 @@
 # 路线图（Roadmap）
 
 记录 resume-builder 后续优化方向。已上线内容见 [CHANGELOG.md](./CHANGELOG.md)；
-跨平台改造的**逐任务验收标准与验收记录**见 [docs/跨平台改造-验收标准与验收记录.md](./docs/跨平台改造-验收标准与验收记录.md)。
+跨平台改造的**逐任务验收标准与验收记录**见 [docs/验收与记录/跨平台改造-验收标准与验收记录.md](./docs/验收与记录/跨平台改造-验收标准与验收记录.md)。
 
 状态图例：📋 规划中 · 🚧 进行中 · ✅ 已完成 · ⏸ 暂不实施
 
@@ -13,7 +13,7 @@
 > 将来要做时可直接照着执行，不必重新调研。**当前代码库不含这些能力。**
 
 - ⏸ **AI 辅助写简历（含项目改名 Resume Studio）**
-  完整技术设计方案见 [docs/AI辅助写简历-技术设计方案.md](./docs/AI辅助写简历-技术设计方案.md) —— 含技术选型、功能清单（JD 诊断 / 划词润色 / 全文体检等）、
+  完整技术设计方案见 [docs/AI能力/AI辅助写简历-技术设计方案.md](./docs/AI能力/AI辅助写简历-技术设计方案.md) —— 含技术选型、功能清单（JD 诊断 / 划词润色 / 全文体检等）、
   UI 线框、目录结构与分阶段路线。要点摘录：
   - **关键选型结论**：主流模型厂商（DeepSeek / 智谱 GLM / OpenAI / Anthropic）**全部禁止浏览器直连**，
     纯前端 BYOK 行不通，AI 请求必须经本地 Node 转发层（扩展现有 `tools/serve.js`，新增 SSE 透传）。
@@ -24,7 +24,7 @@
 
   **当前进度**：
   - ✅ 阶段 1 基建（已完成）：`tools/ai-proxy.js` SSE 转发 + `/api/ai/{status,test,chat}` + `js/ai/{presets,provider,ui/panel}.js` +
-    `css/ai.css` + `ai.config.example.json` + 13 条纯逻辑测试。配置说明见 [docs/AI.md](./docs/AI.md)。
+    `css/ai.css` + `ai.config.example.json` + 13 条纯逻辑测试。配置说明见 [docs/AI能力/AI.md](./docs/AI能力/AI.md)。
   - 📋 **阶段 2 核心闭环（TODO，待 Key 到位后开工）**：`js/ai/scope.js`（选区→scopeKey）+ `prompts.js`（润色/STAR/量化/诊断模板）+
     `diff.js`（段句级 LCS）+ `apply.js`（写回 data + 接入 recordHistory）+ 面板加范围条/动作按钮/流式输出区/Diff 卡片/应用·丢弃。
     跑通「选中 → 润色 → Diff → 应用 → 撤销」。
@@ -34,14 +34,14 @@
 
 - ⏸ **个人求职官网导出（Portfolio Site · 简历 → 单页官网）**
   灵感来自小红书视频《今年还不会用AI做个人网站的人，真要注意了》（演示工具 TeleAgent）。
-  完整设计见 [docs/个人求职官网导出-技术设计方案.md](./docs/个人求职官网导出-技术设计方案.md)。要点：
+  完整设计见 [docs/技术设计方案/个人求职官网导出-技术设计方案.md](./docs/技术设计方案/个人求职官网导出-技术设计方案.md)。要点：
   - **本质**：同一份结构化简历数据（`data/resume.json`）多一种渲染格式——在 PDF / Word / MD / JSON 之外，
     新增「导出为响应式单页个人官网 HTML」，可丢 GitHub Pages / Vercel 公开部署。
   - **增量能力**：官网主题（新粗野主义/杂志风）、`kpi-band` 大数字带与 `project-cards` 项目卡片墙两种新板块类型、
     官网页头「下载 PDF 简历」按钮（打通现有静默 PDF）、公开前隐私脱敏开关。
   - **守住的边界**：官网**不替代** PDF 简历（HR 不点开个人网站，定位为初筛通过后给业务面看的深度页）；
     公开部署默认隐藏手机号/住址/身份证；所有数字与公司名必须来自已录入数据，不允许 AI 编造；不绑定任何云端 Agent。
-  - **落地点**：P1 不依赖 AI 可先做（主题+板块+导出+脱敏）；P2 再与 [AI辅助写简历-技术设计方案.md](./docs/AI辅助写简历-技术设计方案.md) 的 AI 梳理链路衔接。
+  - **落地点**：P1 不依赖 AI 可先做（主题+板块+导出+脱敏）；P2 再与 [AI辅助写简历-技术设计方案.md](./docs/AI能力/AI辅助写简历-技术设计方案.md) 的 AI 梳理链路衔接。
 
 ---
 
@@ -51,8 +51,8 @@
 - ✅ **一键静默下载「可选中文字」PDF** —— `tools/serve.js` 新增 `POST /api/pdf`（复刻页面打印样式 + 本机浏览器
   headless 渲染），前端 `ResumeExport.exportPdfSilent()` 直接下载矢量文字 PDF，不弹打印对话框（失败自动回退系统打印）。
 - ✅ **跨平台桌面 / 安卓应用** —— 引入 Tauri 2 原生壳，一份前端产物产出 Windows / macOS / Linux 安装包与 Android APK；
-  原生层负责凭证保管与网络传输。方案见 [docs/跨平台简历编辑器-技术设计与架构方案.md](./docs/跨平台简历编辑器-技术设计与架构方案.md)，
-  构建见 [docs/桌面版构建说明.md](./docs/桌面版构建说明.md) / [docs/Android版构建说明.md](./docs/Android版构建说明.md)。
+  原生层负责凭证保管与网络传输。方案见 [docs/技术设计方案/跨平台简历编辑器-技术设计与架构方案.md](./docs/技术设计方案/跨平台简历编辑器-技术设计与架构方案.md)，
+  构建见 [docs/构建与发版/桌面版构建说明.md](./docs/构建与发版/桌面版构建说明.md) / [docs/构建与发版/Android版构建说明.md](./docs/构建与发版/Android版构建说明.md)。
 - ✅ **投递链路三件套** —— 内容体检（`js/audit.js`）、多格式导出（Word / 纯文本 / Markdown）、静默 PDF。
 - ✅ **前端资源完整性门禁** —— `npm run verify:assets`，已接入 CI，专防「新增模块漏接线 / 漏打包」这类静默失效。
 
@@ -67,14 +67,14 @@
   `print_page`（`Webview::print()`），弥补 `window.print()` 在 WKWebView 里静默空操作。
   前端经 `downloadBlob`（`js/export/export-pdf.js`）统一分流：原生壳走 `__RESUME_NATIVE__.saveFile`，浏览器走 `<a download>`（零回归）。
   新增 `tauri-plugin-dialog` 依赖 + `capabilities/default.json`（`dialog:allow-save`）。
-  完整证据与方案见 [docs/App导出不落盘问题-根因与改造方案.md](./docs/App导出不落盘问题-根因与改造方案.md)。
+  完整证据与方案见 [docs/技术设计方案/App导出不落盘问题-根因与改造方案.md](./docs/技术设计方案/App导出不落盘问题-根因与改造方案.md)。
   ⚠️ 一期只覆盖桌面三端；Android 的 SAF 返回 `content://` URI（`FilePath::Url`），`save_file` 对此明确报错，
   需单独立项（存应用私有目录 + 分享 intent）。**Android 尚未做。**
 
 - 📋 **跨端编辑冲突合并**
   现状：手机与电脑可同时编辑同一份简历（经飞书或 `data/resume.json` 交换），但后写入者会**整体覆盖**先写入者。
   目标：字段级 3-way merge —— 记录 `baseVersion`，冲突时保留双方内容并按字段提示选择；飞书的版本历史作最终兜底。
-  出处：跨平台设计的 P4 阶段，见 [docs/跨平台简历编辑器-技术设计与架构方案.md](./docs/跨平台简历编辑器-技术设计与架构方案.md)。**尚未实施。**
+  出处：跨平台设计的 P4 阶段，见 [docs/技术设计方案/跨平台简历编辑器-技术设计与架构方案.md](./docs/技术设计方案/跨平台简历编辑器-技术设计与架构方案.md)。**尚未实施。**
 
 - 📋 **凭证存入系统钥匙串**
   现状：桌面 / 安卓版的飞书 `app_secret` 保存在应用数据目录的 `sync.config.json`（已在 `.gitignore` 内，但仍是明文）。
@@ -99,7 +99,7 @@
   技术栈选型结论：**不上 React/Vue、不上 Vite，继续原生 IIFE**（守住 file:// 直开、单文件离线版、简历渲染引擎不重写三条硬约束），
   预留将来 AI 工作台复杂后升级到 Preact 的退路。
   完整方案（9 个未来页面、ASCII 线框、路由表、P0–P4 分阶段路线）见
-  [docs/多页面路由与技术栈重构-技术设计方案.md](./docs/多页面路由与技术栈重构-技术设计方案.md)。
+  [docs/技术设计方案/多页面路由与技术栈重构-技术设计方案.md](./docs/技术设计方案/多页面路由与技术栈重构-技术设计方案.md)。
 
   **当前进度**：
   - ✅ P0 路由壳：`js/router/{router,layout,bootstrap}.js` + `css/layout.css`，rail 5 按钮（简历库/编辑器/投递/AI/设置）
@@ -118,7 +118,7 @@
   现状：`index.html` 以全局脚本顺序加载 `data.js` → `app.js`（IIFE）。
   ~~目标：改为 `import/export` 模块~~ —— **已被多页面路由方案收敛**：file:// 下 ESM 被 CORS 拦，
   维持 `window.Xxx` 命名空间 + 微型路由；将来真要上 Vite 时再一起转。详见
-  [多页面路由与技术栈重构-技术设计方案.md](./docs/多页面路由与技术栈重构-技术设计方案.md) §5。
+  [多页面路由与技术栈重构-技术设计方案.md](./docs/技术设计方案/多页面路由与技术栈重构-技术设计方案.md) §5。
 
 - 📋 **更多板块类型与字段**
   如「教育背景」「证书/语言」「自我评价（独立长文）」「作品集链接」等；配合板块增删能力形成完整简历结构。

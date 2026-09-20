@@ -5,7 +5,7 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
-> **发版规则（与 CI 联动，改动前请先读 `docs/发版说明.md`）**
+> **发版规则（与 CI 联动，改动前请先读 `docs/构建与发版/发版说明.md`）**
 >
 > 1. 版本号以 `src-tauri/tauri.conf.json` 的 `version` 为**唯一权威**，`package.json` 必须与之一致
 >    （发版流水线会校验，不一致直接失败）。
@@ -47,7 +47,7 @@
 
 ### 新增
 
-- **App 导出落盘 + 原生打印（修复「打包成 App 后导出不落盘」）**：桌面/安卓 App 里点「导出 PDF/长图/单文件 HTML/数据 JSON/Word/TXT/MD」不产生任何文件、且点 PDF 会把界面顶掉 —— 根因是导出全走浏览器式 `Blob + <a download>`，而 macOS WKWebView 不支持 `blob:` 下载（WebKit bug 216918，完整证据见 `docs/App导出不落盘问题-根因与改造方案.md`）。
+- **App 导出落盘 + 原生打印（修复「打包成 App 后导出不落盘」）**：桌面/安卓 App 里点「导出 PDF/长图/单文件 HTML/数据 JSON/Word/TXT/MD」不产生任何文件、且点 PDF 会把界面顶掉 —— 根因是导出全走浏览器式 `Blob + <a download>`，而 macOS WKWebView 不支持 `blob:` 下载（WebKit bug 216918，完整证据见 `docs/技术设计方案/App导出不落盘问题-根因与改造方案.md`）。
   - **Rust 侧**（`src-tauri/src/export.rs` 新增）：`save_file`（弹系统保存对话框 + `std::fs::write` 写盘，`FilePath::Url` 即 Android `content://` 明确报错不假成功）+ `print_page`（`Webview::print()`，弥补 `window.print()` 在 WKWebView 静默空操作）。
   - **依赖/权限**：`Cargo.toml` 加 `tauri-plugin-dialog = "2"`；`lib.rs` 注册 `.plugin(tauri_plugin_dialog::init())` + 两命令；新建 `capabilities/default.json` 授权 `dialog:allow-save`（dialog 是插件命令必受 ACL 拦，自建命令不受拦）。
   - **前端分流**：`export-pdf.js` 新增统一 `downloadBlob(blob, filename)`（原生壳走 `__RESUME_NATIVE__.saveFile`，浏览器走 `<a download>`）；`downloadPDFNow`/`doExportDownload` 补存 `currentPdfBlob`/`currentExportBlob`；`exportJSON`/`exportJSONResume` 与 `export-extra.js` 的 `saveBytes`/`saveText`（Word/TXT/MD/静默 PDF）全部复用 `downloadBlob`；静默 PDF 失败回退改为优先走 `__RESUME_NATIVE__.printPage`。
@@ -58,6 +58,15 @@
 
 - **性能：每键渲染不再同步重画分页线（`#9`）**：`renderPreview` 每键调用 `drawPageGuides`（DOM 查询 + `getBoundingClientRect` + 建碎片），改为 `scheduleDrawPageGuides` 经 `requestAnimationFrame` 合并到单帧，避免逐键同步重画。`saveState` 写盘本就有 800ms 防抖（`pushRepoDebounced`），本项补上渲染侧合并。
   - 新增 `test/cases-perf.js` 断言「连续 3 次 renderPreview 只调度 1 次 rAF」；变异删合并守卫 → 断言变红（证伪有效）。断言计数 903 → **905**。
+
+- **性能：每键全量内容哈希延迟到防抖结束（评估文档 §4.4 第 1 层性能债）**：`saveState()` 此前每敲一键都同步调 `contentHash()`（`JSON.stringify` 全量 + 逐字符 djb2，O(整份简历)/键，未受防抖覆盖）。现将哈希计算 + 指纹比对整体移入 `pushRepoDebounced` 的 800ms 防抖回调，每键只做 `currentPayload()`（浅组装，O(1)）+ 重置定时器 —— 连续敲 N 键从 N 次 O(简历) 哈希降为 1 次，语义等价（「内容未变跳过写盘」仍成立，判定仅延迟到防抖结束）。
+  - **顺带修复跨简历污染隐患**：切换简历/新建/复制/派生/清空时，pending 的防抖回调仍闭包着旧份的 payload（`data/fonts/spacing` 引用），若不清掉会在 `activeResumeId` 切到新份后触发、把旧份数据写进新份。新增 `cancelPendingSave()`，在 `switchResume`（`await save` 之前）与 `applyPayloadWithoutSave`（载入新份前）两处调用。
+  - 新增 `test/cases-save-debounce.js`（10 条）：防抖合并、取消 pending、接线断言；两组变异测试全抓到（回归每键同步哈希 / 删 `cancelPendingSave`）。断言计数 921 → **931**。
+
+- **性能：预览缩放 reflow 合并到单帧（评估文档 §4.4 第 3 层性能债）**：`applyPreviewScale` 每次读 `getComputedStyle` + `clientWidth` + `offsetWidth/offsetHeight`（强制 reflow），而 `MutationObserver`（每键 renderPreview 重建 `.resume` 节点）+ `ResizeObserver` + `resize`/`orientationchange` 都直接触发它 → 每键一次完整 reflow。改为 `schedulePreviewScale` 经 `requestAnimationFrame` 合并到单帧（与分页线 #9 同款），同一帧内多次触发只执行一次；rAF 缺失时回退同步执行。至此评估文档 §4.4 三层性能债（全量哈希 / 分页线 reflow / 缩放 reflow）全部收敛。
+  - 新增 `test/cases-perf.js` 断言「连续 4 次 schedulePreviewScale 只调度 1 次 rAF」；变异删 `_scaleRaf` 守卫 → 断言变红（证伪有效）。断言计数 931 → **933**。
+
+- **dmg 打包辅助脚本（`tools/build-dmg.js`，`npm run desktop:dmg`）**：`npm run desktop:build` 在两类环境下会在最后一步 dmg 打包失败——① 沙箱把 `grep` 换成 toybox，其 `grep --color=never` 仍输出 ANSI 颜色码导致 create-dmg 的 `find_mount_dir` 正则崩坏；② headless/CI 无 Finder 自动化权限导致 osascript 报 -10004。`.app` 与 release 二进制此时已正常产出，只差 dmg 一步。新脚本复用已产出的 `.app`，把 `bundle_dmg.sh` 内 `grep` 替换为 `/usr/bin/grep` + 追加 `--skip-jenkins`，产出功能完整、仅无自定义背景/图标定位的 dmg（约 2.7 MB，校验 VALID）。
 
 - **`ResumeExport` 命名空间合并（`#10`）**：`export-pdf.js` 与 `export-extra.js` 的挂载都改为 `Object.assign(global.ResumeExport = global.ResumeExport || {}, { ... })`，顺序无关、互不覆盖（修掉评估文档 §4.3 的「后加载者整包覆盖前者、丢 8 个函数」隐患）。
 
@@ -379,7 +388,7 @@
   ④ 顺着 ③ 的错误修法无条件插了一整块 import，而模板**第一行本来就是** `import java.util.Properties`
   → 重复 import → `Conflicting import, imported name 'Properties' is ambiguous`。
   现在补丁改为**逐条「先查再插」**，并按官方文档把 `signingConfigs` 插进 `android{}` 内
-  （`buildTypes` 之前）而非末尾追加第二个 `android{}`。详见 `docs/Android版构建说明.md` 第 5.4 / 8 节。
+  （`buildTypes` 之前）而非末尾追加第二个 `android{}`。详见 `docs/构建与发版/Android版构建说明.md` 第 5.4 / 8 节。
 
 ### 变更
 

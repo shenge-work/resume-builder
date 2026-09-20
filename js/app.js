@@ -273,6 +273,8 @@ async function initResumeLibrary(){
 /* 切换激活简历：保存当前份 → 载入目标份 → 更新抽屉/标签/激活态 */
 async function switchResume(id){
   if(!_libraryReady || !id || id === activeResumeId){ renderResumeTabs(); return; }
+  // 取消 pending 的防抖保存：否则其闭包里的旧份 payload 会在切到新份后触发，把旧份数据写进新份
+  cancelPendingSave();
   // 保存当前份
   if(activeResumeId){ try{ await global.ResumeLibrary.save(activeResumeId, currentPayload()); clearDirty(activeResumeId); }catch(e){} }
   // 载入目标份
@@ -625,32 +627,47 @@ function retrySave(){
   }catch(e){ hash = null; }
   pushRepo(payload, hash);
 }
-function pushRepoDebounced(payload, hash){
+function pushRepoDebounced(payload){
+  /* 性能：把「全量内容哈希 + 指纹比对」从「每键同步」推迟到「防抖窗口结束」。
+     每敲一键只做 currentPayload()（浅组装，O(1)）+ 重置定时器；真正的
+     contentHash = O(整份简历) 只在这 800ms 窗口静默后算一次。连续敲 N 键从
+     N 次 O(简历) 哈希降为 1 次，语义等价（「内容未变跳过写盘」仍成立，仅判定延迟到防抖结束）。 */
   if(_repoPushTimer) clearTimeout(_repoPushTimer);
-  _repoPushTimer = setTimeout(function(){ _repoPushTimer = null; pushRepo(payload, hash); }, 800);
+  _repoPushTimer = setTimeout(function(){
+    _repoPushTimer = null;
+    let hash = null;
+    try {
+      hash = (global.ResumeFeishu && typeof global.ResumeFeishu.contentHash === 'function')
+        ? global.ResumeFeishu.contentHash(payload)
+        : null;
+    } catch (e) { hash = null; }
+    if(_libraryReady && activeResumeId && typeof global.ResumeLibrary === 'object' && global.ResumeLibrary){
+      // 多份模式：lastHash 持久化在 index.json，重启后仍可跳过无变化写盘
+      let lastHash = null;
+      try { const m = global.ResumeLibrary.getMeta(activeResumeId); if(m) lastHash = m.lastHash || null; } catch(e){}
+      if(hash !== null && lastHash !== null && hash === lastHash) return; // 内容未变，跳过
+    } else {
+      // 单份模式：内存指纹比对
+      if(hash !== null && _defaultLastHash !== null && hash === _defaultLastHash) return;
+      if(hash !== null) _defaultLastHash = hash;
+    }
+    pushRepo(payload, hash);
+  }, 800);
+}
+/* 取消 pending 的防抖保存（切换简历/清空/载入目标份前调用）。
+   若不取消：防抖回调里捕获的 payload 仍指向旧份的 data/fonts/spacing 引用，
+   而 activeResumeId 已切到新份 → 旧份数据被写进新份文档（跨简历数据污染）。 */
+function cancelPendingSave(){
+  if(_repoPushTimer){ clearTimeout(_repoPushTimer); _repoPushTimer = null; }
 }
 function saveState(){
   const payload = currentPayload();
   // 统一内容指纹：只看 {data,fonts,spacing,v}，剔除 savedAt（每次生成必变的时间戳，
   // 混进哈希会让「内容未变跳过写盘」永不成立）；与飞书自动同步同一口径。
-  let hash = null;
-  try {
-    hash = (global.ResumeFeishu && typeof global.ResumeFeishu.contentHash === 'function')
-      ? global.ResumeFeishu.contentHash(payload)
-      : null;
-  } catch (e) { hash = null; }
-  if(_libraryReady && activeResumeId && typeof global.ResumeLibrary === 'object' && global.ResumeLibrary){
-    // 多份模式：lastHash 持久化在 index.json，重启后仍可跳过无变化写盘
-    let lastHash = null;
-    try { const m = global.ResumeLibrary.getMeta(activeResumeId); if(m) lastHash = m.lastHash || null; } catch(e){}
-    if(hash !== null && lastHash !== null && hash === lastHash) return; // 内容未变，跳过
-  } else {
-    // 单份模式：内存指纹比对
-    if(hash !== null && _defaultLastHash !== null && hash === _defaultLastHash) return;
-    if(hash !== null) _defaultLastHash = hash;
-  }
+  // ⚠️ 哈希计算已移入 pushRepoDebounced 的防抖回调（性能债：每键全量哈希 → 防抖后一次），
+  //   此处仅浅组装 payload + 打保存中标记，指纹比对统一在防抖结束时做。
   if(bootDone) SaveStatus.markSaving();   // 防抖窗口内先给出「保存中」，别让用户对着静默干等
-  pushRepoDebounced(payload, hash);
+  pushRepoDebounced(payload);
 }
 /* 内置初始数据（种子）：单文件构建时 DEMO_DATA 为完整示范，开发态为空骨架 */
 function seedPayload(){
@@ -798,6 +815,9 @@ function applyImported(obj){
    避免「切换即写回」污染刚载入的文档 / 造成误 dirty） */
 function applyPayloadWithoutSave(obj){
   if(!obj || !obj.data) return;
+  // 载入新数据覆盖内存前，取消 pending 的防抖保存（其闭包 payload 指向旧份数据引用，
+  // 若不清，会在 activeResumeId 已切到新份后触发，把旧份数据写进新份 → 跨简历污染）
+  cancelPendingSave();
   data = obj.data;
   if(obj.fonts && typeof obj.fonts==='object') currentFonts = obj.fonts;
   if(obj.spacing && typeof obj.spacing==='object') currentSpacing = obj.spacing;
@@ -1055,6 +1075,7 @@ global.ResumeEditor = {
   recordHistory: recordHistory,
   hist: hist,
   saveState: saveState,
+  cancelPendingSave: cancelPendingSave,
   applyImported: applyImported,
   renderResumeInner: renderResumeInner,
   migrateSpacing: migrateSpacing,

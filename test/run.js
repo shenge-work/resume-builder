@@ -679,6 +679,20 @@ for (const c of nativeExportCases) {
     .catch((e) => { fileResults.push({ name: 'native-export › ' + c.name + '（抛错: ' + (e && e.message ? e.message : e) + '）', pass: false }); });
 }
 
+/* ---------- 保存防抖 + 切换取消 pending（性能债第 1 层 + 跨简历污染防护）----------
+   自建隔离 vm 沙箱（桩 contentHash / ResumeStore.save 计数），验证：
+   · 连续 saveState 只在防抖结束算一次 contentHash（每键全量哈希 → 防抖后一次）；
+   · cancelPendingSave 取消 pending 保存，避免旧份数据写进新份。 */
+const saveDebounceCases = require(path.join(ROOT, 'test', 'cases-save-debounce.js'));
+const saveDebounceCtx = {
+  assert(cond, msg) { fileResults.push({ name: 'save-debounce › ' + msg, pass: !!cond }); },
+};
+let saveDebounceChain = Promise.resolve();
+for (const c of saveDebounceCases) {
+  saveDebounceChain = saveDebounceChain.then(() => c.fn(saveDebounceCtx))
+    .catch((e) => { fileResults.push({ name: 'save-debounce › ' + c.name + '（抛错: ' + (e && e.message ? e.message : e) + '）', pass: false }); });
+}
+
 const httpCases = require(path.join(ROOT, 'test', 'cases-serve-http.js'));
 const httpCtx = {
   assert(cond, msg) { fileResults.push({ name: 'http › ' + msg, pass: !!cond }); },
@@ -690,7 +704,7 @@ for (const c of httpCases) {
 }
 
 /* ---------- 报告（等异步的 library 用例跑完再输出） ---------- */
-libChain.then(() => ssChain).then(() => jdChain).then(() => nativeExportChain).then(() => menuChain).then(() => undoChain).then(() => reorderChain).then(() => perfChain).then(() => httpChain).then(() => {
+libChain.then(() => ssChain).then(() => jdChain).then(() => nativeExportChain).then(() => menuChain).then(() => undoChain).then(() => reorderChain).then(() => perfChain).then(() => saveDebounceChain).then(() => httpChain).then(() => {
   const all = ctx.__results.concat(fileResults);
   let pass = 0, fail = 0;
   for (const r of all) {
