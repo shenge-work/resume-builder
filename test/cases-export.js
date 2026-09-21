@@ -297,6 +297,29 @@ module.exports = [
     ctx.assert(ret === null, '无 fetch 时返回 null（表示未产出文件）');
     ctx.assert(ctx.printCalls === 1, '回退到 window.print() 恰好一次');
   }},
+
+  /* ================= N6-F3：静默 PDF 失败的可行动提示 =================
+     失效面：① 501（本机无 Chrome）只报裸错误码 → 用户不知道该 npm start 还是换格式；
+     ② 把 501 与 500 混为一谈 → 提示误导。决策逻辑抽到纯函数，便于变异测试。 */
+  { name: 'N6 静默PDF 501 提示', fn: function (ctx) {
+    const X = ctx.ResumeExport;
+    ctx.assert(typeof X.pdfSilentFailureMessage === 'function', 'pdfSilentFailureMessage 已暴露（可测）');
+    const m501 = X.pdfSilentFailureMessage(501);
+    ctx.assert(/npm start/.test(m501), '501 提示告知需 npm start 打开本应用');
+    ctx.assert(/单文件 HTML/.test(m501) && /图片版/.test(m501), '501 提示给出两条可替代导出路径');
+    ctx.assert(/打印对话框/.test(m501), '501 提示说明已兜底打开打印对话框');
+  }},
+  { name: 'N6 静默PDF 非501 提示', fn: function (ctx) {
+    const X = ctx.ResumeExport;
+    const m500 = X.pdfSilentFailureMessage(500, '生成失败');
+    ctx.assert(m500.indexOf('静默导出失败：') === 0, '非 501 仍以「静默导出失败」前缀');
+    ctx.assert(m500.indexOf('生成失败') >= 0, '非 501 透传原始错误信息');
+    const mEmpty = X.pdfSilentFailureMessage(500, '');
+    ctx.assert(mEmpty === '静默导出失败：未知错误', '错误信息缺失时兜底为「未知错误」（不被 null 污染）');
+    /* 变异测试：若把 501 分支条件删掉，下面这条会误用 501 文案 → 必须失败 */
+    ctx.assert(X.pdfSilentFailureMessage(501).indexOf('静默导出失败：') !== 0, '501 分支与默认分支文案互斥');
+  }},
+
   { name: '导出不抛错', fn: function (ctx) {
     /* vm 里的 document / Blob 全是桩，下载链路走不通也必须安全返回结果。 */
     let threw = null, r;
@@ -372,6 +395,26 @@ module.exports = [
     const wm = ctx.ResumeExport.buildWatermark('仅供查看');
     ctx.assert(/@media print\{\.resume-share-wm\{display:none;\}\}/.test(wm.css), '打印时水印隐藏（@media print）');
     ctx.assert(/pointer-events\s*:\s*none/.test(wm.css), '水印不拦截鼠标事件');
+  }},
+
+  /* ================= I. N3-F3：分享标识写入分享页 =================
+     失效面：① 导出的分享页不带标识 → 用户完全无法区分/share 的版本来源；
+     ② 标识未转义 → content 属性被闭合注入脚本。 */
+  { name: 'N3 分享页：带 token 时写入 resume-share-token meta', fn: function (ctx) {
+    const E = ctx.ResumeExport;
+    const withTok = E.buildSharePageHtml({ resumeHtml: '<div class="resume">x</div>', name: '张三', token: 'abc123' });
+    ctx.assert(/<meta name="resume-share-token" content="abc123">/.test(withTok), '写入分享标识 meta');
+    ctx.assert(withTok.indexOf('<title>张三 · 简历（仅供查看）</title>') >= 0, '标题不被 token 行破坏');
+    const noTok = E.buildSharePageHtml({ resumeHtml: '<div class="resume">x</div>', name: '张三' });
+    ctx.assert(noTok.indexOf('resume-share-token') === -1, '未提供 token 时不写 meta（页面保持干净）');
+    ctx.assert(noTok.indexOf('<meta name="robots" content="noindex,nofollow">') >= 0, 'noindex 仍保留');
+  }},
+
+  { name: 'N3 分享页：token 经 HTML 转义（防注入）', fn: function (ctx) {
+    const E = ctx.ResumeExport;
+    const html = E.buildSharePageHtml({ resumeHtml: '', name: 'x', token: '"><script>alert(1)</script>' });
+    ctx.assert(html.indexOf('<script>alert(1)</script>') === -1, 'token 里的 <script> 被转义');
+    ctx.assert(html.indexOf('&quot;&gt;&lt;script&gt;') >= 0, '转义后不会提前闭合 content 属性');
   }},
 
 ];

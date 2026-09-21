@@ -37,9 +37,15 @@
     return parts.length ? parts.map(boldHtml).join('<span class="pf-sep">·</span>') : '';
   }
 
-  /* ---------- 各板块类型渲染（字段名与 js/render/resume-render.js 保持一致） ---------- */
-  function renderSection(sec) {
-    var title = esc(sec.title || '');
+  /* ---------- 各板块类型渲染（字段名与 js/render/resume-render.js 保持一致） ----------
+     ⚠️ 本函数是「板块 HTML」的**唯一实现**：应用内 #/portfolio/:id 预览与
+     「导出为个人官网」（js/render/portfolio-html.js）都调它，保证两边永不漂移。
+     新增板块类型时改这里 + resume-render.js（A4 降级渲染）+ export-extra.js（Word/文本）。 */
+  function renderSection(sec, idx, opts) {
+    opts = opts || {};
+    /* headingVisible === false：只隐藏标题，内容照旧（与 A4 预览语义一致） */
+    var showTitle = hasText(sec.title) && sec.headingVisible !== false;
+    var title = showTitle ? esc(sec.title) : '';
     var body = '';
 
     if (sec.type === 'advantages') {
@@ -47,6 +53,22 @@
         return '<li><b>' + esc(T(it.label)) + '</b>：' + esc(T(it.text)) + '</li>';
       }).join('');
       body = '<ul class="pf-list">' + lis + '</ul>';
+
+    } else if (sec.type === 'kpi-band') {
+      /* 官网专属：首屏「大数字 + 小标签」带（N9-F1） */
+      var kpis = (sec.items || []).filter(function (it) {
+        return it && (hasText(it.value) || hasText(it.label));
+      }).map(function (it) {
+        return '<div class="pf-kpi-item">'
+          + (hasText(it.value) ? '<span class="pf-kpi-value">' + esc(T(it.value)) + '</span>' : '')
+          + (hasText(it.label) ? '<span class="pf-kpi-label">' + esc(T(it.label)) + '</span>' : '')
+          + '</div>';
+      }).join('');
+      body = kpis ? '<div class="pf-kpi">' + kpis + '</div>' : '';
+
+    } else if (sec.type === 'project-cards') {
+      /* 官网专属：项目卡片墙（N9-F1）。封面只用用户填的 cover，不留 AI 占位图。 */
+      body = '<div class="pf-cards">' + (sec.cards || []).map(renderProjectCard).join('') + '</div>';
 
     } else if (sec.type === 'career') {
       body = (sec.items || []).map(function (job) {
@@ -114,7 +136,20 @@
       }).join('') + '</ul>';
     }
 
-    return '<section class="pf-card"><h2 class="pf-card-title">' + title + '</h2>' + body + '</section>';
+    /* 锚点：导出官网时给每个有标题的板块一个 id，顶栏导航才能跳转；
+       应用内预览不传 anchorPrefix，DOM 保持原样。 */
+    var anchor = (opts.anchorPrefix && showTitle && idx != null)
+      ? ' id="' + esc(opts.anchorPrefix + idx) + '"' : '';
+    return '<section class="pf-card"' + anchor
+      + (showTitle ? '><h2 class="pf-card-title">' + title + '</h2>' + body : '>' + body)
+      + '</section>';
+  }
+
+  /* 板块列表 → HTML 字符串（唯一实现，两边共用；见 renderSection 顶部注释） */
+  function renderSections(data, opts) {
+    return ((data && data.sections) || []).map(function (sec, i) {
+      return renderSection(sec, i, opts);
+    }).join('');
   }
 
   function renderProject(p) {
@@ -128,6 +163,33 @@
       return '<li>' + esc(T(r)) + '</li>';
     }).join('');
     return '<div class="pf-block">' + head + desc + (lis ? '<ul class="pf-list">' + lis + '</ul>' : '') + '</div>';
+  }
+
+  /* 项目卡片（N9）：封面 + 一句话 + 指标芯片 + 技术栈芯片 + 「优化前→优化后→手段」证据链。
+     cover 只接受用户填的地址；相对路径在单文件官网上会 404，导出时会另行提醒。 */
+  function renderProjectCard(c) {
+    if (!c) return '';
+    var cover = hasText(c.cover)
+      ? '<img class="pf-proj-cover" src="' + esc(T(c.cover)) + '" alt="" loading="lazy">' : '';
+    var metrics = (c.metrics || []).map(T).map(function (m) { return String(m).trim(); }).filter(Boolean)
+      .map(function (m) { return '<span class="pf-proj-metric">' + esc(m) + '</span>'; }).join('');
+    /* 技术栈用 · / , / 、 / | 任一分隔都认（与技能行的分隔习惯一致） */
+    var stack = T(c.stack).split(/[·・•,，、|]/).map(function (s) { return s.trim(); }).filter(Boolean)
+      .map(function (s) { return '<span>' + esc(s) + '</span>'; }).join('');
+    var desc = hasText(c.desc) ? '<p class="pf-desc">' + esc(T(c.desc)) + '</p>' : '';
+    var ev = [];
+    if (hasText(c.before)) ev.push('优化前：' + T(c.before));
+    if (hasText(c.after)) ev.push('优化后：' + T(c.after));
+    if (hasText(c.approach)) ev.push('手段：' + T(c.approach));
+    var evidence = ev.length ? '<p class="pf-evidence">' + esc(ev.join('　·　')) + '</p>' : '';
+    var name = hasText(c.name) ? '<h3 class="pf-proj-name">' + esc(T(c.name)) + '</h3>' : '';
+    if (!name && !cover && !desc && !metrics && !stack && !evidence) return '';
+    return '<div class="pf-proj">' + name + cover
+      + (metrics ? '<div class="pf-proj-metrics">' + metrics + '</div>' : '')
+      + desc
+      + (stack ? '<div class="pf-proj-stack">' + stack + '</div>' : '')
+      + evidence
+      + '</div>';
   }
 
   var PortfolioView = {
@@ -204,7 +266,7 @@
         return '<span class="pf-chip">' + esc(T(c)) + '</span>';
       }).join('');
 
-      var secs = (data.sections || []).map(renderSection).join('');
+      var secs = renderSections(data);
 
       var backHref = this.currentId ? '/editor/' + this.currentId : '/editor';
 
@@ -226,5 +288,11 @@
     }
   };
 
+  /* N9：把「板块 HTML 渲染」作为纯函数暴露出去 —— 导出为个人官网
+     （js/render/portfolio-html.js）直接复用，避免「预览好看、导出不一样」的漂移。 */
+  PortfolioView.renderSection = renderSection;
+  PortfolioView.renderSections = renderSections;
+  PortfolioView.renderProjectCard = renderProjectCard;
+
   global.PortfolioView = PortfolioView;
-})(window);
+})(typeof window !== 'undefined' ? window : globalThis);

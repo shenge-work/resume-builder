@@ -82,5 +82,52 @@ module.exports = [
       const t = ctx.deriveTitle('我的简历', '');
       ctx.assert(t === '我的简历 · JD 定制版', '无 JD 用默认后缀');
     }
+  },
+  {
+    name: 'deriveTitle：首行是「任职要求：1、…」时提取岗位名，而不是照抄章节标题',
+    fn: (ctx) => {
+      const jd = '任职要求：1、3年以上AI产品经理经验，熟悉大模型应用；2、具备Python或SQL数据分析能力；3、负责过AI产品0到1落地';
+      const t = ctx.deriveTitle('陈培胜', jd);
+      ctx.assert(/AI产品经理/.test(t), '提取到岗位名');
+      ctx.assert(!/任职要求/.test(t), '不含章节标签');
+      ctx.assert(!/3年以上/.test(t), '不含年限噪声');
+      ctx.assert(!/数据分析能力/.test(t), '不含后续条目内容');
+    }
+  },
+  {
+    name: 'deriveTitle：首行「岗位 + 薪资 + （城市·年限）」保留城市、丢掉年限与职责正文',
+    fn: (ctx) => {
+      const jd = '全栈开发工程师 20-35K·13薪（杭州·3-5年·本科）。核心职责：1、深入公司业务，聚焦Web端、移动端核心开发';
+      const t = ctx.deriveTitle('陈培胜', jd);
+      ctx.assert(/全栈开发工程师/.test(t), '保留岗位名');
+      ctx.assert(/（杭州）/.test(t), '保留城市');
+      ctx.assert(!/本科/.test(t), '丢掉学历');
+      ctx.assert(!/核心职责/.test(t), '丢掉职责正文');
+    }
+  },
+  {
+    name: 'deriveTitle：带招聘标签的短岗位名（招聘：AI产品经理）',
+    fn: (ctx) => {
+      const t = ctx.deriveTitle('我的简历', '招聘：AI产品经理');
+      ctx.assert(/AI产品经理/.test(t), '提取到岗位名');
+      ctx.assert(!/招聘/.test(t), '去掉招聘前缀');
+    }
+  },
+  {
+    name: 'deriveTitle：拿不到岗位线索时仍回退首行，且长度受控',
+    fn: (ctx) => {
+      const t = ctx.deriveTitle('我的简历', '这是一段很长的说明文字，既没有岗位关键词，也没有换行，完全不像招聘信息正文');
+      ctx.assert(/^我的简历 · 定制「.+」$/.test(t), '结构完整且非空');
+      ctx.assert(t.length <= 40, '长度受控，实际 ' + t.length);
+    }
+  },
+  {
+    name: 'deriveTitle：多行 JD 里首行是公司名、次行才是岗位',
+    fn: (ctx) => {
+      const t = ctx.deriveTitle('我的简历', '某某科技有限公司\n岗位职责：负责后端服务开发\n任职要求：精通 Java');
+      ctx.assert(/定制「.+」/.test(t), '有名字');
+      ctx.assert(!/岗位职责|任职要求/.test(t), '不把章节标题当名字');
+      ctx.assert(!/负责|精通/.test(t), '不把「负责/精通…」这类要求句当名字');
+    }
   }
 ];

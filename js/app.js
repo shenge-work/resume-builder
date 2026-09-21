@@ -109,7 +109,10 @@ function loadPanelState(){
 function savePanelState(state){
   try{ localStorage.setItem(PANEL_STATE_KEY, JSON.stringify(state)); }catch(e){}
 }
-let panelCollapsed = loadPanelState();
+// UX-01 修复：配置面板（字号/边距/间距）默认折叠，打开编辑面板即见「内容编辑」。
+// 既有存储的面板状态（用户显式展开过）会覆盖默认值。
+const DEFAULT_PANEL_STATE = { 'panel-fonts': true, 'panel-margins': true, 'panel-spacing': true };
+let panelCollapsed = Object.assign({}, DEFAULT_PANEL_STATE, loadPanelState());
 function applyPanelState(){
   ['panel-fonts','panel-margins','panel-spacing','panel-editor'].forEach(id=>{
     const el = document.getElementById(id);
@@ -262,6 +265,7 @@ async function initResumeLibrary(){
     }
     renderResumeTabs();
     renderResumeDrawer();
+    syncLockState();   // N3：激活简历可能是锁定的 → 启动即置为只读
     // 恢复抽屉展开/收起状态（默认展开；只有明确存过 '0' 才收起）
     try{
       const d = document.getElementById('resumeDrawer');
@@ -380,8 +384,9 @@ async function resumeRemove(id){
   if(!_libraryReady || !id) return;
   const idx = await global.ResumeLibrary.list();
   const m = idx.filter(x=>x.id===id)[0];
-  if(!confirm('确定删除「' + (m ? m.title : '') + '」吗？此操作不可恢复。')) return;
+  if(!confirm('确定删除「' + (m ? m.title : '') + '」吗？\n\n删除后 10 秒内可点「撤销」找回。')) return;
   try{
+    global.ResumeLibrary.beginRemoveBatch();
     await global.ResumeLibrary.remove(id);
     openTabs = openTabs.filter(t=>t!==id);
     dirtySet.delete(id);
@@ -396,7 +401,8 @@ async function resumeRemove(id){
         activeResumeId = null;
       }
     }
-    renderResumeTabs(); renderResumeDrawer();
+    renderResumeTabs(); renderResumeDrawer(); syncLockState();
+    showUndoToast('已删除「' + ((m && m.title) || '简历') + '」', resumeUndoRemove);
   }catch(e){ alert('删除失败：' + (e && e.message ? e.message : e)); }
 }
 
@@ -501,8 +507,18 @@ function toggleResumeItemMenu(id, btn){
   _resumeMenuId = id;
   const safeId = esc(id);
   const call = function(fn){ return 'ResumeEditor.closeResumeItemMenu();ResumeEditor.'+fn+'(\''+safeId+'\')'; };
+  /* N3：菜单文案随状态变化（锁定/解锁、开启/关闭分享），所以每次开菜单都读一次 meta */
+  const meta = (global.ResumeLibrary && typeof global.ResumeLibrary.getMeta === 'function') ? global.ResumeLibrary.getMeta(id) : null;
+  const S = shareApi();
+  const locked = !!(S && S.isLocked(meta));
+  const pub = !!(S && S.isPublic(meta));
+  const hasToken = !!(S && S.tokenOf(meta));
   el.innerHTML = '<button type="button" role="menuitem" onclick="'+call('resumeRename')+'">重命名</button>'
     + '<button type="button" role="menuitem" onclick="'+call('resumeDuplicate')+'">复制</button>'
+    + '<span class="menu-sep"></span>'
+    + '<button type="button" role="menuitem" title="锁定后编辑区只读，避免误改已定稿的版本" onclick="'+call('resumeToggleLock')+'">'+(locked?'解锁编辑':'锁定防误改')+'</button>'
+    + '<button type="button" role="menuitem" title="只有开启分享的简历才允许导出只读分享页" onclick="'+call('resumeTogglePublic')+'">'+(pub?'关闭分享':'开启分享')+'</button>'
+    + (pub && hasToken ? '<button type="button" role="menuitem" title="复制这份简历的分享标识（导出分享页时写入页面 meta）" onclick="'+call('copyShareToken')+'">复制分享标识</button>' : '')
     + '<span class="menu-sep"></span>'
     + '<button type="button" role="menuitem" onclick="'+call('resumeRemove')+'">删除</button>';
   el.classList.add('show');
@@ -535,14 +551,41 @@ function renderResumeDrawer(){
          ⚠️「⋯」按钮的 keydown 必须 stopPropagation：焦点在它上面按回车时，
          事件会冒泡到外层卡片，否则会顺带打开这份简历。 */
       const derived = m.kind === 'derived';
-      return '<div class="resume-item'+(active?' active':'')+'" role="button" tabindex="0" data-id="'+esc(m.id)+'" onclick="ResumeEditor.openResume(\''+esc(m.id)+'\')" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();ResumeEditor.openResume(\''+esc(m.id)+'\')}">'
-        + '<span class="resume-item-title">'+(dirty?'● ':'')+esc(m.title)+(derived?' <em class="resume-item-kind">定制版</em>':'')+'</span>'
-        + '<span class="resume-item-meta">'+esc(m.source==='local'?'本地':'云端')+' · '+esc(t)+'</span>'
-        + '<button type="button" class="resume-item-more" data-more="'+esc(m.id)+'" title="更多操作（重命名 / 复制 / 删除）" aria-haspopup="menu"'
+      const S3 = shareApi();
+      const locked = !!(S3 && S3.isLocked(m));
+      const pub = !!(S3 && S3.isPublic(m));
+      return '<div class="resume-item'+(active?' active':'')+(locked?' is-locked':'')+'" role="button" tabindex="0" data-id="'+esc(m.id)+'" onclick="ResumeEditor.openResume(\''+esc(m.id)+'\')" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();ResumeEditor.openResume(\''+esc(m.id)+'\')}">'
+        + '<div class="drawer-thumb resume-thumb" data-thumb-id="'+esc(m.id)+'"></div>'
+        + '<div class="resume-item-main">'
+        +   '<span class="resume-item-title">'+(dirty?'● ':'')+(locked?'<em class="resume-item-lock" aria-label="已锁定">🔒</em> ':'')+esc(m.title)+(derived?' <em class="resume-item-kind">定制版</em>':'')+(pub?' <em class="resume-item-kind is-public">分享中</em>':'')+'</span>'
+        +   '<span class="resume-item-meta">'+esc(m.source==='local'?'本地':'云端')+' · '+esc(t)+'</span>'
+        + '</div>'
+        + '<button type="button" class="resume-item-more" data-more="'+esc(m.id)+'" title="更多操作（重命名 / 复制 / 锁定 / 分享 / 删除）" aria-haspopup="menu"'
         +   ' onclick="event.stopPropagation();ResumeEditor.toggleResumeItemMenu(\''+esc(m.id)+'\',this)"'
         +   ' onkeydown="event.stopPropagation()">···</button>'
         + '</div>';
     }).join('');
+    renderDrawerThumbs(list, idx);
+  });
+}
+/* N5：左抽屉缩略图。缓存按 id|updatedAt 失效——编辑中 updatedAt 不变 → 每键重渲染只命中缓存，
+   仅在真正落盘（updatedAt 变）后重建一次，避免「每键重渲染」把缩略图生成变成性能黑洞。 */
+const _drawerThumbCache = {};
+function renderDrawerThumbs(listEl, idx){
+  if(!listEl || !global.ResumeLibrary || typeof global.ResumeLibrary.load !== 'function') return;
+  if(!global.ResumeRender || typeof global.ResumeRender.buildResumeHtml !== 'function') return;
+  idx.forEach(m=>{
+    const el = listEl.querySelector('.drawer-thumb[data-thumb-id="'+esc(m.id)+'"]');
+    if(!el) return;
+    const key = m.id+'|'+(m.updatedAt||0);
+    if(_drawerThumbCache[key]){ el.innerHTML=_drawerThumbCache[key]; el.classList.remove('is-empty'); return; }
+    el.classList.add('is-empty');
+    global.ResumeLibrary.load(m.id).then(payload=>{
+      if(!el.isConnected) return;
+      const html = global.ResumeRender.buildResumeHtml(payload);
+      if(!html){ el.classList.add('is-empty'); return; }
+      _drawerThumbCache[key]=html; el.classList.remove('is-empty'); el.innerHTML=html;
+    }).catch(()=>{ el.classList.add('is-empty'); });
   });
 }
 
@@ -671,7 +714,7 @@ function saveState(){
 }
 /* 内置初始数据（种子）：单文件构建时 DEMO_DATA 为完整示范，开发态为空骨架 */
 function seedPayload(){
-  const empty = { name:'', subtitle:'', subtitleBold:false, meta:'', metaBold:false, contact:[], sections:[] };
+  const empty = { name:'', subtitle:'', subtitleBold:false, meta:'', metaBold:false, contact:[], sections:[], theme:{ id:'classic', overrides:{} } };
   return {
     data: JSON.parse(JSON.stringify((typeof DEMO_DATA !== 'undefined' && DEMO_DATA) ? DEMO_DATA : empty)),
     fonts: JSON.parse(JSON.stringify(defaultFonts)),
@@ -819,6 +862,8 @@ function applyPayloadWithoutSave(obj){
   // 若不清，会在 activeResumeId 已切到新份后触发，把旧份数据写进新份 → 跨简历污染）
   cancelPendingSave();
   data = obj.data;
+  // N1：确保 data.theme 存在（缺省回退 classic），供渲染层解析调色板与持久化
+  if(typeof ResumeThemeTemplates !== 'undefined' && ResumeThemeTemplates) ResumeThemeTemplates.ensureTheme(data);
   if(obj.fonts && typeof obj.fonts==='object') currentFonts = obj.fonts;
   if(obj.spacing && typeof obj.spacing==='object') currentSpacing = obj.spacing;
   sanitizePayload();
@@ -830,6 +875,7 @@ function applyPayloadWithoutSave(obj){
   data.sections.forEach(sec=>{ if(typeof sec.pageBreak !== 'boolean') sec.pageBreak = false; });
   renderSettings(); renderMarginSettings(); renderSpacingSettings(); renderEditor(); renderPreview(); applyPanelState();
   updateFileNameInput();
+  syncLockState();   // N3：换了简历 → 重新判定锁定态（锁定简历的编辑区必须立刻变只读）
   try{ document.title = (data.name||'简历') + ' · 简历编辑器'; }catch(_){}
 }
 /* 从仓库根目录 data/resume.json 加载（版本化数据源）。
@@ -994,6 +1040,592 @@ async function applyLayoutPreset(mode){
   if(global.ResumeRouter) ResumeRouter.navigate('/editor');
 }
 
+/* ============ N1 主题模板系统：切换 / 微调 / 持久化 ============
+   主题切换是可撤销操作（进撤销栈），误切可 Ctrl/Cmd+Z 恢复。
+   字体 / 间距微调直接落在 currentFonts / currentSpacing（已随 payload 落盘）；
+   颜色 / 纸张微调落在 data.theme.overrides（随 data 落盘，不污染内置主题定义）。 */
+function applyTheme(id){
+  if(typeof ResumeThemeTemplates === 'undefined' || !ResumeThemeTemplates) return;
+  var tmpl = ResumeThemeTemplates.getTheme(id);
+  if(!tmpl) return;
+  recordHistory('action');                       // 切前记快照，撤销可回到切前
+  var th = ResumeThemeTemplates.ensureTheme(data);
+  th.id = id;                                    // 保留已有颜色微调（跨主题保留）
+  if(!th.overrides) th.overrides = {};
+  currentFonts = ResumeThemeTemplates.resolveFonts(tmpl.fonts);
+  currentSpacing = ResumeThemeTemplates.resolveSpacing(tmpl.spacing);
+  data.pageMargins = JSON.parse(JSON.stringify(tmpl.paper.margin));
+  saveState();
+  renderSettings(); renderSpacingSettings(); renderMarginSettings(); renderEditor(); renderPreview();
+  if(global.ResumeRouter) ResumeRouter.navigate('/editor');
+}
+/* F3 颜色微调：写进 data.theme.overrides.color（随 data 落盘，不污染内置主题） */
+function customizeThemeColor(key, val){
+  if(typeof ResumeThemeTemplates === 'undefined' || !ResumeThemeTemplates) return;
+  recordHistory('action');
+  var th = ResumeThemeTemplates.ensureTheme(data);
+  th.overrides.color = th.overrides.color || {};
+  th.overrides.color[key] = val;
+  saveState(); renderPreview();
+}
+/* 重置当前主题的全部微调，回到主题出厂外观 */
+function resetThemeOverrides(){
+  if(typeof ResumeThemeTemplates === 'undefined' || !ResumeThemeTemplates) return;
+  recordHistory('action');
+  var th = ResumeThemeTemplates.ensureTheme(data);
+  th.overrides = {};
+  var tmpl = ResumeThemeTemplates.getTheme(th.id);
+  currentFonts = ResumeThemeTemplates.resolveFonts(tmpl.fonts);
+  currentSpacing = ResumeThemeTemplates.resolveSpacing(tmpl.spacing);
+  data.pageMargins = JSON.parse(JSON.stringify(tmpl.paper.margin));
+  saveState();
+  renderSettings(); renderSpacingSettings(); renderMarginSettings(); renderEditor(); renderPreview();
+}
+function getActiveThemeId(){
+  if(typeof ResumeThemeTemplates === 'undefined' || !ResumeThemeTemplates) return 'classic';
+  return ResumeThemeTemplates.ensureTheme(data).id;
+}
+/* 当前生效调色板（主题 color + overrides.color 合并），供主题微调面板取初值 */
+function getCurrentPalette(){
+  if(typeof ResumeThemeTemplates === 'undefined' || !ResumeThemeTemplates) return {};
+  return ResumeThemeTemplates.resolvePalette(data) || {};
+}
+
+/* ============ N3 分享与权限控制 ============
+   F1 锁定（编辑区只读）/ F2 分享开关（门禁导出分享页）/ F3 分享标识 token /
+   F4 整库 JSON 备份与恢复 / F5 删除二次确认 + 可撤销。
+   纯数据判定在 js/store/library-share.js（ResumeShare），这里只做接线与界面反馈。
+   ⚠️ 锁定/分享状态存在简历库 meta（不写进 data），所以不随简历内容哈希变化，
+     也不能走 saveState —— 统一用 ResumeLibrary.patchMeta 落盘。 */
+function shareApi(){ try{ return global.ResumeShare || null; }catch(e){ return null; } }
+function notifyUser(type, title, body){
+  try{
+    if(global.ResumeNotifier && typeof global.ResumeNotifier.notify === 'function') global.ResumeNotifier.notify(type, title, body);
+  }catch(e){ /* 通知失败不影响主流程 */ }
+}
+/* 同步取当前激活简历的 meta（不需要 await：库索引已在内存里） */
+function activeMetaSync(){
+  try{
+    if(!activeResumeId || !global.ResumeLibrary || typeof global.ResumeLibrary.getMeta !== 'function') return null;
+    return global.ResumeLibrary.getMeta(activeResumeId);
+  }catch(e){ return null; }
+}
+function isActiveLocked(){
+  const S = shareApi();
+  return !!(S && S.isLocked(activeMetaSync()));
+}
+
+/* F1：锁定 ⇄ 解锁（抽屉卡片「⋯」菜单） */
+async function resumeToggleLock(id){
+  if(!_libraryReady || !id) return;
+  const S = shareApi();
+  if(!S){ alert('分享/权限模块未加载'); return; }
+  const idx = await global.ResumeLibrary.list();
+  const m = idx.filter(x=>x.id===id)[0];
+  if(!m) return;
+  const next = !S.isLocked(m);
+  try{
+    await global.ResumeLibrary.patchMeta(id, { isLocked: next });
+    renderResumeDrawer();
+    if(id === activeResumeId) applyLockState();
+  }catch(e){ alert('操作失败：' + (e && e.message ? e.message : e)); }
+}
+
+/* F2/F3：开启 / 关闭分享。开启时顺带发一个分享标识（token）。 */
+async function setResumePublic(id, v){
+  if(!_libraryReady || !id) return { ok:false };
+  const S = shareApi();
+  if(!S) return { ok:false };
+  const idx = await global.ResumeLibrary.list();
+  const m = idx.filter(x=>x.id===id)[0];
+  if(!m) return { ok:false };
+  const want = !!v;
+  const patch = { isPublic: want };
+  let freshToken = false;
+  if(want && !S.tokenOf(m)){ patch.shareToken = S.genToken(); freshToken = true; }
+  if(!want) patch.shareToken = null;   // 关闭分享即作废标识，下次开启重新发一个
+  try{
+    await global.ResumeLibrary.patchMeta(id, patch);
+    renderResumeDrawer();
+    if(global.ResumeMenu && typeof global.ResumeMenu.render === 'function') global.ResumeMenu.render();
+    return { ok:true, freshToken: freshToken, token: want ? (patch.shareToken || S.tokenOf(m)) : '' };
+  }catch(e){ return { ok:false, error: (e && e.message) || String(e) }; }
+}
+
+/* 抽屉 / 卡片菜单用：切换分享并给出结果反馈 */
+async function resumeTogglePublic(id){
+  if(!_libraryReady || !id) return;
+  const S = shareApi();
+  if(!S) return;
+  const idx = await global.ResumeLibrary.list();
+  const m = idx.filter(x=>x.id===id)[0];
+  if(!m) return;
+  const want = !S.isPublic(m);
+  const r = await setResumePublic(id, want);
+  if(!r || !r.ok){ alert('操作失败：' + ((r && r.error) || '未知错误')); return; }
+  if(want){
+    notifyUser('success', '已开启分享',
+      '「' + m.title + '」已可导出只读分享页。' + (r.freshToken ? '（已生成分享标识 ' + r.token + '）' : ''));
+  } else {
+    notifyUser('info', '已关闭分享',
+      '「' + m.title + '」之后不再允许导出分享页；已经导出发出去的静态页收不回来（本项目没有托管后端）。');
+  }
+}
+
+/* F3：复制分享标识。没有标识就先补一个（历史数据可能只有 isPublic 没有 token）。 */
+async function copyShareToken(id){
+  if(!_libraryReady || !id) return;
+  const S = shareApi();
+  if(!S) return;
+  const idx = await global.ResumeLibrary.list();
+  const m = idx.filter(x=>x.id===id)[0];
+  if(!m) return;
+  if(!S.isPublic(m)){ notifyUser('warn', '还没开启分享', '先在简历卡片「⋯」里开启分享，才会生成分享标识。'); return; }
+  let t = S.tokenOf(m);
+  if(!t){
+    t = S.genToken();
+    try{ await global.ResumeLibrary.patchMeta(id, { shareToken: t }); renderResumeDrawer(); }catch(e){ return; }
+  }
+  try{
+    await navigator.clipboard.writeText(t);
+    notifyUser('success', '分享标识已复制', S.tokenNote({ shareToken: t }));
+  }catch(e){ window.prompt('分享标识（请手动复制）', t); }
+}
+
+/* F3：重设分享标识（旧标识作废，仅影响之后导出的页面） */
+async function resetShareToken(id){
+  if(!_libraryReady || !id) return;
+  const S = shareApi();
+  if(!S) return;
+  const idx = await global.ResumeLibrary.list();
+  const m = idx.filter(x=>x.id===id)[0];
+  if(!m) return;
+  if(!confirm('重设分享标识？\n\n之后导出的分享页会带新标识；此前已经导出发出去的静态页无法远程吊销（本项目没有托管后端）。')) return;
+  try{
+    await global.ResumeLibrary.patchMeta(id, { shareToken: S.genToken() });
+    renderResumeDrawer();
+    notifyUser('info', '已重设分享标识', '「' + m.title + '」的分享标识已更换。');
+  }catch(e){ alert('重设失败：' + (e && e.message ? e.message : e)); }
+}
+
+/* F2 门禁：导出分享页前先过 ResumeShare.shareGate。
+   未开启分享时给一条「现在开启并导出」的出路，而不是把入口做成死路。 */
+async function sharePageGuarded(){
+  const S = shareApi();
+  const meta = activeMetaSync();
+  /* 取不到 meta（库未就绪 / 单份模式）→ 保持旧行为，直接导出，不因新功能把老路径弄坏 */
+  if(!S || !meta){ exportSharePage(); return; }
+  const gate = S.shareGate(meta);
+  if(gate.allowed){ exportSharePage({ token: S.tokenOf(meta) }); return; }
+  if(gate.reason === 'not-public'){
+    if(!confirm(gate.message + '\n\n现在开启分享并导出分享页？')) return;
+    const r = await setResumePublic(meta.id, true);
+    if(r && r.ok){ exportSharePage({ token: r.token }); }
+    else notifyUser('error', '开启分享失败', (r && r.error) || '未知错误');
+    return;
+  }
+  notifyUser('warn', '无法导出分享页', gate.message);
+}
+
+/* ============ 锁定态：编辑区只读 ============
+   锁定后把 .editor-pane 下的各个 `.panel` 整体设为不可交互（inert：鼠标、键盘焦点、
+   读屏一并挡住）。锁定提示条本身是 .editor-pane 的直接子元素但不是 .panel，
+   因此不会被自己锁住 —— 否则用户没法解锁。
+   预览区不设 inert（否则长简历没法滚动），改为 CSS 隐藏 ↑↓ 排序按钮 +
+   在拖拽处理器里拒绝拖拽（见 js/render/resume-render.js）。 */
+function syncLockState(){
+  const locked = isActiveLocked();
+  try{ document.body.classList.toggle('resume-locked', locked); }catch(e){}
+  const bar = document.getElementById('lockBar');
+  if(bar) bar.hidden = !locked;
+  const panels = document.querySelectorAll('.editor-pane > .panel');
+  Array.prototype.forEach.call(panels, function(el){
+    if(locked){ el.setAttribute('inert',''); el.setAttribute('aria-disabled','true'); }
+    else { el.removeAttribute('inert'); el.removeAttribute('aria-disabled'); }
+  });
+  const tip = document.getElementById('lockBarTip');
+  if(tip){
+    const m = activeMetaSync();
+    tip.textContent = locked
+      ? ('「' + ((m && m.title) || '当前简历') + '」已锁定：编辑区只读，避免误改定稿版本。')
+      : '';
+  }
+  return locked;
+}
+/* 兼容旧调用名（renderPreview 链路里用过 applyLockState） */
+const applyLockState = syncLockState;
+
+/* ============ F4 整库 JSON 备份 / 恢复 ============ */
+async function exportLibraryBundle(){
+  if(!_libraryReady){ alert('简历库未就绪，暂时无法备份。'); return; }
+  const S = shareApi();
+  if(!S){ alert('分享/权限模块未加载'); return; }
+  try{
+    const idx = await global.ResumeLibrary.list();
+    if(!idx.length){ alert('简历库是空的，没有可备份的内容。'); return; }
+    const entries = [];
+    for(let i=0;i<idx.length;i++){
+      const m = idx[i];
+      entries.push({ meta: m, payload: await global.ResumeLibrary.load(m.id) });
+    }
+    const bundle = S.buildBundle(entries);
+    const blob = new Blob([JSON.stringify(bundle, null, 2)], {type:'application/json;charset=utf-8'});
+    const stamp = new Date().toISOString().slice(0,10);
+    const name = '简历库备份_' + stamp + '.json';
+    await downloadBlob(blob, name);
+    notifyUser('success', '已导出整库备份',
+      '共 ' + bundle.count + ' 份简历（含标签 / 血缘 / 分享与锁定状态），文件名 ' + name + '。');
+  }catch(e){ alert('导出备份失败：' + (e && e.message ? e.message : e)); }
+}
+
+/* 恢复：备份里的简历一律**新增**（不覆盖现有），meta 里的分享/锁定/标签/血缘一并还原。
+   血缘用 idMap 把旧 parentId 映射到本次新分配的 id。 */
+async function importLibraryBundle(file){
+  const S = shareApi();
+  if(!file || !S) return;
+  if(!_libraryReady){ alert('简历库未就绪，暂时无法恢复。'); return; }
+  let text = '';
+  try{ text = await file.text(); }
+  catch(e){ alert('读取备份文件失败：' + (e && e.message ? e.message : e)); return; }
+  const parsed = S.parseBundle(text);
+  if(!parsed.ok){ alert('导入失败：' + parsed.error); return; }
+  const extra = parsed.skipped ? ('（另有 ' + parsed.skipped + ' 条正文缺失，已跳过）') : '';
+  if(!confirm('将从备份导入 ' + parsed.items.length + ' 份简历' + extra + '。\n\n导入是**新增**，不会覆盖或删除现有简历。继续？')) return;
+  const created = [];
+  const idMap = {};
+  try{
+    for(let i=0;i<parsed.items.length;i++){
+      const it = parsed.items[i];
+      const src = it.meta || {};
+      const title = src.title || ('导入的简历 ' + (i+1));
+      const meta = await global.ResumeLibrary.create({
+        title: title,
+        payload: it.payload,
+        kind: src.kind === 'derived' ? 'derived' : 'master'
+      });
+      if(src.id) idMap[src.id] = meta.id;
+      created.push({ newId: meta.id, src: src });
+    }
+    /* 二次遍历回填权限 / 血缘 / 标签：create 只认 title/payload/kind，
+       其余字段必须走 patchMeta（白名单）与 setTags（tags 有独立归一化逻辑）。 */
+    for(let i=0;i<created.length;i++){
+      const c = created[i];
+      const patch = {};
+      if(c.src.isPublic) patch.isPublic = true;
+      if(c.src.isLocked) patch.isLocked = true;
+      if(c.src.shareToken) patch.shareToken = c.src.shareToken;
+      const parentId = S.resolveImportedParent({ id: c.src.id, parentId: c.src.parentId }, idMap);
+      if(parentId) patch.parentId = parentId;
+      if(c.src.jobId) patch.jobId = c.src.jobId;
+      if(c.src.jdText) patch.jdText = c.src.jdText;
+      if(Object.keys(patch).length) await global.ResumeLibrary.patchMeta(c.newId, patch);
+      if(c.src.tags && c.src.tags.length) await global.ResumeLibrary.setTags(c.newId, c.src.tags);
+    }
+  }catch(e){
+    alert('导入中断：' + (e && e.message ? e.message : e) + '\n已导入 ' + created.length + ' 份。');
+  }
+  /* create 会把库内激活态挪到最后一份，这里拉回编辑器真正的激活简历，避免两侧漂移 */
+  try{ if(activeResumeId) await global.ResumeLibrary.setActive(activeResumeId); }catch(e){}
+  renderResumeDrawer();
+  notifyUser(created.length ? 'success' : 'warn', '备份导入完成',
+    created.length ? ('已新增 ' + created.length + ' 份简历（分享 / 锁定 / 标签 / 血缘一并还原）。')
+                   : '没有导入任何简历。');
+  if(global.LibraryView && document.body.classList.contains('route-library') && typeof global.LibraryView.refresh === 'function'){
+    try{ global.LibraryView.refresh(); }catch(e){}
+  }
+}
+
+/* ============ F5 删除：二次确认 + 10 秒内可撤销 ============ */
+let _undoTimer = null;
+function hideUndoToast(){
+  if(_undoTimer){ clearTimeout(_undoTimer); _undoTimer = null; }
+  const el = document.getElementById('undoToast');
+  if(el) el.classList.remove('show');
+}
+/* 删除反馈用独立小条而不是消息中心：撤销是有时效的动作，藏进铃铛里等于没有 */
+function showUndoToast(text, onUndo){
+  let el = document.getElementById('undoToast');
+  if(!el){
+    el = document.createElement('div');
+    el.id = 'undoToast';
+    el.className = 'undo-toast';
+    el.setAttribute('role','status');
+    el.setAttribute('aria-live','polite');
+    document.body.appendChild(el);
+  }
+  el.innerHTML = '<span class="undo-toast-text"></span><button type="button" class="undo-toast-btn">撤销</button>';
+  el.querySelector('.undo-toast-text').textContent = text;
+  el.querySelector('.undo-toast-btn').onclick = function(){ hideUndoToast(); try{ onUndo(); }catch(e){} };
+  el.classList.add('show');
+  if(_undoTimer) clearTimeout(_undoTimer);
+  _undoTimer = setTimeout(hideUndoToast, 10000);
+}
+
+async function resumeUndoRemove(){
+  if(!_libraryReady) return;
+  try{
+    const restored = await global.ResumeLibrary.undoRemove();
+    if(!restored || !restored.length) return;
+    renderResumeTabs(); renderResumeDrawer();
+    notifyUser('success', '已撤销删除',
+      '找回 ' + restored.length + ' 份简历：' + restored.map(x=>x.title).join('、'));
+    if(!activeResumeId && restored[0]){
+      activeResumeId = restored[0].id;
+      const doc = await global.ResumeLibrary.load(activeResumeId);
+      if(doc && doc.data) applyPayloadWithoutSave(doc);
+      await global.ResumeLibrary.setActive(activeResumeId);
+      renderResumeDrawer();
+    }
+  }catch(e){ notifyUser('error', '撤销失败', (e && e.message) || String(e)); }
+}
+
+/* 清空全部（#/library 头部与工具菜单）：两次确认，删除后仍可撤销 */
+async function removeAllResumes(){
+  if(!_libraryReady) return;
+  const idx = await global.ResumeLibrary.list();
+  if(!idx.length){ alert('简历库已经是空的。'); return; }
+  if(!confirm('将删除全部 ' + idx.length + ' 份简历（含正文文件）。\n\n删除后 10 秒内可点「撤销」找回，超过就找不回来了。确定继续？')) return;
+  if(!confirm('再次确认：真的要清空这 ' + idx.length + ' 份简历吗？')) return;
+  try{
+    cancelPendingSave();
+    global.ResumeLibrary.beginRemoveBatch();
+    for(let i=0;i<idx.length;i++) await global.ResumeLibrary.remove(idx[i].id);
+    activeResumeId = null; openTabs = []; dirtySet.clear();
+    renderResumeTabs(); renderResumeDrawer(); syncLockState();
+    if(global.ResumeRouter) global.ResumeRouter.navigate('/library');
+    showUndoToast('已清空 ' + idx.length + ' 份简历', resumeUndoRemove);
+  }catch(e){ alert('清空失败：' + (e && e.message ? e.message : e)); }
+}
+
+/* 工具菜单 / 手机同步页里的入口都是无参表达式（统一清单，两端同源），
+   所以这里提供一组「作用于当前激活简历」的变体，内部再转发到带 id 的实现。 */
+function noActiveResumeTip(){
+  notifyUser('warn', '没有打开的简历', '先在左侧「我的简历」里选择或新建一份简历。');
+}
+function toggleActiveLock(){
+  if(!activeResumeId) return noActiveResumeTip();
+  return resumeToggleLock(activeResumeId);
+}
+function toggleActivePublic(){
+  if(!activeResumeId) return noActiveResumeTip();
+  return resumeTogglePublic(activeResumeId);
+}
+function copyActiveShareToken(){
+  if(!activeResumeId) return noActiveResumeTip();
+  return copyShareToken(activeResumeId);
+}
+/* 「从备份恢复」在工具菜单里无法传 file 参数：动态建一个隐藏 file input 再点它。
+   同一个文件连续导入两次也要生效 → change 里先清空 value。 */
+function pickLibraryBundle(){
+  let input = document.getElementById('libraryBundleFile');
+  if(!input){
+    input = document.createElement('input');
+    input.type = 'file';
+    input.id = 'libraryBundleFile';
+    input.accept = '.json,application/json';
+    input.style.display = 'none';
+    input.addEventListener('change', function(){
+      const f = input.files && input.files[0];
+      input.value = '';
+      if(f) importLibraryBundle(f);
+    });
+    document.body.appendChild(input);
+  }
+  input.click();
+}
+
+/* ============ N9 导出为个人官网 ============
+   产物是简历数据的**第五种渲染格式**：单个自包含 HTML（内联 CSS、零外部依赖），
+   双击可开、可直接丢 GitHub Pages / Vercel。渲染是纯函数，在 js/render/portfolio-html.js；
+   这里只负责「脱敏确认 → 生成 → 预览 / 下载 → 部署指引 + 附言」的接线。
+   ⚠️ 三条护栏：官网不替代 PDF、公开前默认脱敏、数字与公司名永远来自用户已录入数据。 */
+/* 脱敏偏好的持久化位置：localStorage（与主题 / 抽屉 / 侧栏等界面偏好一致）。
+   ⚠️ 刻意**不写** sync.config.json（技术设计方案 §5.4 的原始设想）：
+   sync.config.json 只有 npm start 起的本地服务能读写，而官网导出必须在
+   「双击打开的单文件 HTML」这种无服务端形态下也能用，写在那里等于单文件版永远记不住。 */
+const PF_PRIVACY_KEY = 'resume_portfolio_privacy_v1';
+const PF_DEFAULT_PRIVACY = { hideSensitive: true, maskEmail: false, embedFullResume: false };
+/* 生成后的产物暂存在内存里，供「预览 / 下载」两个按钮复用（不进 localStorage：正文太大） */
+let _pfResult = null;
+
+function pfEsc(s){
+  return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+/* 官网渲染模块：缺失时明确报错，不静默导出一个没有内容的「官网」 */
+function portfolioApi(){
+  const P = global.ResumePortfolio;
+  if(!P || typeof P.buildPortfolioHtml !== 'function'){
+    throw new Error('缺少 js/render/portfolio-html.js，无法导出个人官网');
+  }
+  return P;
+}
+function readPortfolioPrivacy(){
+  try{
+    const raw = localStorage.getItem(PF_PRIVACY_KEY);
+    if(!raw) return Object.assign({}, PF_DEFAULT_PRIVACY);
+    const o = JSON.parse(raw) || {};
+    return {
+      hideSensitive: o.hideSensitive !== false,
+      maskEmail: !!o.maskEmail,
+      embedFullResume: !!o.embedFullResume
+    };
+  }catch(e){ return Object.assign({}, PF_DEFAULT_PRIVACY); }
+}
+function writePortfolioPrivacy(p){
+  try{ localStorage.setItem(PF_PRIVACY_KEY, JSON.stringify({
+    hideSensitive: !!p.hideSensitive, maskEmail: !!p.maskEmail, embedFullResume: !!p.embedFullResume
+  })); }catch(e){ /* 存储不可用不影响本次导出 */ }
+}
+/* 表单（三个勾选项）↔ 隐私对象 */
+function readPortfolioForm(){
+  const on = function(id){ const el = document.getElementById(id); return !!(el && el.checked); };
+  return { hideSensitive: on('pfHideSensitive'), maskEmail: on('pfMaskEmail'), embedFullResume: on('pfEmbedFull') };
+}
+function applyPortfolioForm(p){
+  const set = function(id, v){ const el = document.getElementById(id); if(el) el.checked = !!v; };
+  set('pfHideSensitive', p.hideSensitive);
+  set('pfMaskEmail', p.maskEmail);
+  set('pfEmbedFull', p.embedFullResume);
+}
+/* 弹层两步切换 */
+function showPortfolioStep(step){
+  const c = document.getElementById('pfStepConfirm');
+  const d = document.getElementById('pfStepDone');
+  if(c) c.hidden = (step !== 'confirm');
+  if(d) d.hidden = (step !== 'done');
+}
+function openPortfolioModal(){ const m = document.getElementById('portfolioModal'); if(m) m.style.display = 'flex'; }
+function closePortfolioModal(){
+  const m = document.getElementById('portfolioModal'); if(m) m.style.display = 'none';
+  _pfResult = null;
+}
+/* 逐条列出「会上官网 / 不会上官网」——把脱敏结果摊开给用户核对，而不是只给一句「已脱敏」 */
+function refreshPortfolioPublicList(){
+  const el = document.getElementById('pfPublicList');
+  if(!el) return;
+  const P = global.ResumePortfolio;
+  if(!P || typeof P.redact !== 'function'){ el.innerHTML = '<span class="pf-empty-tip">官网渲染模块未加载。</span>'; return; }
+  const r = P.redact(data, readPortfolioForm());
+  const chips = function(arr){
+    return arr.map(function(x){ return '<code>' + pfEsc(x.text) + '</code>'; }).join(' ');
+  };
+  el.innerHTML =
+    '<div class="pf-pub-t">✓ 会上官网（公开可见）</div><div>'
+      + (r.published.length ? chips(r.published) : '<span class="pf-empty-tip">（没有联系方式会被公开）</span>') + '</div>'
+    + '<div class="pf-pub-t">✕ 不会上官网</div><div>'
+      + (r.hidden.length ? chips(r.hidden) : '<span class="pf-empty-tip">（没有需要隐藏的内容）</span>') + '</div>'
+    + (r.masked.length ? '<div class="pf-pub-t">↺ 已被占位替换</div><div>' + chips(r.masked) + '</div>' : '');
+}
+/* 入口：菜单「导出为个人官网」 → 先弹脱敏确认 */
+function exportPortfolioSite(){
+  try{ portfolioApi(); }
+  catch(e){ notifyUser('error', '导出失败', e.message); return; }
+  if(!data){ notifyUser('warn', '没有可导出的简历', '先新建或打开一份简历。'); return; }
+  applyPortfolioForm(readPortfolioPrivacy());
+  refreshPortfolioPublicList();
+  showPortfolioStep('confirm');
+  openPortfolioModal();
+}
+function pfTodayStr(){
+  try{
+    const d = new Date();
+    const p = function(n){ return (n < 10 ? '0' : '') + n; };
+    return d.getFullYear() + '-' + p(d.getMonth()+1) + '-' + p(d.getDate());
+  }catch(e){ return ''; }
+}
+/* 第二步：生成 HTML → 展示部署指引 + 附言；预览 / 下载复用产物 */
+function runPortfolioExport(){
+  let P;
+  try{ P = portfolioApi(); }
+  catch(e){ notifyUser('error', '导出失败', e.message); return; }
+  if(!data){ notifyUser('warn', '没有可导出的简历', '先新建或打开一份简历。'); return; }
+  const privacy = readPortfolioForm();
+  writePortfolioPrivacy(privacy);
+  const baseName = String(data.name || '').trim() || '我的';
+  const fileName = baseName + '-个人官网.html';
+  let html;
+  try{
+    html = P.buildPortfolioHtml({ data: data, privacy: privacy, generatedAt: pfTodayStr() });
+  }catch(e){
+    notifyUser('error', '生成失败', (e && e.message) || String(e));
+    return;
+  }
+  _pfResult = {
+    html: html, fileName: fileName, name: baseName, privacy: privacy,
+    /* 相对路径封面在单文件官网上会 404 —— 必须提示，而不是导出一个「有几张图裂了」的官网 */
+    relativeCovers: (typeof P.relativeCoverCount === 'function') ? P.relativeCoverCount(data) : 0
+  };
+  renderPortfolioDone();
+}
+function renderPortfolioDone(){
+  const box = document.getElementById('pfStepDone');
+  if(!box || !_pfResult) return;
+  const P = global.ResumePortfolio;
+  const st = _pfResult;
+  const notes = (P && typeof P.buildDeployNotes === 'function') ? P.buildDeployNotes(st.fileName) : '';
+  /* 附言里的链接留空：应用不知道用户最终部署到哪个域名，给占位符让他自己粘 */
+  const pitch = (P && typeof P.buildPitch === 'function') ? P.buildPitch(st.name, '') : '';
+  const warns = [];
+  if(st.relativeCovers){
+    warns.push('有 ' + st.relativeCovers + ' 张封面图用的是相对路径，部署时要连同图片一起上传，否则官网里会显示不出来。');
+  }
+  if(!st.privacy.hideSensitive){
+    warns.push('你取消了「隐藏手机号 / 住址 / 身份证 / 期望薪资」——这些内容会写进公开网页，请再确认一次。');
+  }
+  box.innerHTML =
+    '<h3>已生成：' + pfEsc(st.fileName) + '</h3>'
+    + '<p class="pf-ok">官网是<b>单个 HTML 文件</b>，可以直接双击打开；下载后拖到 Netlify / Vercel，'
+      + '或推到 GitHub 仓库开 Pages，就能拿到一个公开链接。</p>'
+    + warns.map(function(w){ return '<p class="pf-ok pf-warn">⚠️ ' + pfEsc(w) + '</p>'; }).join('')
+    + '<div class="pf-deploy">' + pfEsc(notes) + '</div>'
+    + '<label class="pf-label-sm" for="pfPitch">可复制到招聘软件的附言（把链接占位符换成你的官网地址）</label>'
+    + '<textarea class="pf-pitch" id="pfPitch" readonly>' + pfEsc(pitch) + '</textarea>'
+    + '<div class="pf-row">'
+    + '<button type="button" onclick="ResumeEditor.copyPortfolioPitch()">复制附言</button>'
+    + '<button type="button" onclick="ResumeEditor.previewPortfolio()">预览官网</button>'
+    + '<button type="button" class="primary" onclick="ResumeEditor.downloadPortfolio()">下载 HTML</button>'
+    + '</div>';
+  showPortfolioStep('done');
+}
+function pfBlob(){
+  if(!_pfResult) return null;
+  try{ return new Blob([_pfResult.html], { type: 'text/html;charset=utf-8' }); }
+  catch(e){ return null; }
+}
+/* 预览：复用统一的导出预览弹层（它在 DOM 里排在官网弹层之后，会盖在上面） */
+function previewPortfolio(){
+  if(!_pfResult) return;
+  const blob = pfBlob();
+  if(!blob){ notifyUser('error', '预览失败', '当前环境不支持 Blob'); return; }
+  const url = URL.createObjectURL(blob);
+  const show = global.ResumeExport && global.ResumeExport.showExportModal;
+  if(typeof show === 'function') show('html', blob, url, _pfResult.fileName, '个人官网预览');
+  else notifyUser('error', '预览失败', '导出预览模块未加载');
+}
+function downloadPortfolio(){
+  if(!_pfResult) return;
+  const blob = pfBlob();
+  if(!blob){ notifyUser('error', '下载失败', '当前环境不支持 Blob'); return; }
+  const dl = global.ResumeExport && global.ResumeExport.downloadBlob;
+  if(typeof dl === 'function'){ dl(blob, _pfResult.fileName); notifyUser('success', '已导出个人官网', _pfResult.fileName); return; }
+  notifyUser('error', '下载失败', '下载模块未加载');
+}
+async function copyPortfolioPitch(){
+  const ta = document.getElementById('pfPitch');
+  const text = ta ? ta.value : '';
+  if(!text) return;
+  const done = function(){ notifyUser('success', '附言已复制', '粘贴到招聘软件的沟通框即可（记得先替换链接占位符）。'); };
+  try{
+    if(global.navigator && global.navigator.clipboard && global.navigator.clipboard.writeText){
+      await global.navigator.clipboard.writeText(text);
+      done();
+      return;
+    }
+  }catch(e){ /* 剪贴板被拒 → 退回手动复制 */ }
+  window.prompt('附言（请手动复制）', text);
+}
+
 /* ============ 对外命名空间（集中挂载，避免污染全局 window） ============ */
 /* 仅 index.html 内联事件所需的函数，以及测试 / 调试用内部函数，暴露在此对象上；
    其余所有辅助函数 / 变量均为 IIFE 私有，不再泄漏到全局作用域。 */
@@ -1045,6 +1677,11 @@ global.ResumeEditor = {
   isEditableTarget: isEditableTarget,
   resetSpacing: resetSpacing,
   applyLayoutPreset: applyLayoutPreset,
+  applyTheme: applyTheme,
+  customizeThemeColor: customizeThemeColor,
+  resetThemeOverrides: resetThemeOverrides,
+  getActiveThemeId: getActiveThemeId,
+  getCurrentPalette: getCurrentPalette,
   resetMargins: resetMargins,
   closePdfModal: closePdfModal,
   downloadPDFNow: downloadPDFNow,
@@ -1062,6 +1699,31 @@ global.ResumeEditor = {
   resumeRename: resumeRename,
   resumeSetTags: resumeSetTags,
   resumeCloseTab: resumeCloseTab,
+  /* —— N3 分享与权限控制 —— */
+  resumeToggleLock: resumeToggleLock,
+  resumeTogglePublic: resumeTogglePublic,
+  setResumePublic: setResumePublic,
+  copyShareToken: copyShareToken,
+  resetShareToken: resetShareToken,
+  sharePageGuarded: sharePageGuarded,
+  exportLibraryBundle: exportLibraryBundle,
+  importLibraryBundle: importLibraryBundle,
+  removeAllResumes: removeAllResumes,
+  resumeUndoRemove: resumeUndoRemove,
+  toggleActiveLock: toggleActiveLock,
+  toggleActivePublic: toggleActivePublic,
+  copyActiveShareToken: copyActiveShareToken,
+  pickLibraryBundle: pickLibraryBundle,
+  // —— N9 导出为个人官网（菜单入口 + 确认弹层 + 预览 / 下载 / 复制附言）——
+  exportPortfolioSite: exportPortfolioSite,
+  runPortfolioExport: runPortfolioExport,
+  closePortfolioModal: closePortfolioModal,
+  refreshPortfolioPublicList: refreshPortfolioPublicList,
+  previewPortfolio: previewPortfolio,
+  downloadPortfolio: downloadPortfolio,
+  copyPortfolioPitch: copyPortfolioPitch,
+  syncLockState: syncLockState,
+  isActiveLocked: isActiveLocked,
   renderResumeDrawer: renderResumeDrawer,
   toggleResumeItemMenu: toggleResumeItemMenu,
   closeResumeItemMenu: closeResumeItemMenu,

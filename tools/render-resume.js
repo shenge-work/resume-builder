@@ -129,6 +129,8 @@ try {
   const override = `
   ${pageMarginRule}
   html,body{height:auto;overflow:visible;background:#e9e9e9;}
+  /* 打印时 html 背景也要重置：只重置 body 的话，简历内容结束后的剩余纸面会印成灰色 */
+  @media print{ html{background:#fff;} }
   body{padding:22px 0;font-family:"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Source Han Sans SC",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#1a1a1a;}
   .resume{margin:0 auto;}
   @media print{ body{background:#fff;padding:0;} .resume{box-shadow:none;} }

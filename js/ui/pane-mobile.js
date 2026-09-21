@@ -74,6 +74,11 @@ function setSidePanelOpen(panelId, open, persist){
     }
   }
   panel.classList.toggle('open', open);
+  /* N3：工具菜单里的「导出分享页」是否可用，取决于当前简历有没有开启分享（menu-actions
+     的 enabled 判定）。每次展开都重渲染一遍，避免按钮停在打开面板那一刻的旧快照。 */
+  if (open && panelId === 'toolsPanel' && global.ResumeMenu && typeof global.ResumeMenu.render === 'function') {
+    try { global.ResumeMenu.render(); } catch (e) {}
+  }
   syncSideRail();
   if (persist !== false) { try{ localStorage.setItem(SIDE_PANEL_KEY, open ? panelId : ''); }catch(e){} }
 }
@@ -97,6 +102,10 @@ function setMobileView(view){
     b.classList.toggle('active', b.getAttribute('data-mv') === view);
   });
   applyPreviewScale();   // 预览页从隐藏变为可见后重新等比缩放
+  /* N3：手机「同步 / 工具」页与桌面工具菜单同源，进入时同样刷新一次可用性状态 */
+  if (view === 'sync' && global.ResumeMenu && typeof global.ResumeMenu.render === 'function') {
+    try { global.ResumeMenu.render(); } catch (e) {}
+  }
   /* P3 返回键钩子：只在 preview ↔ 非 preview 之间切换时动 history，避免连点堆积 */
   try{
     if(mvHistoryLocked) return;

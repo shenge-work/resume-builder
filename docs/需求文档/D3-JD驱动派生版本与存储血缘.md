@@ -23,6 +23,7 @@ Resume Matcher 从「ATS 打分」转型「AI harness」，核心是**一份母�
 **JD 派生版本**（`js/jd-derive.js`）：
 
 - 纯函数 `buildDerivedPayload`（深拷贝 + 插「JD 定制待补」分组，不改入参）/ `fillGroupFor` / `suggestSentence` / `deriveTitle`；
+- `deriveTitle` 取名规则（2026-09-21 加固）：先剥离章节标签（任职要求/岗位职责/招聘…）、编号（`1、`/`①`）、句首年限、句尾「经验/优先」，按句末标点截到第一小句；再优先取「整行就像岗位名」的行，其次在条目里挑「短、不以动词开头、命中岗位词」的片段；过长时按「岗位 + 薪资 + （城市）」保留城市、丢掉年限与学历。取不到线索才回退首行截断 —— 避免生成「定制「任职要求：1、3年以上…」」这类名字。
 - `app.js` 的 `resumeDeriveFromJd` 走 `derive` 生成派生版，记 parentId/kind/jobId/jdText，激活新简历。
 
 **JD 持久化**：JD 原文从「只存 localStorage（换设备即丢）」升级为「随简历库持久化」——存 meta 而非 doc 顶层（`currentPayload()` 只返回 `{data,fonts,spacing,v,savedAt}`，存 doc 顶层会被下次 save 覆盖丢）。

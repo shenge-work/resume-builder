@@ -97,7 +97,8 @@
         return (b.appliedAt || 0) - (a.appliedAt || 0);
       }).map(function (r) {
         return '<tr data-id="' + esc(r.id) + '">' +
-          '<td class="tk-resume">' + esc(r.resumeTitle || '—') + '</td>' +
+          '<td class="tk-resume">' + (r.resumeTitle ? esc(r.resumeTitle) :
+            '<button type="button" class="tk-link" data-act="edit">未关联 · 点此关联</button>') + '</td>' +
           '<td>' + esc(r.company) + '</td>' +
           '<td>' + esc(r.position) + '</td>' +
           '<td>' + esc(r.channel || '') + '</td>' +
@@ -156,7 +157,7 @@
         STATUS_ORDER.map(function (k) { return '<option value="' + k + '">' + STATUS[k].label + '</option>'; }).join('') +
         '          </select>' +
         '        </label>' +
-        '        <label class="tk-field"><span>关联简历</span><input type="text" id="tkResume" placeholder="如 简历标题 · 目标岗位"></label>' +
+        '        <label class="tk-field"><span>关联简历</span><input type="text" id="tkResume" placeholder="如 简历标题 · 目标岗位"><span class="tk-hint">填写后，「简历版本」列即可一眼看出这份投递用了哪版简历</span></label>' +
         '        <label class="tk-field"><span>备注</span><textarea id="tkNote" rows="2" placeholder="可选"></textarea></label>' +
         '      </div>' +
         '      <div class="tk-modal-foot">' +

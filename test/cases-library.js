@@ -274,5 +274,97 @@ module.exports = [
         ctx.assert(L.getMeta(meta.id).kind === 'master', '非法 kind 归一化为 master');
       });
     }
+  },
+  /* ---------- N3 分享与权限控制：meta 白名单 + 删除撤销 ---------- */
+  {
+    name: 'N3：save / patchMeta 透传 isLocked / isPublic / shareToken',
+    fn: (ctx) => {
+      const L = ctx.ResumeLibrary;
+      let id = null;
+      const payload = { data: { name: 'x', contact: [], sections: [] } };
+      return L.create({ title: '权限测试', payload: payload }).then((meta) => {
+        id = meta.id;
+        /* 新建的简历默认既没锁定也没分享（字段缺省即 false） */
+        ctx.assert(!L.getMeta(id).isLocked, '新建默认未锁定');
+        ctx.assert(!L.getMeta(id).isPublic, '新建默认未分享');
+        return L.save(id, payload, { isLocked: true, isPublic: true, shareToken: 'tok_1' });
+      }).then(() => {
+        const m = L.getMeta(id);
+        ctx.assert(m.isLocked === true, 'save 透传 isLocked');
+        ctx.assert(m.isPublic === true, 'save 透传 isPublic');
+        ctx.assert(m.shareToken === 'tok_1', 'save 透传 shareToken');
+        /* 局部写场景：patchMeta 不应把没提到的字段清掉 */
+        return L.patchMeta(id, { isLocked: false });
+      }).then(() => {
+        const m = L.getMeta(id);
+        ctx.assert(m.isLocked === false, 'patchMeta 可解锁');
+        ctx.assert(m.isPublic === true, '⚠️ 未提及的字段不受影响（isPublic 保持 true）');
+        ctx.assert(m.shareToken === 'tok_1', '⚠️ 未提及的 shareToken 不被清掉');
+        return L.patchMeta(id, { shareToken: null });
+      }).then(() => {
+        ctx.assert(L.getMeta(id).shareToken === null, '关闭分享时 shareToken 可显式置空');
+      });
+    }
+  },
+  {
+    name: 'N3：删除进撤销栈，undoRemove 原样找回（含正文与 id）',
+    fn: (ctx) => {
+      const L = ctx.ResumeLibrary;
+      let id = null;
+      const payload = { data: { name: '被删的人', contact: [], sections: [{ id: 's1', type: 'custom', title: 'X' }] } };
+      return L.create({ title: '待删除', payload: payload }).then((meta) => {
+        id = meta.id;
+        return L.patchMeta(id, { isLocked: true, shareToken: 'tok_keep' });
+      }).then(() => {
+        L.beginRemoveBatch();
+        return L.remove(id);
+      }).then(() => L.list()).then((idx) => {
+        ctx.assert(idx.filter((m) => m.id === id).length === 0, '删除后索引里没有它');
+        const peek = L.peekRemoved();
+        ctx.assert(peek.length === 1 && peek[0].id === id, '撤销栈里留了它（peekRemoved）');
+        ctx.assert(peek[0].isLocked === true, '撤销栈里的 meta 保留锁定状态');
+        return L.undoRemove();
+      }).then((restored) => {
+        ctx.assert(restored.length === 1 && restored[0].id === id, 'undoRemove 复用**原 id**（血缘 / 同步分键都锚在 id 上）');
+        ctx.assert(restored[0].shareToken === 'tok_keep', '恢复后分享标识还在');
+        ctx.assert(L.peekRemoved().length === 0, '撤销后栈清空（不能重复撤销）');
+        return L.load(id);
+      }).then((doc) => {
+        ctx.assert(!!doc && doc.data && doc.data.name === '被删的人', '正文一并恢复（不是空壳）');
+        ctx.assert(doc.data.sections.length === 1, '正文里的板块也回来了');
+        return L.undoRemove();
+      }).then((again) => {
+        ctx.assert(again.length === 0, '没有可撤销内容时返回空数组（幂等）');
+      });
+    }
+  },
+  {
+    name: 'N3：beginRemoveBatch 清空上一批，整批删除可一次全部找回',
+    fn: (ctx) => {
+      const L = ctx.ResumeLibrary;
+      const payload = { data: { name: 'n', contact: [], sections: [] } };
+      const made = [];
+      /* ⚠️ 不假设库是空的：本文件前面的用例已经留下了简历。
+         断言一律用「相对变化」而不是绝对值，否则用例顺序一变就假红。 */
+      return L.create({ title: 'N3批A', payload: payload })
+        .then((m) => { made.push(m.id); return L.create({ title: 'N3批B', payload: payload }); })
+        .then((m) => { made.push(m.id); return L.list().then((idx) => idx.length); })
+        .then((before) => {
+          ctx.assert(before >= 2, '库里至少有刚造的这 2 份');
+          L.beginRemoveBatch();
+          return Promise.all(made.map((id) => L.remove(id))).then(() => before);
+        })
+        .then((before) => L.list().then((idx) => {
+          ctx.assert(idx.length === before - 2, '整批删除后总数正好 -2');
+          ctx.assert(idx.filter((m) => made.indexOf(m.id) >= 0).length === 0, '这 2 份已不在列表里');
+          ctx.assert(L.peekRemoved().length === 2, '撤销栈含整批 2 份');
+          return L.undoRemove();
+        }))
+        .then((restored) => {
+          ctx.assert(restored.length === 2, '整批一次全部找回（不必逐份撤）');
+          L.beginRemoveBatch();
+          ctx.assert(L.peekRemoved().length === 0, '⚠️ 开新批次即清空上一批（撤回不会连带复活更早的删除）');
+        });
+    }
   }
 ];

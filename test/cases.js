@@ -172,3 +172,62 @@ const secHtml = `<section class="section${car0.pageBreak ? ' page-break-before' 
 E('career 渲染时挂上 page-break-before class', secHtml.includes('page-break-before'));
 const advHtml = `<section class="section${adv0.pageBreak ? ' page-break-before' : ''}">…</section>`;
 E('advantages 默认不带 page-break-before', !advHtml.includes('page-break-before'));
+
+/* ===== N1 主题模板系统（F1/F2/F3/F5/F6）===== */
+E('ResumeThemeTemplates 已加载', !!ResumeThemeTemplates);
+E('内置主题数量 = 5', ResumeThemeTemplates.allThemes().length === 5);
+E('默认主题为 classic', ResumeThemeTemplates.defaultThemeId() === 'classic');
+
+/* 应用 modern 主题：字号 / 间距 / 纸张随之变化，且经 API 可读 */
+data = { name:'主题测试', subtitle:'', subtitleBold:false, meta:'', metaBold:false, contact:[], sections:[], theme:{ id:'classic', overrides:{} } };
+applyTheme('modern');
+E('applyTheme 后当前主题 = modern', getActiveThemeId() === 'modern');
+E('applyTheme(moden) 改姓名字号', currentFonts.name.val === 32);
+E('applyTheme(moden) 改页面边距', JSON.stringify(data.pageMargins) === JSON.stringify({ top:16, right:16, bottom:16, left:16 }));
+
+/* 颜色微调写进 overrides，且当前调色板包含该色 */
+customizeThemeColor('rule', '#ff0000');
+E('customizeThemeColor 写 overrides.color.rule', getCurrentPalette().rule === '#ff0000');
+
+/* 重置微调回到主题出厂外观 */
+resetThemeOverrides();
+E('resetThemeOverrides 清除颜色微调', getCurrentPalette().rule !== '#ff0000');
+
+/* 默认主题（classic）无颜色微调时调色板为 null（交给样式表 / 夜间纸张，保证默认一致） */
+data.theme = { id:'classic', overrides:{} };
+E('classic 无微调时 resolvePalette 为 null', ResumeThemeTemplates.resolvePalette(data) === null);
+
+/* 逐节标题显隐（F6）：headingVisible=false 时渲染省略 section-title，true 时正常渲染 */
+const hv = blankSection('advantages'); hv.headingVisible = false; hv.title = 'HDR_X';
+data.sections = [hv];
+E('headingVisible=false 省略标题渲染', ResumeRender.renderResumeInner().indexOf('HDR_X') === -1);
+hv.headingVisible = true;
+E('headingVisible=true 渲染标题', ResumeRender.renderResumeInner().indexOf('HDR_X') !== -1);
+
+/* 自定义板块（F5）：渲染出 custom-body 且内容可见 */
+const cs = ResumeEditorSchema.createSection('custom');
+cs.title = '自定'; cs.html = '自定义内容 **加粗**';
+data.sections = [cs];
+const csHtml = ResumeRender.renderResumeInner();
+E('custom 板块渲染出 custom-body', csHtml.indexOf('custom-body') !== -1);
+E('custom 板块内容含文本', csHtml.indexOf('自定义内容') !== -1);
+
+/* 恢复默认主题与数据，避免污染后续用例 */
+applyTheme('classic');
+data = { name:'', subtitle:'', subtitleBold:false, meta:'', metaBold:false, contact:[], sections:[] };
+
+/* N5：缩略图渲染（buildResumeHtml）按 payload 渲染，不改写全局、空简历返回空串 */
+(function () {
+  const sample = {
+    data: { name:'缩略图测试', subtitle:'S', contact:[],
+      sections: [{ id:'s1', type:'advantages', title:'优势', items:[{ label:'L', text:'内容' }] }] },
+    fonts: {}, spacing: {}
+  };
+  const html = ResumeRender.buildResumeHtml(sample);
+  E('buildResumeHtml 返回 .resume 包裹', /class="resume"/.test(html));
+  E('buildResumeHtml 含姓名', html.indexOf('缩略图测试') !== -1);
+  E('buildResumeHtml 含板块标题', html.indexOf('优势') !== -1);
+  E('buildResumeHtml 空 sections 返回空串', ResumeRender.buildResumeHtml({ data:{ name:'x', sections:[] }, fonts:{}, spacing:{} }) === '');
+  /* 临时交换全局 data 后必须恢复：调用前 data 是上面的空对象，调用后仍是它 */
+  E('buildResumeHtml 不改写全局 data', data && data.sections && data.sections.length === 0);
+})();

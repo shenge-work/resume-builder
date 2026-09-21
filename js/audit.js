@@ -75,6 +75,24 @@
           push(T(pr.desc), st, 'projects', 'desc');
           (pr.results || []).forEach(r => push(T(r), st, 'projects', 'results'));
         });
+      } else if (type === 'kpi-band') {
+        /* N9 官网板块：漏了会被误判成空板块，且「量化成果」统计会少算一批硬数字 */
+        (sec.items || []).forEach(it => {
+          if (!it) return;
+          push(T(it.value), st, 'kpi', 'value');
+          push(T(it.label), st, 'kpi', 'label');
+        });
+      } else if (type === 'project-cards') {
+        (sec.cards || []).forEach(c => {
+          if (!c) return;
+          push(T(c.name), st, 'card', 'name');
+          push(T(c.desc), st, 'card', 'desc');
+          push(T(c.stack), st, 'card', 'stack');
+          push(T(c.before), st, 'card', 'before');
+          push(T(c.after), st, 'card', 'after');
+          push(T(c.approach), st, 'card', 'approach');
+          (c.metrics || []).forEach(m => push(T(m), st, 'card', 'metrics'));
+        });
       } else if (type === 'highlights') {
         (sec.cards || []).forEach(c => push(T(c), st, 'highlights', 'cards'));
         (sec.tags || []).forEach(x => push(T(x), st, 'highlights', 'tags'));
@@ -156,6 +174,10 @@
     if (type === 'projects') return (sec.items || []).map(p => p && [trim(T(p.name)), trim(T(p.stack)), trim(T(p.desc)), (p.results || []).map(r => trim(T(r))).join('')].join('')).join('');
     if (type === 'highlights') return (sec.cards || []).map(c => trim(T(c))).join('') + (sec.tags || []).map(t => trim(T(t))).join('');
     if (type === 'growth') return (sec.phases || []).map(p => p && [trim(p.label), trim(T(p.date)), trim(T(p.title)), trim(T(p.desc))].join('')).join('');
+    /* N9 官网板块：必须计入内容，否则「空板块」体检会把填了数据的官网板块误报为空的 */
+    if (type === 'kpi-band') return (sec.items || []).map(i => i && (trim(T(i.value)) + trim(T(i.label)))).join('');
+    if (type === 'project-cards') return (sec.cards || []).map(c => c && [trim(T(c.name)), trim(T(c.desc)), trim(T(c.stack)),
+      (c.metrics || []).map(m => trim(T(m))).join(''), trim(T(c.before)), trim(T(c.after)), trim(T(c.approach))].join('')).join('');
     return (sec.items || []).map(i => trim(T(i))).join('');
   }
 

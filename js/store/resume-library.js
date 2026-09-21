@@ -29,6 +29,7 @@
   var _index = null;      // [{id,title,source,docId,updatedAt,tags,lastHash,...}] 缓存
   var _activeId = null;   // 当前激活简历 id
   var _backendSet = false;
+  var _removedStash = []; // N3-F5 删除撤销栈（会话级）：[{meta, doc}]，undoRemove() 原样写回
 
   function genId() {
     return 'res_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -171,9 +172,36 @@
     // 换后端后内存态作废（下次操作重新从新后端读）
     _index = null;
     _activeId = null;
+    _removedStash = [];   // 撤销栈锚在旧后端的文档上，换后端即作废
     // 外部注入后端（原生壳就绪）后，http→localStorage 降级标记作废
     _lsFallback = null;
     return true;
+  }
+
+  /* ============ meta 白名单透传（save / patchMeta 共用一份） ============
+     ⚠️ 新增 meta 字段**只在这里加一行**：此前 save() 与 patchMeta() 各抄一份，
+     两处必然漂移（历史上飞书同步字段就漏过一处）。N3 的 isPublic / isLocked /
+     shareToken 一并走这里，保证「写入路径 → 索引 → 备份」全程一致。 */
+  var META_PASSTHROUGH = {
+    lastHash: function (v) { return v; },
+    lastPushedHash: function (v) { return v; },
+    lastRemoteFp: function (v) { return v; },
+    skipNextPull: function (v) { return !!v; },
+    lastPushNotifyAt: function (v) { return v; },
+    parentId: function (v) { return v; },
+    kind: function (v) { return v === 'derived' ? 'derived' : 'master'; },
+    jobId: function (v) { return v; },
+    jdText: function (v) { return String(v); },
+    /* N3 分享与权限 */
+    isPublic: function (v) { return !!v; },
+    isLocked: function (v) { return !!v; },
+    shareToken: function (v) { return v == null ? null : String(v); }
+  };
+  function applyMetaFields(m, meta) {
+    if (!m || !meta || typeof meta !== 'object') return;
+    Object.keys(META_PASSTHROUGH).forEach(function (k) {
+      if (meta[k] !== undefined) m[k] = META_PASSTHROUGH[k](meta[k]);
+    });
   }
 
   /* ============ 索引 / 激活态读写 ============ */
@@ -272,37 +300,20 @@
         var m = _index.filter(function (x) { return x.id === id; })[0];
         if (m) {
           if (meta && meta.title) m.title = meta.title;
-          if (meta && typeof meta === 'object') {
-            if (meta.lastHash !== undefined) m.lastHash = meta.lastHash;
-            if (meta.lastPushedHash !== undefined) m.lastPushedHash = meta.lastPushedHash;
-            if (meta.lastRemoteFp !== undefined) m.lastRemoteFp = meta.lastRemoteFp;
-            if (meta.skipNextPull !== undefined) m.skipNextPull = !!meta.skipNextPull;
-            if (meta.lastPushNotifyAt !== undefined) m.lastPushNotifyAt = meta.lastPushNotifyAt;
-            if (meta.parentId !== undefined) m.parentId = meta.parentId;
-            if (meta.kind !== undefined) m.kind = meta.kind === 'derived' ? 'derived' : 'master';
-            if (meta.jobId !== undefined) m.jobId = meta.jobId;
-            if (meta.jdText !== undefined) m.jdText = String(meta.jdText);
-          }
+          applyMetaFields(m, meta);
           m.updatedAt = Date.now();
         }
         return detectBackend().saveDoc(id, payload).then(function () { return writeIndex(); });
       });
     },
 
-    /* 局部更新某份简历的同步/指纹/血缘元数据（不动正文、不动 updatedAt） */
+    /* 局部更新某份简历的同步/指纹/血缘/权限元数据（不动正文、不动 updatedAt）。
+       字段白名单与 save() 同源（META_PASSTHROUGH）。 */
     patchMeta: function (id, meta) {
       return readIndex().then(function () {
         var m = _index.filter(function (x) { return x.id === id; })[0];
-        if (!m || !meta || typeof meta !== 'object') return;
-        if (meta.lastHash !== undefined) m.lastHash = meta.lastHash;
-        if (meta.lastPushedHash !== undefined) m.lastPushedHash = meta.lastPushedHash;
-        if (meta.lastRemoteFp !== undefined) m.lastRemoteFp = meta.lastRemoteFp;
-        if (meta.skipNextPull !== undefined) m.skipNextPull = !!meta.skipNextPull;
-        if (meta.lastPushNotifyAt !== undefined) m.lastPushNotifyAt = meta.lastPushNotifyAt;
-        if (meta.parentId !== undefined) m.parentId = meta.parentId;
-        if (meta.kind !== undefined) m.kind = meta.kind === 'derived' ? 'derived' : 'master';
-        if (meta.jobId !== undefined) m.jobId = meta.jobId;
-        if (meta.jdText !== undefined) m.jdText = String(meta.jdText);
+        if (!m) return;
+        applyMetaFields(m, meta);
         return writeIndex();
       });
     },
@@ -376,13 +387,55 @@
       });
     },
 
-    /* 删除（若删的是激活简历，激活态清空；正文文件一并删除） */
+    /* 删除（若删的是激活简历，激活态清空；正文文件一并删除）。
+       N3-F5：删除前把 {meta, doc} 暂存进会话级「撤销栈」，供 undoRemove() 撤回误删。
+       ⚠️ 只放内存、不放 localStorage —— 正文可能很大，塞浏览器存储随时会撞配额。 */
     remove: function (id) {
       return readIndex().then(function () {
-        _index = _index.filter(function (x) { return x.id !== id; });
-        if (_activeId === id) _activeId = null;
-        return detectBackend().removeDoc(id).catch(function () { /* 文档不存在也无妨 */ })
-          .then(function () { return writeIndex(); });
+        var m = _index.filter(function (x) { return x.id === id; })[0];
+        return detectBackend().loadDoc(id).catch(function () { return null; }).then(function (doc) {
+          if (m) {
+            try { _removedStash.push({ meta: JSON.parse(JSON.stringify(m)), doc: doc || null }); }
+            catch (e) { _removedStash.push({ meta: m, doc: doc || null }); }
+          }
+          _index = _index.filter(function (x) { return x.id !== id; });
+          if (_activeId === id) _activeId = null;
+          return detectBackend().removeDoc(id).catch(function () { /* 文档不存在也无妨 */ })
+            .then(function () { return writeIndex(); });
+        });
+      });
+    },
+
+    /* 开始一批删除（单份删除 / 全部删除都先调它）：清掉上一批的撤销栈，
+       避免「撤回」把更早那一次删除也一起复活。 */
+    beginRemoveBatch: function () { _removedStash = []; },
+
+    /* 本批已删但仍在撤销栈里的简历元数据（供 UI 拼「已删除「X」· 撤销」文案） */
+    peekRemoved: function () {
+      return _removedStash.map(function (it) { return JSON.parse(JSON.stringify(it.meta)); });
+    },
+
+    /* 撤销最近一批删除：把栈里的简历（含正文）原样写回，返回恢复的元数据数组。
+       ⚠️ 复用原 id —— 血缘（parentId/派生版）、飞书 file_token 分键都锚在 id 上，
+       换 id 会让派生版变成孤儿、同步重新拉一份。 */
+    undoRemove: function () {
+      var stash = _removedStash;
+      if (!stash.length) return Promise.resolve([]);
+      _removedStash = [];
+      return readIndex().then(function () {
+        var restored = [];
+        var chain = Promise.resolve();
+        stash.forEach(function (item) {
+          var meta = JSON.parse(JSON.stringify(item.meta));
+          if (_index.filter(function (x) { return x.id === meta.id; })[0]) return;  // 同 id 已回来（不该发生）→ 跳过
+          _index.push(meta);
+          restored.push(meta);
+          chain = chain.then(function () {
+            if (!item.doc) return null;
+            return detectBackend().saveDoc(meta.id, item.doc);
+          });
+        });
+        return chain.then(function () { return writeIndex(); }).then(function () { return restored; });
       });
     },
 
@@ -423,8 +476,9 @@
       detectBackend: detectBackend,
       /* 清掉已定型的后端与降级锁，让下一次调用按当前环境重新探测。
          测试用：先让后端定型，再换上一个「必然失败的 fetch」来验证降级通知是否真的发出。 */
-      _resetBackend: function () { _backend = null; _lsFallback = null; },
-      _index: function () { return _index; }
+      _resetBackend: function () { _backend = null; _lsFallback = null; _removedStash = []; },
+      _index: function () { return _index; },
+      _removedStash: function () { return _removedStash; }
     }
   };
 

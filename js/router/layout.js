@@ -22,14 +22,6 @@
     '    <span class="rail-icon" aria-hidden="true">▦</span>' +
     '    <span class="rail-label">简历库</span>' +
     '  </button>' +
-    '  <button type="button" class="rail-item" data-nav="/editor" title="编辑器">' +
-    '    <span class="rail-icon" aria-hidden="true">✎</span>' +
-    '    <span class="rail-label">编辑器</span>' +
-    '  </button>' +
-    '  <button type="button" class="rail-item" data-nav="/templates" title="排版预设">' +
-    '    <span class="rail-icon" aria-hidden="true">▤</span>' +
-    '    <span class="rail-label">模板</span>' +
-    '  </button>' +
     '  <button type="button" class="rail-item" data-nav="/tracker" title="投递追踪">' +
     '    <span class="rail-icon" aria-hidden="true">☰</span>' +
     '    <span class="rail-label">投递</span>' +
@@ -74,16 +66,6 @@
       var btn = e.target.closest ? e.target.closest('[data-nav]') : null;
       if (!btn) return;
       var target = btn.getAttribute('data-nav') || '/';
-      if (target === '/editor') {
-        // 跳到当前激活简历；拿不到 id 就用 /editor（editor-view 会保持现状）
-        var id = null;
-        try {
-          if (global.ResumeEditor && typeof global.ResumeEditor.getActiveResumeId === 'function') {
-            id = global.ResumeEditor.getActiveResumeId();
-          }
-        } catch (e) { /* 忽略 */ }
-        target = id ? '/editor/' + id : '/editor';
-      }
       global.ResumeRouter.navigate(target);
     });
   }

@@ -46,6 +46,17 @@
     return (meta && Array.isArray(meta.tags)) ? meta.tags : [];
   }
 
+  /* N3：锁定 / 分享状态（ResumeShare 缺席时一律视为未锁定、未分享，不影响老环境） */
+  function shareApi() { try { return global.ResumeShare || null; } catch (e) { return null; } }
+  function isLockedMeta(meta) { var S = shareApi(); return !!(S && S.isLocked(meta)); }
+  function isPublicMeta(meta) { var S = shareApi(); return !!(S && S.isPublic(meta)); }
+  function metaBadges(meta) {
+    var out = '';
+    if (isLockedMeta(meta)) out += '<em class="lib-badge is-lock" aria-label="已锁定">🔒</em>';
+    if (isPublicMeta(meta)) out += '<em class="lib-badge is-public" aria-label="已开启分享">🌐 分享中</em>';
+    return out;
+  }
+
   function tagChips(tags) {
     if (!tags || !tags.length) return '';
     return '<div class="lib-card-tags">' + tags.map(function (t) {
@@ -58,6 +69,7 @@
     listCache: [],
     menuEl: null,
     activeTag: null,
+    thumbCache: {},   // N5：id|updatedAt -> 缩略图 HTML（内存缓存，内容变化即失效）
 
     onEnter: function () {
       if (!this.root) this.root = global.ResumeLayout.getViewRoot();
@@ -92,6 +104,9 @@
         '  <div class="lib-header">' +
         '    <h1 class="lib-title">简历库</h1>' +
         '    <div class="lib-actions">' +
+        '      <button type="button" class="lib-btn" id="libBackupBtn" title="把库里全部简历（含标签 / 血缘 / 分享与锁定状态）导出成一个 JSON 备份">备份全部</button>' +
+        '      <button type="button" class="lib-btn" id="libRestoreBtn" title="从整库 JSON 备份导入（新增，不覆盖现有简历）">恢复备份</button>' +
+        '      <button type="button" class="lib-btn danger" id="libClearBtn" title="删除全部简历：两次确认，删除后 10 秒内可撤销">清空全部</button>' +
         '      <button type="button" class="lib-btn" id="libImportBtn">导入</button>' +
         '      <button type="button" class="lib-btn primary" id="libNewBtn">＋ 新建简历</button>' +
         '    </div>' +
@@ -109,6 +124,18 @@
       });
       root.querySelector('#libImportFile').addEventListener('change', function (e) {
         self.handleImport(e);
+      });
+      /* N3：整库备份 / 恢复 / 清空 —— 都转发给 app.js 的实现（那里有二次确认与撤销条） */
+      root.querySelector('#libBackupBtn').addEventListener('click', function () {
+        if (global.ResumeEditor && typeof global.ResumeEditor.exportLibraryBundle === 'function') global.ResumeEditor.exportLibraryBundle();
+      });
+      root.querySelector('#libRestoreBtn').addEventListener('click', function () {
+        if (global.ResumeEditor && typeof global.ResumeEditor.pickLibraryBundle === 'function') global.ResumeEditor.pickLibraryBundle();
+      });
+      root.querySelector('#libClearBtn').addEventListener('click', function () {
+        if (global.ResumeEditor && typeof global.ResumeEditor.removeAllResumes === 'function') {
+          Promise.resolve(global.ResumeEditor.removeAllResumes()).then(function () { self.refresh(); });
+        }
       });
       root.addEventListener('click', function (e) {
         if (!e.target.closest('.lib-card-menu') && !e.target.closest('.lib-menu')) {
@@ -187,18 +214,34 @@
       }
 
       var html = items.map(function (meta) {
+        var derived = meta.kind === 'derived';
+        var locked = isLockedMeta(meta);
+        var title = String(meta.title == null ? '' : meta.title);
         return '' +
-          '<div class="lib-card" data-id="' + esc(meta.id) + '">' +
-          '  <div class="lib-card-thumb">' + esc(thumbChar(meta.title)) + '</div>' +
+          '<div class="lib-card' + (derived ? ' is-derived' : '') + (locked ? ' is-locked' : '') + '"' +
+              ' data-id="' + esc(meta.id) + '" data-full-title="' + esc(title) + '">' +
+          '  <div class="lib-card-thumb resume-thumb" data-thumb-id="' + esc(meta.id) + '"></div>' +
           '  <div class="lib-card-body">' +
-          '    <div class="lib-card-title" title="' + esc(meta.title) + '">' + esc(meta.title) + '</div>' +
-          '    <div class="lib-card-meta">更新 ' + relTime(meta.updatedAt) + ' · ' + sourceBadge(meta) + '</div>' +
+          /* 名称最多两行（CSS line-clamp）；仍放不下时由 markClippedTitles() 加 is-clipped，
+             hover 触发 CSS 气泡显示 data-full-title 里的完整名称 */
+          '    <div class="lib-card-title">' + esc(title) + '</div>' +
+          /* 徽标统一放 meta 行：标题区要完整留给名称本身（派生名普遍很长）；
+              「定制」角标由 CSS 画在缩略图上，不占正文宽度 */
+          '    <div class="lib-card-meta">更新 ' + relTime(meta.updatedAt) + ' · ' + sourceBadge(meta) + metaBadges(meta) + '</div>' +
           tagChips(tagsOf(meta)) +
           '  </div>' +
           '  <button type="button" class="lib-card-menu" aria-label="菜单">⋯</button>' +
           '</div>';
       }).join('');
       grid.innerHTML = html;
+      this.renderThumbs(grid);
+      this.markClippedTitles(grid);
+      /* 布局 / 字体度量稳定后复核一次：确实放不下的卡片才挂悬浮气泡，放得下的保持干净 */
+      if (typeof requestAnimationFrame === 'function') {
+        requestAnimationFrame(function () {
+          if (grid.isConnected) self.markClippedTitles(grid);
+        });
+      }
 
       grid.querySelectorAll('.lib-card').forEach(function (card) {
         card.addEventListener('click', function (e) {
@@ -217,15 +260,64 @@
       });
     },
 
+    /* 名称两行仍被截断的卡片 → 加 is-clipped，hover 时用 CSS 气泡显示完整名称。
+       判定方式是实测：line-clamp 生效时内容高度会超出可见高度。 */
+    markClippedTitles: function (grid) {
+      if (!grid) return;
+      var cards = grid.querySelectorAll('.lib-card');
+      Array.prototype.forEach.call(cards, function (card) {
+        var el = card.querySelector('.lib-card-title');
+        if (!el) return;
+        var clipped = (el.scrollHeight > el.clientHeight + 1) || (el.scrollWidth > el.clientWidth + 1);
+        if (clipped) card.classList.add('is-clipped');
+        else card.classList.remove('is-clipped');
+      });
+    },
+
+    renderThumbs: function (grid) {
+      var self = this;
+      if (!grid) return;
+      var nodes = grid.querySelectorAll('.lib-card-thumb[data-thumb-id]');
+      Array.prototype.forEach.call(nodes, function (el) {
+        var id = el.getAttribute('data-thumb-id');
+        var meta = self.listCache.filter(function (m) { return m.id === id; })[0];
+        if (!meta) return;
+        var key = id + '|' + (meta.updatedAt || 0);
+        /* 命中缓存（内容未变）→ 直接回填，零异步 */
+        if (self.thumbCache[key]) { el.innerHTML = self.thumbCache[key]; el.classList.remove('is-empty'); return; }
+        el.classList.add('is-empty');
+        if (!global.ResumeRender || typeof global.ResumeRender.buildResumeHtml !== 'function') return;
+        if (!global.ResumeLibrary || typeof global.ResumeLibrary.load !== 'function') return;
+        global.ResumeLibrary.load(id).then(function (payload) {
+          /* 元素可能已被重渲染（re-render / 筛选切换 / 离开页面）→ 仅当它仍连在本文档才回填 */
+          if (!el.isConnected) return;
+          var html = global.ResumeRender.buildResumeHtml(payload);
+          if (!html) { el.classList.add('is-empty'); return; }
+          self.thumbCache[key] = html;
+          el.classList.remove('is-empty');
+          el.innerHTML = html;
+        }).catch(function () { el.classList.add('is-empty'); });
+      });
+    },
+
     openMenu: function (anchor, id) {
       var self = this;
       this.closeMenu();
+
+      var meta = this.listCache.filter(function (m) { return m.id === id; })[0] || {};
+      var S = shareApi();
+      var locked = isLockedMeta(meta);
+      var pub = isPublicMeta(meta);
+      var hasToken = !!(S && S.tokenOf(meta));
 
       var menu = document.createElement('div');
       menu.className = 'lib-menu';
       menu.innerHTML =
         '<button type="button" data-act="rename">重命名</button>' +
         '<button type="button" data-act="tags">🏷 编辑标签</button>' +
+        '<button type="button" data-act="lock">' + (locked ? '解锁编辑' : '🔒 锁定防误改') + '</button>' +
+        '<button type="button" data-act="public">' + (pub ? '关闭分享' : '开启分享') + '</button>' +
+        (pub && hasToken ? '<button type="button" data-act="token">复制分享标识</button>' : '') +
         '<button type="button" data-act="duplicate">复制一份</button>' +
         '<button type="button" data-act="remove" class="danger">删除</button>';
       menu.style.position = 'absolute';
@@ -240,6 +332,9 @@
         self.closeMenu();
         if (act === 'rename') self.handleRename(id);
         else if (act === 'tags') self.handleSetTags(id);
+        else if (act === 'lock') self.handleToggleLock(id);
+        else if (act === 'public') self.handleTogglePublic(id);
+        else if (act === 'token') self.handleCopyToken(id);
         else if (act === 'duplicate') self.handleDuplicate(id);
         else if (act === 'remove') self.handleRemove(id);
       });
@@ -301,6 +396,30 @@
         Promise.resolve(global.ResumeEditor.resumeDuplicate(id)).then(function (meta) {
           self.refresh();
         });
+      }
+    },
+
+    /* N3-F1 锁定 / 解锁 */
+    handleToggleLock: function (id) {
+      var self = this;
+      if (global.ResumeEditor && typeof global.ResumeEditor.resumeToggleLock === 'function') {
+        Promise.resolve(global.ResumeEditor.resumeToggleLock(id)).then(function () { self.refresh(); });
+      }
+    },
+
+    /* N3-F2 开启 / 关闭分享 */
+    handleTogglePublic: function (id) {
+      var self = this;
+      if (global.ResumeEditor && typeof global.ResumeEditor.resumeTogglePublic === 'function') {
+        Promise.resolve(global.ResumeEditor.resumeTogglePublic(id)).then(function () { self.refresh(); });
+      }
+    },
+
+    /* N3-F3 复制分享标识 */
+    handleCopyToken: function (id) {
+      var self = this;
+      if (global.ResumeEditor && typeof global.ResumeEditor.copyShareToken === 'function') {
+        Promise.resolve(global.ResumeEditor.copyShareToken(id)).then(function () { self.refresh(); });
       }
     },
 

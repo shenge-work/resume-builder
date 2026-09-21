@@ -91,15 +91,109 @@
     return out;
   }
 
-  /* ---------- 派生标题：取 JD 关键词 / 岗位名做标题，便于回溯 ---------- */
+  /* ---------- 派生标题：取 JD 里的「岗位名」做标题，便于回溯 ----------
+     真实 JD 有两种「首行不能直接当名字」的常见形态：
+       ① 整段粘成一行 / 首行是章节标签 + 编号条目：
+          「任职要求：1、3年以上AI产品经理经验，熟悉大模型应用；2、具备Python…」
+       ② 首行是「岗位 + 薪资 + 城市 + 年限」长串：
+          「全栈开发工程师 20-35K·13薪（杭州·3-5年·本科）。核心职责：1、…」
+     所以：先去章节标签 / 编号 / 年限 / 句末标点，再优先取「像岗位名」的片段，
+     实在取不到才回退到首行截断（老行为），避免生成「定制「任职要求：1、3年以上…」」这类名字。 */
+  var TITLE_MAX = 20;
+  var NOISE_LABEL = /^(岗位职责|职位描述|工作职责|职责描述|任职要求|任职资格|任职条件|岗位要求|职位要求|工作要求|招聘|诚聘|急聘|招募|我们希望你|你需要|你将负责|工作内容|技能要求|加分项|其他要求|福利待遇|薪资福利|团队介绍|关于我们|公司介绍|Job Description|Responsibilities|Requirements|Qualifications)\s*[：:]\s*/i;
+  var ENUM_HEAD = /^(?:[（(]\s*\d+\s*[)）]|\d+\s*[、.．)）]|[①-⑳]|[-•·*])\s*/;
+  var DUR_HEAD = /^\d+\s*年(?:以上|以内|及以上|以上工作经验|以上经验|经验)?(?:相关)?/;
+  var TAIL_NOISE = /(?:相关)?(?:工作)?(?:经验|优先|者优先|背景)$/;
+  var ROLE_WORD = /(工程师|开发|前端|后端|全栈|客户端|服务端|测试|运维|算法|架构师|产品经理|产品|运营|设计师?|分析师?|数据分析|项目经理|主管|经理|总监|专员|顾问|实习生|研究员|科学家|销售|市场|品牌|商务|财务|人事|法务|采购|供应链|客户成功|增长|培训师?|教师|Engineer|Developer|Manager|Designer|Analyst|Architect|Intern|Specialist|Consultant|Director|Lead|PM|SRE|DevOps)/i;
+  var VERB_HEAD = /^(负责|熟悉|具备|掌握|精通|了解|参与|能够|能|有|具有|要求|需要|从事|完成|推动|落地|协助)/;
+  var CLAUSE_SEP = /[，,；;、]/;
+  var SENT_END = /[。；;!！?？]/;
+
+  /* 反复剥离章节标签与编号（两者会交替出现：「岗位职责：1、…」） */
+  function stripNoise(s) {
+    var out = String(s == null ? '' : s).trim();
+    for (var i = 0; i < 6; i++) {
+      var before = out;
+      out = out.replace(NOISE_LABEL, '').replace(ENUM_HEAD, '').trim();
+      if (out === before) break;
+    }
+    return out;
+  }
+
+  /* 去掉句首年限、句尾「经验/优先」等噪声与残留标点 */
+  function tidyPhrase(s) {
+    var out = String(s == null ? '' : s).replace(DUR_HEAD, '').trim();
+    for (var i = 0; i < 4; i++) {
+      var before = out;
+      out = out.replace(TAIL_NOISE, '').replace(/[、，,；;：:。．.]+$/, '').trim();
+      if (out === before) break;
+    }
+    return out;
+  }
+
+  /* 首行里真正可用的那一小句：去噪声 → 截到第一个句末标点 */
+  function firstClause(line) {
+    return tidyPhrase(stripNoise(line).split(SENT_END)[0]);
+  }
+
+  /* 「像岗位名」＝ 短、无子句分隔、不以动词开头、命中岗位词 */
+  function isTitleLike(s) {
+    if (!s || s.length > 40) return false;
+    if (CLAUSE_SEP.test(s) || VERB_HEAD.test(s)) return false;
+    return ROLE_WORD.test(s);
+  }
+
+  /* 过长时优先按「岗位 + 薪资 + （城市）」切，其次才硬截断 */
+  function shortenClue(s) {
+    if (s.length <= TITLE_MAX) return s;
+    var i = s.indexOf('（');
+    if (i > 0) {
+      var head = s.slice(0, i).trim();
+      var inner = s.slice(i + 1).split('）')[0];
+      var city = inner.split(/[·|]/)[0].trim();   // 括号内第一段通常是城市
+      if (head.length >= 4 && city && city.length <= 6) return head + '（' + city + '）';
+    }
+    return s.slice(0, 16) + '…';
+  }
+
+  /* 在短片段里找岗位名：「3年以上AI产品经理经验」→「AI产品经理」 */
+  function roleSegment(text) {
+    var parts = stripNoise(text).split(CLAUSE_SEP);
+    for (var i = 0; i < parts.length; i++) {
+      var p = tidyPhrase(parts[i]);
+      if (p.length < 2 || p.length > 24) continue;
+      if (VERB_HEAD.test(p) || !ROLE_WORD.test(p)) continue;
+      return shortenClue(p);
+    }
+    return '';
+  }
+
+  function hintFromJd(jd) {
+    var lines = String(jd || '').split(/[\n\r]+/).map(function (l) { return l.trim(); }).filter(Boolean).slice(0, 6);
+    var i, clue;
+    for (i = 0; i < lines.length; i++) {           // 第一轮：整行就像岗位名
+      clue = firstClause(lines[i]);
+      if (isTitleLike(clue)) return shortenClue(clue);
+    }
+    for (i = 0; i < lines.length; i++) {           // 第二轮：从条目里挑出岗位片段
+      clue = roleSegment(lines[i]);
+      if (clue) return clue;
+    }
+    return '';
+  }
+
   function deriveTitle(baseTitle, jdText) {
     var base = String(baseTitle || '简历');
     var jd = String(jdText || '').trim();
     if (!jd) return base + ' · JD 定制版';
-    // 取 JD 第一行作为岗位线索（截断）
-    var first = jd.split(/[\n\r]+/)[0].trim();
-    var seg = first.length > 16 ? first.slice(0, 16) + '…' : first;
-    return base + ' · 定制「' + seg + '」';
+    var clue = hintFromJd(jd);
+    if (!clue) {
+      /* 兜底：仍取首行（老行为），只是先去掉章节标签与首句噪声 */
+      var raw = jd.split(/[\n\r]+/)[0].trim();
+      clue = firstClause(raw) || raw;
+      if (clue.length > 16) clue = clue.slice(0, 16) + '…';
+    }
+    return base + ' · 定制「' + clue + '」';
   }
 
   global.ResumeJdDerive = {

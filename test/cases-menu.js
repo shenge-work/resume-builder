@@ -222,5 +222,87 @@ module.exports = [
       ['htmlFor', 'itemHtml', 'render'].forEach((k) =>
         ctx.assert(typeof M[k] === 'function', '暴露 ' + k + '()'));
     }
+  },
+
+  /* ---------- N6：导出引导（F1/F2）---------- */
+  {
+    name: 'N6 导出项附格式说明（F1）',
+    fn: (ctx) => {
+      const M = ctx.ResumeMenu;
+      const exportItems = M.ACTIONS.filter((a) => a.d === '导出' && a.kind !== 'field');
+      ctx.assert(exportItems.length >= 8, '导出组含多个可说明项（' + exportItems.length + '）');
+      const noDesc = exportItems.filter((a) => !a.desc);
+      ctx.assert(noDesc.length === 0, '每个导出项都带 desc 说明（缺：' + noDesc.map((a) => a.label).join(' / ') + '）');
+    }
+  },
+  {
+    name: 'N6 图片版 / 单文件 HTML 引导文字可选中（F2）',
+    fn: (ctx) => {
+      const M = ctx.ResumeMenu;
+      const exportItems = M.ACTIONS.filter((a) => a.d === '导出' && a.kind !== 'field');
+      /* F2：图片版 PDF 明确标注文字不可选中，把用户导向可选中格式 */
+      const imgItems = exportItems.filter((a) => /图片版/.test(a.label));
+      ctx.assert(imgItems.length >= 1, '存在图片版 PDF 入口');
+      ctx.assert(imgItems.every((a) => /不可选中/.test(a.desc)), '图片版 PDF 说明标注「文字不可选中」');
+      const htmlItem = exportItems.filter((a) => /单文件 HTML/.test(a.label))[0];
+      ctx.assert(htmlItem && /PDF/.test(htmlItem.desc) && /打印/.test(htmlItem.desc),
+        '单文件 HTML 说明给出「打印另存 PDF」的可选中路径');
+    }
+  },
+  {
+    name: 'N6 渲染层输出说明节点（两端）',
+    fn: (ctx) => {
+      const M = ctx.ResumeMenu;
+      const dh = M.htmlFor('desktop');
+      const mh = M.htmlFor('mobile');
+      ctx.assert(/class="has-desc"/.test(dh), '桌面按钮带 has-desc 类（触发竖排样式）');
+      ctx.assert(/<span class="menu-desc">/.test(dh), '桌面输出 .menu-desc 说明节点');
+      ctx.assert(/<span class="menu-desc">/.test(mh), '手机也输出 .menu-desc 说明节点');
+      /* 说明行只服务于「这个入口到底是干嘛的」有歧义的地方：导出组（选哪种格式）
+         与权限与备份组（N3 新增，锁定/分享/整库备份的后果差异大，一行说明能避免误操作）。
+         其余分组（撤销、投递体检、页面导航…）保持紧凑，不塞说明。 */
+      const DESC_GROUPS = ['导出', '权限与备份'];
+      const nonExport = M.ACTIONS.filter((a) => DESC_GROUPS.indexOf(a.d) < 0 && a.kind !== 'field' && a.label);
+      ctx.assert(nonExport.every((a) => !a.desc), '说明行只出现在导出 / 权限与备份两组');
+    }
+  },
+  {
+    name: 'N3 分享门禁：入口默认可用 + 置灰时输出 disabled 与提示',
+    fn: (ctx) => {
+      const M = ctx.ResumeMenu;
+      const share = M.ACTIONS.filter((a) => /导出分享页/.test(a.label))[0];
+      ctx.assert(!!share, '存在「导出分享页」入口');
+      ctx.assert(share.run === 'ResumeEditor.sharePageGuarded()', '分享入口走门禁（sharePageGuarded），不是裸导出');
+      ctx.assert(typeof share.enabled === 'function', '分享入口带 enabled 判定');
+      ctx.assert(!!share.disabledHint && /开启分享/.test(share.disabledHint), '置灰提示告诉用户去哪里开启分享');
+      /* ⚠️ 关键：状态取不到时必须**放行**。若判定实现成「取不到就禁用」，
+         新功能会把用户的导出入口直接锁死（单份模式 / 库未就绪 / 索引未加载都会取不到）。
+         用桩逐个场景造出来断言，不依赖运行器里漂移的 app 状态。 */
+      const ed = ctx.ResumeEditor, lib = ctx.ResumeLibrary;
+      const origActive = ed.getActiveResumeId, origGetMeta = lib.getMeta;
+      try {
+        ed.getActiveResumeId = () => null;
+        ctx.assert(share.enabled() === true, '没有激活简历 → 放行（不锁死老路径）');
+        ed.getActiveResumeId = () => 'res_x';
+        lib.getMeta = () => null;
+        ctx.assert(share.enabled() === true, '索引里查不到这份简历 → 放行');
+        lib.getMeta = () => ({ id: 'res_x' });
+        ctx.assert(share.enabled() === false, '有简历但未开启分享 → 置灰');
+        lib.getMeta = () => ({ id: 'res_x', isPublic: true });
+        ctx.assert(share.enabled() === true, '已开启分享 → 可用');
+        lib.getMeta = () => { throw new Error('boom'); };
+        ctx.assert(share.enabled() === true, '取值抛错 → 放行（宁可可用，不可锁死）');
+      } finally {
+        ed.getActiveResumeId = origActive;
+        lib.getMeta = origGetMeta;
+      }
+      /* 渲染层：伪造一个不可用项，验证真的输出 disabled 与提示节点 */
+      const html = M.itemHtml({ label: 'X', run: 'void 0', enabled: () => false, disabledHint: '未开启分享' }, 'desktop');
+      ctx.assert(/disabled/.test(html), '不可用项渲染 disabled 属性');
+      ctx.assert(/class="has-desc is-disabled"/.test(html), '不可用项带 is-disabled 类（置灰样式）');
+      ctx.assert(/menu-desc-off/.test(html), '不可用项输出提示节点 menu-desc-off');
+      const html2 = M.itemHtml({ label: 'X', run: 'void 0', enabled: () => true, desc: 'D' }, 'desktop');
+      ctx.assert(!/disabled/.test(html2) && /menu-desc/.test(html2), '可用项不带 disabled，且正常显示说明');
+    }
   }
 ];

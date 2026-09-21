@@ -136,5 +136,61 @@ module.exports = [
       ctx.assert(back.work[0].name === '公司A', '往返后公司一致');
       ctx.assert(back.skills[0].keywords.indexOf('K1') >= 0, '往返后技能一致');
     }
+  },
+  {
+    name: 'N1 AC#6：toJsonResume 把主题（id+overrides）带出到 meta.theme',
+    fn: (ctx) => {
+      const resume = {
+        data: {
+          name: '主题导出',
+          contact: [],
+          sections: [],
+          theme: { id: 'modern', overrides: { rule: '#ff0000' } }
+        }
+      };
+      const jr = ctx.toJsonResume(resume);
+      ctx.assert(jr.meta && jr.meta.theme && jr.meta.theme.id === 'modern', '主题 id 进 meta.theme');
+      ctx.assert(jr.meta.theme.overrides && jr.meta.theme.overrides.rule === '#ff0000', '主题微调进 meta.theme');
+    }
+  },
+  {
+    name: 'N1 AC#6：默认 classic 无微调时不污染标准导出',
+    fn: (ctx) => {
+      const resume = { data: { name: '默认主题', contact: [], sections: [], theme: { id: 'classic', overrides: {} } } };
+      const jr = ctx.toJsonResume(resume);
+      ctx.assert(!jr.meta || !jr.meta.theme, 'classic+无微调不写 meta.theme');
+    }
+  },
+  {
+    name: 'N1 AC#6：fromJsonResume 还原 meta.theme 为 data.theme',
+    fn: (ctx) => {
+      const jr = {
+        basics: { name: '主题还原' },
+        meta: { theme: { id: 'elegant', overrides: { strong: '#123456' } } }
+      };
+      const r = ctx.fromJsonResume(jr);
+      ctx.assert(r.data.theme && r.data.theme.id === 'elegant', '主题 id 还原');
+      ctx.assert(r.data.theme.overrides && r.data.theme.overrides.strong === '#123456', '主题微调还原');
+    }
+  },
+  {
+    name: 'N1 AC#6：主题完整往返（导出→再导入还原）',
+    fn: (ctx) => {
+      const resume = {
+        data: {
+          name: '完整往返',
+          subtitle: '工程师',
+          contact: ['a@b.com'],
+          sections: [{ type: 'career', items: [{ company: '云启', role: '工程师', date: '', summary: 's', projects: [] }] }],
+          theme: { id: 'warm', overrides: { rule: '#abcdef', kwText: '#fedcba' } }
+        }
+      };
+      const jr = ctx.toJsonResume(resume);
+      const back = ctx.fromJsonResume(jr);
+      ctx.assert(back.data.theme.id === 'warm', '往返后主题 id 一致');
+      ctx.assert(back.data.theme.overrides.rule === '#abcdef', '往返后 rule 微调一致');
+      ctx.assert(back.data.theme.overrides.kwText === '#fedcba', '往返后 kwText 微调一致');
+      ctx.assert(back.data.name === '完整往返', '往返后姓名不丢');
+    }
   }
 ];

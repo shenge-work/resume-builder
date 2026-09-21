@@ -159,6 +159,16 @@
       });
     }
 
+    /* N1 主题还原（AC #6）：从 JSON Resume 的 meta.theme 扩展字段恢复主题 id + 微调。
+       无该字段时回落默认 classic，与本项目 seedPayload 形状一致。 */
+    const themeRaw = (jr.meta && jr.meta.theme) || null;
+    const theme = themeRaw
+      ? {
+          id: str(themeRaw.id) || 'classic',
+          overrides: (themeRaw.overrides && typeof themeRaw.overrides === 'object') ? themeRaw.overrides : {}
+        }
+      : { id: 'classic', overrides: {} };
+
     return {
       data: {
         name: name,
@@ -167,7 +177,8 @@
         meta: 'JSON Resume 导入',
         metaBold: false,
         contact: contact,
-        sections: sections
+        sections: sections,
+        theme: theme
       },
       fonts: null,
       spacing: null,
@@ -270,6 +281,19 @@
     if (data.meta && !/导入/.test(str(data.meta))) {
       const m = str(data.meta);
       if (m) basics.summary = basics.summary ? basics.summary + '\n[' + m + ']' : m;
+    }
+
+    /* N1 主题扩展字段（AC #6）：JSON Resume 标准无主题概念，
+       这里以 meta.theme 扩展字段带出主题 id + 微调 overrides，
+       供第三方工具消费，也供本项目再导入时还原主题。
+       仅当主题非默认（非 classic 或带微调）时才写入，避免污染标准导出。 */
+    if (resume && resume.data && resume.data.theme) {
+      const t = resume.data.theme;
+      const hasTheme = (t.id && t.id !== 'classic') || (t.overrides && Object.keys(t.overrides).length);
+      if (hasTheme) {
+        out.meta = out.meta || {};
+        out.meta.theme = { id: t.id || 'classic', overrides: t.overrides || {} };
+      }
     }
 
     return out;

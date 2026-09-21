@@ -112,9 +112,19 @@ ctx.indexedDB = makeIDB();
 
 /* ---------- 加载源码 ---------- */
 const dataCode = fs.readFileSync(path.join(ROOT, 'js', 'data.js'), 'utf8');
+const themeTmplCode = fs.readFileSync(path.join(ROOT, 'js', 'theme-templates.js'), 'utf8');
+/* N3 分享与权限控制：纯逻辑模块，app.js 的 shareApi() 依赖它挂在 window.ResumeShare */
+const libraryShareCode = fs.existsSync(path.join(ROOT, 'js', 'store', 'library-share.js'))
+  ? fs.readFileSync(path.join(ROOT, 'js', 'store', 'library-share.js'), 'utf8') : '';
 const appCode = fs.readFileSync(path.join(ROOT, 'js', 'app.js'), 'utf8');
 /* 内容编辑区 schema：必须在 resume-render.js 之前加载（后者从这里取基础件） */
 const editorSchemaCode = fs.readFileSync(path.join(ROOT, 'js', 'render', 'editor-schema.js'), 'utf8');
+/* N9 个人官网：portfolio-view.js 提供板块 HTML 渲染（导出产物复用它，保证预览与导出一致），
+   portfolio-html.js 提供脱敏 + 单文件官网 HTML 拼接。两者都必须进主 bundle，
+   否则 app.js 的 exportPortfolioSite() 与「两处板块渲染一致性」断言都测不到。 */
+const portfolioViewCode = fs.readFileSync(path.join(ROOT, 'js', 'views', 'portfolio-view.js'), 'utf8');
+const portfolioHtmlCode = fs.existsSync(path.join(ROOT, 'js', 'render', 'portfolio-html.js'))
+  ? fs.readFileSync(path.join(ROOT, 'js', 'render', 'portfolio-html.js'), 'utf8') : '';
 const storeCode = fs.readFileSync(path.join(ROOT, 'js', 'store', 'resume-store.js'), 'utf8');
 const renderCode = fs.readFileSync(path.join(ROOT, 'js', 'render', 'resume-render.js'), 'utf8');
 const exportPdfCode = fs.existsSync(path.join(ROOT, 'js', 'export', 'export-pdf.js'))
@@ -145,7 +155,7 @@ const F = (name, cond) => fileResults.push({ name, pass: !!cond });
    注意：resume-store.js 是零依赖 IIFE，挂 window.ResumeStore；app.js 的 pushRepo 会引用它，
    测试里必须按真实 index.html 的加载顺序先加载 store，否则防抖保存的 setTimeout 触发时会 ReferenceError。 */
 try {
-  vm.runInContext(dataCode + '\n' + editorSchemaCode + '\n' + renderCode + '\n' + exportPdfCode + '\n' + feishuSyncCode + '\n' + paneMobileCode + '\n' + storeCode + '\n' + appCode, ctx, { filename: 'resume-bundle.js' });
+  vm.runInContext(dataCode + '\n' + themeTmplCode + '\n' + libraryShareCode + '\n' + portfolioViewCode + '\n' + editorSchemaCode + '\n' + renderCode + '\n' + portfolioHtmlCode + '\n' + exportPdfCode + '\n' + feishuSyncCode + '\n' + paneMobileCode + '\n' + storeCode + '\n' + appCode, ctx, { filename: 'resume-bundle.js' });
 } catch (e) {
   fileResults.push({ name: '加载期异常: ' + (e && e.message ? e.message : e), pass: false });
 }
@@ -418,6 +428,15 @@ F('导出菜单含纯文本', /ResumeExport\.exportTxt\(\)/.test(menuDesktop));
 F('导出菜单含 Markdown', /ResumeExport\.exportMarkdown\(\)/.test(menuDesktop));
 F('导出菜单含静默 PDF', /ResumeExport\.exportPdfSilent\(\)/.test(menuDesktop));
 F('体检面板容器存在（#auditBody）', /id="auditBody"/.test(htmlClean));
+/* N9 个人官网导出：入口在「统一清单」里，因此两端同时生效（不该只在一端出现） */
+F('工具菜单含导出个人官网入口（桌面 + 手机同源）',
+  /ResumeEditor\.exportPortfolioSite\(\)/.test(menuDesktop) && /ResumeEditor\.exportPortfolioSite\(\)/.test(menuMobile));
+F('app.js 暴露官网导出的整条链路（入口 / 生成 / 预览 / 下载 / 复制附言）',
+  /exportPortfolioSite: exportPortfolioSite/.test(appCode) &&
+  /runPortfolioExport: runPortfolioExport/.test(appCode) &&
+  /previewPortfolio: previewPortfolio/.test(appCode) &&
+  /downloadPortfolio: downloadPortfolio/.test(appCode) &&
+  /copyPortfolioPitch: copyPortfolioPitch/.test(appCode));
 
 /* ---------- 文件级冒烟断言：打印 / 静默导出的页边距跟随「页面边距」设置（7d）----------
    这三条是「防回归」：动态 @page 一旦被重构丢掉，打印就会悄悄退回硬编码的 14mm，
@@ -454,8 +473,36 @@ F('css/style.css 保留 A4 默认 @page（无 JS 环境下的兜底）', /@page\
 F('index.html 引入 js/store/resume-library.js', /<script src="js\/store\/resume-library\.js"><\/script>/.test(htmlClean));
 F('resume-library.js 排在 app.js 之前（app 依赖其暴露的 ResumeLibrary）',
   htmlClean.indexOf('js/store/resume-library.js') < htmlClean.indexOf('js/app.js'));
-F('index.html 含简历抽屉容器（#resumeDrawer）', /id="resumeDrawer"/.test(htmlClean));
-F('index.html 抽屉默认常驻（class 含 open）', /class="resume-drawer open"/.test(htmlClean));
+/* N3：分享/权限纯逻辑模块必须被引入且排在 app.js 之前（app 的 shareApi() 直接读它） */
+F('index.html 引入 js/store/library-share.js', /<script src="js\/store\/library-share\.js"><\/script>/.test(htmlClean));
+F('library-share.js 排在 app.js 之前（app 依赖其暴露的 ResumeShare）',
+  htmlClean.indexOf('js/store/library-share.js') < htmlClean.indexOf('<script src="js/app.js"></script>'));
+
+/* ---------- 文件级冒烟断言：N9 个人官网导出的接线（防「写了但没接」）----------
+   失效面：官网渲染模块没被引入 / 引入顺序错（app 或导出模块取不到它）、
+   确认弹层被删（脱敏开关失效 → 悄悄把手机号写进公开网页）、
+   单文件构建漏打包（双击打开的单文件版导出官网直接报错）。 */
+F('index.html 引入 js/render/portfolio-html.js',
+  /<script src="js\/render\/portfolio-html\.js"><\/script>/.test(htmlClean));
+F('portfolio-html.js 排在 app.js 之前（app 的 exportPortfolioSite 直接读它）',
+  htmlClean.indexOf('js/render/portfolio-html.js') < htmlClean.indexOf('<script src="js/app.js"></script>'));
+F('官网渲染依赖的 portfolio-view.js 也在 app.js 之前',
+  htmlClean.indexOf('js/views/portfolio-view.js') < htmlClean.indexOf('<script src="js/app.js"></script>'));
+F('index.html 含官网导出确认弹层（#portfolioModal + 三步勾选 + 两步容器）',
+  /id="portfolioModal"/.test(htmlClean) && /id="pfStepConfirm"/.test(htmlClean) && /id="pfStepDone"/.test(htmlClean) &&
+  /id="pfHideSensitive"/.test(htmlClean) && /id="pfMaskEmail"/.test(htmlClean) && /id="pfEmbedFull"/.test(htmlClean));
+F('脱敏开关默认勾选「隐藏敏感信息」（安全侧：默认不泄露）',
+  /id="pfHideSensitive"\s+checked/.test(htmlClean));
+F('官网弹层排在导出预览弹层之前（预览才能盖在它之上，关掉预览仍能看到部署指引）',
+  htmlClean.indexOf('id="portfolioModal"') < htmlClean.indexOf('id="exportModal"'));
+F('build-single.js 也内联 portfolio-html.js（单文件版可用）',
+  /js\/render\/portfolio-html\.js/.test(fs.readFileSync(path.join(ROOT, 'tools', 'build-single.js'), 'utf8')));
+F('css 含官网板块在 A4 视图下的降级样式（.kpi-band / .card-metrics / .evidence）',
+  /\.resume \.kpi-band\{/.test(cssCode) && /\.resume \.card-metrics\{/.test(cssCode) && /\.resume \.evidence\{/.test(cssCode));
+F('css 含官网导出弹层样式（.pf-opt / .pf-deploy / .pf-pitch）',
+  /\.pf-opt\{/.test(cssCode) && /\.pf-deploy\{/.test(cssCode) && /\.pf-pitch\{/.test(cssCode));
+
+F('index.html 含简历抽屉容器（#resumeDrawer）', /id="resumeDrawer"/.test(htmlClean));F('index.html 抽屉默认常驻（class 含 open）', /class="resume-drawer open"/.test(htmlClean));
 F('index.html 含抽屉折叠/展开把手', /id="resumeDrawerCollapse"/.test(htmlClean) && /id="resumeDrawerExpand"/.test(htmlClean));
 F('打印时隐藏简历抽屉与展开把手', /\.resume-drawer,\.resume-drawer-expand\{display\s*:\s*none/.test(cssCode));
 
@@ -568,6 +615,11 @@ F('通知模块暴露 notify / unreadCount / togglePanel',
 const menuCases = require(path.join(ROOT, 'test', 'cases-menu.js'));
 const menuCtx = {
   ResumeMenu: ctx.ResumeMenu,
+  /* N3：分享门禁判定要读「当前激活简历 + 简历库 meta」，这里把两者交给用例，
+     用例得以用桩造出各场景（无激活简历 / 未开启分享 / 已开启 / 取值抛错），
+     而不是依赖运行器里漂移的 app 状态。 */
+  ResumeEditor: ctx.ResumeEditor,
+  ResumeLibrary: ctx.ResumeLibrary,
   assert(cond, msg) { fileResults.push({ name: 'menu › ' + msg, pass: !!cond }); },
 };
 let menuChain = Promise.resolve();
@@ -703,8 +755,111 @@ for (const c of httpCases) {
     .catch((e) => { fileResults.push({ name: 'http › ' + c.name + '（抛错: ' + (e && e.message ? e.message : e) + '）', pass: false }); });
 }
 
+/* ---------- N4 F1 暗色模式：js/theme.js 纯逻辑用例 ----------
+   主题模块是浏览器 IIFE（window.ResumeTheme），不在主 bundle 里，
+   且无 CommonJS 导出。这里自建一个隔离 vm 沙箱，注入 documentElement /
+   localStorage / matchMedia 桩，按浏览器同路径加载 theme.js，再跑用例。
+   这样「auto 解析 / 纸张跟随例外 / 导出强制白纸 / DOM 落地」都有失效面钉住。 */
+const themeStore = new Map();
+const themeAttrs = {};
+const themeDocumentElement = {
+  setAttribute(k, v) { themeAttrs[k] = String(v); },
+  removeAttribute(k) { delete themeAttrs[k]; },
+  getAttribute(k) { return (k in themeAttrs) ? themeAttrs[k] : null; },
+};
+let themeMqMatches = false;
+const themeMatchMedia = (q) => ({
+  matches: themeMqMatches, media: q,
+  addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {},
+});
+const themeDoc = {
+  documentElement: themeDocumentElement,
+  getElementById() { return null; },
+  querySelector() { return null; },
+  addEventListener() {},
+  readyState: 'complete',
+};
+const themeCtx = {
+  console, JSON, Date, Math, Object, Array, String, Number, Boolean,
+  isNaN, parseInt, parseFloat, RegExp, Error, Promise, setTimeout, clearTimeout,
+  document: themeDoc,
+  localStorage: {
+    getItem(k) { return themeStore.has(k) ? themeStore.get(k) : null; },
+    setItem(k, v) { themeStore.set(k, String(v)); },
+    removeItem(k) { themeStore.delete(k); },
+  },
+  matchMedia: themeMatchMedia,
+  addEventListener() {},
+  getComputedStyle() { return { getPropertyValue() { return ''; } }; },
+};
+themeCtx.window = themeCtx;
+vm.createContext(themeCtx);
+try {
+  const themeCode = fs.readFileSync(path.join(ROOT, 'js', 'theme.js'), 'utf8');
+  vm.runInContext(themeCode, themeCtx, { filename: 'theme.js' });
+} catch (e) {
+  fileResults.push({ name: '加载期异常（js/theme.js）: ' + (e && e.message ? e.message : e), pass: false });
+}
+const themeCases = require(path.join(ROOT, 'test', 'cases-theme.js'));
+const themeCaseCtx = {
+  ResumeTheme: themeCtx.ResumeTheme,
+  store: {
+    get(k) { return themeStore.has(k) ? themeStore.get(k) : null; },
+    set(k, v) { themeStore.set(k, String(v)); },
+    clear() { themeStore.clear(); },
+  },
+  attrs: {
+    get(k) { return (k in themeAttrs) ? themeAttrs[k] : null; },
+    has(k) { return k in themeAttrs; },
+  },
+  mq: {
+    setDark(b) { themeMqMatches = !!b; },
+    isDark() { return themeMqMatches; },
+  },
+  assert(cond, msg) { fileResults.push({ name: 'theme › ' + msg, pass: !!cond }); },
+};
+let themeChain = Promise.resolve();
+for (const c of themeCases) {
+  themeChain = themeChain.then(() => c.fn(themeCaseCtx))
+    .catch((e) => { fileResults.push({ name: 'theme › ' + c.name + '（抛错: ' + (e && e.message ? e.message : e) + '）', pass: false }); });
+}
+
+/* ---------- N3 分享与权限控制：js/store/library-share.js 纯逻辑用例 ----------
+   该模块已在主 bundle 里加载（app.js 的 shareApi() 读它），这里直接取出断言。 */
+const shareCases = fs.existsSync(path.join(ROOT, 'test', 'cases-share.js'))
+  ? require(path.join(ROOT, 'test', 'cases-share.js')) : [];
+const shareCtx = {
+  ResumeShare: ctx.ResumeShare,
+  assert(cond, msg) { fileResults.push({ name: 'share › ' + msg, pass: !!cond }); },
+};
+let shareChain = Promise.resolve();
+for (const c of shareCases) {
+  shareChain = shareChain.then(() => c.fn(shareCtx))
+    .catch((e) => { fileResults.push({ name: 'share › ' + c.name + '（抛错: ' + (e && e.message ? e.message : e) + '）', pass: false }); });
+}
+
+/* ---------- N9 导出为个人官网：脱敏 + 单文件官网渲染 + 两种官网板块 ----------
+   模块已在主 bundle 里加载（portfolio-view.js 提供板块 HTML，portfolio-html.js 提供脱敏与拼装）。 */
+const pfCases = fs.existsSync(path.join(ROOT, 'test', 'cases-portfolio.js'))
+  ? require(path.join(ROOT, 'test', 'cases-portfolio.js')) : [];
+const pfCtx = {
+  ResumePortfolio: ctx.ResumePortfolio,
+  PortfolioView: ctx.PortfolioView,
+  ResumeEditorSchema: ctx.ResumeEditorSchema,
+  ResumeRender: ctx.ResumeRender,
+  ResumeEditor: ctx.ResumeEditor,
+  ResumeExport: ctx.ResumeExport,
+  ResumeMenu: ctx.ResumeMenu,
+  assert(cond, msg) { fileResults.push({ name: 'portfolio › ' + msg, pass: !!cond }); },
+};
+let pfChain = Promise.resolve();
+for (const c of pfCases) {
+  pfChain = pfChain.then(() => c.fn(pfCtx))
+    .catch((e) => { fileResults.push({ name: 'portfolio › ' + c.name + '（抛错: ' + (e && e.message ? e.message : e) + '）', pass: false }); });
+}
+
 /* ---------- 报告（等异步的 library 用例跑完再输出） ---------- */
-libChain.then(() => ssChain).then(() => jdChain).then(() => nativeExportChain).then(() => menuChain).then(() => undoChain).then(() => reorderChain).then(() => perfChain).then(() => saveDebounceChain).then(() => httpChain).then(() => {
+libChain.then(() => ssChain).then(() => jdChain).then(() => nativeExportChain).then(() => menuChain).then(() => undoChain).then(() => reorderChain).then(() => perfChain).then(() => saveDebounceChain).then(() => themeChain).then(() => shareChain).then(() => pfChain).then(() => httpChain).then(() => {
   const all = ctx.__results.concat(fileResults);
   let pass = 0, fail = 0;
   for (const r of all) {

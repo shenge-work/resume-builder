@@ -314,11 +314,15 @@ function buildWatermark(watermarkText){
 }
 
 /* 纯函数：把「简历 HTML + 样式 + 姓名 + 水印」拼成完整只读分享页文档。
-   返回完整 HTML 字符串；标题与水印文本均经 esc 转义。 */
+   返回完整 HTML 字符串；标题与水印文本均经 esc 转义。
+   N3-F3：opts.token 存在时写进 <meta name="resume-share-token">，作为这份分享页的
+   身份标识（本地生成、随简历 meta 落盘）。⚠️ 本项目无托管后端，标识只用于标记来源，
+   不是可远程吊销的短链 —— 已发出的静态页收不回来。 */
 function buildSharePageHtml(opts){
   const resumeHtml = opts && opts.resumeHtml ? opts.resumeHtml : '';
   const cssText = opts && opts.cssText ? opts.cssText : '';
   const name = esc((opts && opts.name) || '简历');
+  const token = (opts && opts.token) ? String(opts.token) : '';
   const wm = buildWatermark((opts && opts.watermarkText) || '仅供查看');
   return `<!DOCTYPE html>
 <html lang="zh-CN">
@@ -326,7 +330,7 @@ function buildSharePageHtml(opts){
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="robots" content="noindex,nofollow">
-<title>${name} · 简历（仅供查看）</title>
+${token ? '<meta name="resume-share-token" content="' + esc(token) + '">\n' : ''}<title>${name} · 简历（仅供查看）</title>
 <style>
 ${cssText}
 .resume{max-width:1000px;margin:0 auto;background:#fff;box-shadow:0 4px 18px rgba(0,0,0,.10);border-radius:4px;}
@@ -351,7 +355,8 @@ ${wm.dom}
 </html>`;
 }
 
-async function exportSharePage(){
+async function exportSharePage(opts){
+  opts = opts || {};
   const live = preview.querySelector('.resume');
   if(!live){ alert('预览未渲染，请稍候重试。'); return; }
   const clone = live.cloneNode(true);
@@ -360,7 +365,7 @@ async function exportSharePage(){
   clone.querySelectorAll('.dragging,.drop-before,.drop-after').forEach(n=>n.classList.remove('dragging','drop-before','drop-after'));
   clone.querySelectorAll('.reorder-btns').forEach(n=>n.remove());
   const css = await collectCssText();
-  const html = buildSharePageHtml({ resumeHtml: clone.outerHTML, cssText: css, name: data.name, watermarkText: '仅供查看' });
+  const html = buildSharePageHtml({ resumeHtml: clone.outerHTML, cssText: css, name: data.name, watermarkText: '仅供查看', token: opts.token });
   const blob = new Blob([html], {type:'text/html;charset=utf-8'});
   const url = URL.createObjectURL(blob);
   showExportModal('html', blob, url, RB.getFileName('_分享页', 'html'), '分享页预览（只读 · 带水印）');

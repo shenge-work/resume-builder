@@ -164,7 +164,7 @@ body.route-editor .view-root { display: none; margin-left: 64px; min-height: 100
   font-size: 22px;
   color: var(--ui-text);
 }
-.lib-actions { display: flex; gap: 8px; }
+.lib-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
 .lib-btn {
   padding: 8px 16px;
   border: 1px solid var(--ui-border);
@@ -194,48 +194,170 @@ body.route-editor .view-root { display: none; margin-left: 64px; min-height: 100
   background: var(--ui-card);
   border: 1px solid var(--ui-border);
   border-radius: 10px;
-  padding: 16px;
+  padding: 14px;
   display: flex;
-  flex-direction: column;
-  gap: 10px;
+  flex-direction: row;
+  align-items: stretch;
+  gap: 14px;
   cursor: pointer;
   transition: box-shadow .15s, border-color .15s;
 }
 .lib-card:hover {
   border-color: var(--ui-focus-border);
   box-shadow: 0 4px 14px var(--ui-resume-shadow, rgba(0,0,0,.08));
+  /* 抬到同级卡片之上，避免 hover 弹出的完整名称气泡被下一行卡片盖住 */
+  z-index: 5;
 }
-.lib-card-thumb {
-  width: 44px;
-  height: 44px;
-  border-radius: 8px;
-  background: var(--ui-solid-bg);
-  color: var(--ui-solid-text);
+/* N5：简历缩略图（真实迷你预览）。容器固定为 A4 比例，内部 .resume 用 transform 缩放贴合。 */
+.resume-thumb {
+  position: relative;
+  overflow: hidden;
+  background: #fff;
+  border: 1px solid var(--ui-border-soft);
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+.resume-thumb .resume {
+  position: absolute;
+  top: 0; left: 0;
+  transform-origin: top left;
+  width: 210mm;
+  min-height: 297mm;
+  background: #fff;
+  box-shadow: none;
+  margin: 0;
+}
+.resume-thumb.is-empty::after {
+  content: '空白简历';
+  position: absolute;
+  inset: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 20px;
-  font-weight: 700;
+  color: var(--ui-muted);
+  font-size: 11px;
 }
+.lib-card-thumb {
+  width: 92px;
+  height: 130px;
+  border-radius: 6px;
+}
+.lib-card-thumb .resume { transform: scale(0.116); }
+.drawer-thumb {
+  width: 50px;
+  height: 71px;
+  border-radius: 3px;
+  align-self: flex-start;
+}
+.drawer-thumb .resume { transform: scale(0.063); }
 .lib-card-body { min-width: 0; }
+/* 名称普遍偏长（派生简历是「基底名 · 定制「岗位」」）：
+   原来 nowrap + 单行省略只能露出 8~9 个字，这里放宽到两行，显示容量约翻倍 */
 .lib-card-title {
   font-size: 14px;
   font-weight: 600;
   color: var(--ui-text);
-  white-space: nowrap;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
   overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
+  padding-right: 22px;   /* 给右上角 ⋯ 菜单按钮让位，避免文字压到按钮下面 */
   margin-bottom: 4px;
+  min-height: 19px;
 }
 .lib-card-meta {
   font-size: 12px;
   color: var(--ui-muted);
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 6px;
 }
 .lib-src.local { color: var(--ui-muted); }
 .lib-src.feishu { color: #3370ff; }
+/* N3：锁定 / 分享中标记（卡片 meta 行内的小徽标） */
+.lib-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-style: normal;
+  line-height: 1.6;
+  border: 1px solid var(--ui-border-soft);
+  background: var(--ui-row);
+  color: var(--ui-muted);
+  white-space: nowrap;
+}
+.lib-badge.is-public { color: var(--ui-danger); border-color: var(--ui-danger); }
+/* 派生简历的身份标识：贴在做缩略图左下角，不占正文宽度（名称区已经够挤）。
+   用 ::before 而非 ::after —— 后者已被 .resume-thumb.is-empty 的「空白简历」提示占用 */
+.lib-card.is-derived .lib-card-thumb::before {
+  content: '定制';
+  position: absolute;
+  z-index: 1;          /* 压在缩略内容之上（::before 默认先于 .resume 绘制） */
+  left: 0;
+  bottom: 0;
+  padding: 1px 6px;
+  border-radius: 0 5px 0 0;
+  background: var(--ui-solid-bg);
+  color: var(--ui-solid-text);
+  font-size: 10px;
+  line-height: 1.7;
+  letter-spacing: .5px;
+}
+.lib-card.is-locked .lib-card-title { color: var(--ui-muted); }
+/* 两行仍放不下时（is-clipped 由 library-view.js 实测加）：hover 卡片弹出完整名称。
+   不走原生 title —— 它有约 1 秒延迟、样式不可控，长名场景几乎用不上。 */
+.lib-card.is-clipped::after {
+  content: attr(data-full-title);
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  padding: 7px 10px;
+  border-radius: 6px;
+  background: var(--ui-solid-bg);
+  color: var(--ui-solid-text);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.5;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  box-shadow: 0 8px 22px var(--ui-menu-shadow, rgba(0,0,0,.28));
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-3px);
+  transition: opacity .12s ease, transform .12s ease, visibility .12s;
+  pointer-events: none;
+}
+.lib-card.is-clipped:hover::after {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+/* 气泡上方的小箭头，指明它属于哪张卡片 */
+.lib-card.is-clipped::before {
+  content: '';
+  position: absolute;
+  z-index: 41;
+  top: calc(100% + 1px);
+  left: 18px;
+  border: 5px solid transparent;
+  border-bottom-color: var(--ui-solid-bg);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity .12s ease, visibility .12s;
+  pointer-events: none;
+}
+.lib-card.is-clipped:hover::before {
+  opacity: 1;
+  visibility: visible;
+}
 .lib-card-menu {
   position: absolute;
   top: 10px;
@@ -567,6 +689,19 @@ body.route-editor .view-root { display: none; margin-left: 64px; min-height: 100
 }
 .tk-op:hover { background: var(--ui-btn-hover); }
 .tk-op.danger { color: var(--ui-danger); border-color: var(--ui-danger); }
+/* UX-03 修复：未关联简历的「简历版本」单元格改为可点击入口，点开即编辑关联 */
+.tk-link {
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: var(--ui-link, #3370ff);
+  font-size: 13px;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.tk-link:hover { color: var(--ui-link-hover, #1d4ed8); }
+.tk-hint { font-size: 11.5px; color: var(--ui-muted); margin-top: -2px; }
 
 /* 编辑 modal */
 .tk-modal {
@@ -886,6 +1021,37 @@ body.route-editor .view-root { display: none; margin-left: 64px; min-height: 100
 @media (max-width: 640px) {
   .tpl-grid { grid-template-columns: 1fr; }
 }
+
+/* 主题色板：卡片内顶部色块，直观展示该主题的强调色 */
+.tpl-swatch {
+  height: 56px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 4px;
+}
+.tpl-swatch-name { font-size: 15px; font-weight: 700; }
+.tpl-sub { margin: 6px 0 0; font-size: 13px; color: var(--ui-muted); }
+
+/* 主题微调面板 */
+.tpl-custom {
+  margin-top: 28px;
+  padding: 18px 16px;
+  background: var(--ui-panel, #fff);
+  border: 1px solid var(--ui-border);
+  border-radius: 8px;
+}
+.tpl-custom-head { font-size: 14px; font-weight: 700; color: var(--ui-text); margin-bottom: 12px; }
+.tpl-color-grid { display: flex; flex-wrap: wrap; gap: 12px 18px; }
+.tpl-color-row { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--ui-text); }
+.tpl-color-row input[type="color"] {
+  width: 34px; height: 26px; padding: 0; border: 1px solid var(--ui-border); border-radius: 4px; background: none; cursor: pointer;
+}
+.tpl-custom-actions { margin-top: 14px; display: flex; gap: 10px; }
+
+/* 简历预览：自定义板块正文（F5） */
+.resume .custom-body { white-space: normal; line-height: 1.65; }
 
 /* =============================================================
  * 个人官网预览页（#/portfolio）—— 网页卡片风，非 A4

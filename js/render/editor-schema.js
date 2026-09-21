@@ -122,6 +122,8 @@
       logoSpacing: sp(), logoSizeSpacing: sp(), logoWidthSpacing: sp(), logoGapSpacing: sp()
     };
     if (type === 'projects') return blankProject();
+    if (type === 'kpi-band') return blankKpiItem();
+    if (type === 'project-cards') return blankProjectCard();
     return {};
   }
   function blankProject() {
@@ -138,6 +140,21 @@
   }
   function blankSkillGroup() {
     return { name: '', keywords: '', detail: '', items: [], spacing: sp(), nameSpacing: sp(), keywordsSpacing: sp(), detailSpacing: sp() };
+  }
+  /* N9 官网专属板块：大数字带的一项（数字 + 说明） */
+  function blankKpiItem() {
+    return { value: '', label: '', spacing: sp(), valueSpacing: sp(), labelSpacing: sp() };
+  }
+  /* N9 官网专属板块：项目卡片墙的一张卡。
+     before / after / approach 是「优化前 → 优化后 → 手段」证据链，纯增量字段，
+     A4 预览里折叠成一行小字，不干扰 PDF 版式。 */
+  function blankProjectCard() {
+    return {
+      name: '', desc: '', cover: '', stack: '', metrics: [],
+      before: '', after: '', approach: '',
+      spacing: sp(), nameSpacing: sp(), descSpacing: sp(), coverSpacing: sp(),
+      stackSpacing: sp(), evidenceSpacing: sp()
+    };
   }
 
   /* ============================================================
@@ -411,6 +428,77 @@
     }]
   });
 
+  /* ---- N9 个人求职官网专属板块（纯增量，向后兼容：老数据没有这两个 type 也不受影响）----
+     为什么做成独立 type 而不是复用 highlights / projects：
+       highlights 是长句高亮卡，官网首屏要的是「大数字 + 小标签」；
+       projects 是时间线列表，官网要的是「封面 + 指标 + 技术栈」的卡片墙。
+     强行复用会让 PDF 版式被官网需求带偏，所以宁可加两个新 type，
+     并在 A4 预览里给出**降级渲染**（见 js/render/resume-render.js），保证 PDF 不被带跑。 */
+  register({
+    type: 'kpi-band', label: '关键数据带（官网首屏）',
+    create: function () {
+      return {
+        id: newSectionId(), type: 'kpi-band', title: '关键数据', pageBreak: false,
+        items: [blankKpiItem(), blankKpiItem(), blankKpiItem()], spacing: sp()
+      };
+    },
+    lists: [{
+      id: 'kpi-band.items', path: 'items', tag: '数据', noun: '数据项',
+      create: blankKpiItem, min: 0,
+      emptyHint: '还没有数据项 —— 点下方「＋ 添加数据项」，一行一个「数字 + 说明」，如「1200+ / GitHub Stars」。',
+      tagOf: function (it, i) {
+        const v = T(it && it.value).trim();
+        return '数据 ' + (i + 1) + (v ? ' · ' + v : '');
+      },
+      fields: [
+        { key: 'value', label: '数字（如 1200+ / 4 / 2 段）', kind: 'text', spacing: 'valueSpacing' },
+        { key: 'label', label: '说明（如 GitHub Stars）', kind: 'text', spacing: 'labelSpacing' }
+      ]
+    }]
+  });
+
+  register({
+    type: 'project-cards', label: '项目卡片墙（官网）',
+    create: function () {
+      return {
+        id: newSectionId(), type: 'project-cards', title: '项目作品', pageBreak: false,
+        cards: [blankProjectCard()], spacing: sp()
+      };
+    },
+    lists: [{
+      id: 'project-cards.cards', path: 'cards', tag: '项目卡', noun: '项目卡',
+      create: blankProjectCard, min: 0,
+      emptyHint: '还没有项目卡 —— 点下方「＋ 添加项目卡」，配上封面图、指标与技术栈，官网会排成卡片墙。',
+      fields: [
+        { key: 'name', label: '项目名', kind: 'text', spacing: 'nameSpacing' },
+        { key: 'desc', label: '一句话简介', kind: 'textarea', rows: 2, spacing: 'descSpacing' },
+        { key: 'cover', label: '封面图（图片 URL / DataURI，可留空）', kind: 'textarea', rows: 2, spacing: 'coverSpacing' },
+        { key: 'stack', label: '技术栈（· 或 , 分隔，官网自动变芯片）', kind: 'text', spacing: 'stackSpacing' },
+        { key: 'before', label: '优化前（选填，如 首屏加载 4.2s）', kind: 'text' },
+        { key: 'after', label: '优化后（选填，如 首屏加载 1.1s）', kind: 'text' },
+        { key: 'approach', label: '手段（选填，如 图片分片 + 接口预取）', kind: 'text', spacing: 'evidenceSpacing' }
+      ],
+      lists: [{
+        id: 'project-cards.cards.metrics', path: 'metrics', tag: '指标', noun: '指标',
+        create: function () { return line(''); }, min: 0,
+        emptyHint: '（可留空）点下方「＋ 添加指标」，如「留存 +21%」。',
+        fields: [{ key: 'text', label: '指标', kind: 'text', spacing: 'spacing' }]
+      }]
+    }]
+  });
+
+  register({
+    type: 'custom', label: '自定义板块',
+    /* F5：标题 + 自由内容（**加粗** / 换行）。不引入任意 CSS 注入，守住护城河。 */
+    create: function () {
+      return { id: newSectionId(), type: 'custom', title: '自定义', headingVisible: true, pageBreak: false, html: '', spacing: sp() };
+    },
+    sectionFields: [
+      { key: 'html', label: '内容（支持 **加粗** 与换行，纯文本，不写代码）', kind: 'textarea', rows: 5, spacing: 'spacing' }
+    ],
+    lists: []
+  });
+
   /* ============================================================
    * 七、基本信息卡片（根级字段 + 联系方式列表）
    * ============================================================ */
@@ -458,6 +546,7 @@
    * ============================================================ */
   const SECTION_FIELDS = [
     { key: 'title', label: '板块标题', kind: 'text', spacing: 'spacing' },
+    { key: 'headingVisible', label: '显示板块标题', kind: 'checkbox', def: true },
     { key: 'pageBreak', label: '强制本板块从新一页开始', kind: 'checkbox' }
   ];
 
@@ -471,6 +560,8 @@
       /* 未知类型不再静默空白：至少告诉用户发生了什么，且仍可改标题 / 位移 / 删除 */
       h += '<div class="list-empty">未知板块类型「' + esc(sec.type) + '」，当前只支持编辑标题、调整位置与删除。</div>';
     } else {
+      /* 板块级专属字段（如 custom 的「内容」文本域），在通用字段之后、列表之前渲染 */
+      (def.sectionFields || []).forEach(function (f) { h += fieldHtml(f, secPath, sec); });
       (def.lists || []).forEach(function (l) { h += listHtml(l, secPath, sec[l.path], 0); });
     }
     return h + '</div></div>';
@@ -572,7 +663,8 @@
     esc: esc, T: T, S: S, z: z, line: line, objify: objify,
     /* 模型工厂 */
     blankItem: blankItem, blankProject: blankProject, blankPhase: blankPhase,
-    blankSkillGroup: blankSkillGroup, createSection: createSection, newSectionId: newSectionId,
+    blankSkillGroup: blankSkillGroup, blankKpiItem: blankKpiItem, blankProjectCard: blankProjectCard,
+    createSection: createSection, newSectionId: newSectionId,
     /* 注册表 */
     register: register, getType: getType, allTypes: allTypes, getList: getList,
     BASIC: BASIC, SECTIONS_LIST: SECTIONS_LIST,

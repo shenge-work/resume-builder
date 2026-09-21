@@ -73,7 +73,11 @@ const defaultSpacing = {
   phaseLabel:{label:'成长阶段标签', mt:0, mb:2},
   phaseDate: {label:'成长阶段时间', mt:0, mb:2},
   phaseTitle:{label:'成长阶段主题', mt:0, mb:3},
-  phaseDesc: {label:'成长阶段描述', mt:0, mb:4}
+  phaseDesc: {label:'成长阶段描述', mt:0, mb:4},
+  /* N9 官网板块在 A4 预览里的降级形态（官网首屏要视觉冲击，PDF 要信息密度，
+     同一份数据两种排版），这两项对应它们各自的「行间距」全局默认值 */
+  kpiItem:   {label:'关键数据项',   mt:0, mb:0},
+  evidence:  {label:'优化证据链',   mt:2, mb:2}
 };
 let currentSpacing = JSON.parse(JSON.stringify(defaultSpacing));
 

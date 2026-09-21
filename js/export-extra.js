@@ -140,6 +140,37 @@
           p(desc);
           (pr.results || []).forEach(r => li(T(r)));
         });
+      } else if (type === 'kpi-band') {
+        /* N9 官网板块：Word / 文本里退化成「数字 说明 · 数字 说明」一行，
+           保证内容不丢（HR 与 ATS 读得到数字）。 */
+        if (!st) return;
+        h('h2', st);
+        (sec.items || []).forEach(it => {
+          if (!it) return;
+          const v = trim(T(it.value)), l = trim(T(it.label));
+          if (!v && !l) return;
+          li(v + (l ? ' ' + l : ''));
+        });
+      } else if (type === 'project-cards') {
+        /* N9 官网板块：卡片墙在 Word / 文本里退化成与 projects 一致的时间线，
+           before/after/approach 合成一行证据链。 */
+        if (!st) return;
+        h('h2', st);
+        (sec.cards || []).forEach(c => {
+          if (!c) return;
+          const cn = trim(T(c.name));
+          if (!cn && !trim(T(c.desc))) return;
+          h('h3', cn);
+          const metrics = (c.metrics || []).map(m => trim(T(m))).filter(Boolean);
+          if (metrics.length) p(metrics.join(' · '));
+          if (trim(T(c.stack))) p(trim(T(c.stack)));
+          p(T(c.desc));
+          const ev = [];
+          if (trim(T(c.before))) ev.push('优化前 ' + trim(T(c.before)));
+          if (trim(T(c.after))) ev.push('优化后 ' + trim(T(c.after)));
+          if (trim(T(c.approach))) ev.push('手段 ' + trim(T(c.approach)));
+          if (ev.length) p(ev.join('；'));
+        });
       } else if (type === 'highlights') {
         if (!st) return;
         h('h2', st);
@@ -435,8 +466,22 @@
         const j = JSON.parse(txt);
         if (j && j.error) msg = j.error + (j.hint ? '（' + j.hint + '）' : '');
       } catch (e) { /* 非 JSON 响应，保留 HTTP 状态码 */ }
-      throw new Error(msg);
+      const err = new Error(msg);
+      /* 把状态码 / 业务码带上，让上层能按 501（本机无 Chrome）分支给出可行动提示 */
+      err.status = res.status;
+      if (/NO_BROWSER/.test(msg) || /NO_BROWSER/.test(txt || '')) err.code = 'NO_BROWSER';
+      throw err;
     });
+  }
+  /* 静默 PDF 失败时的提示文案（纯函数，可单测；变异测试覆盖 501 分支）。
+     F3：501（本机无 Chrome）不再干巴巴报错，而是给出可执行替代路径。 */
+  var EXPORT_NO_CHROME_MSG =
+    '未检测到本机 Chrome / Edge：静默 PDF 需经 npm start 打开本应用。'
+    + '可改用「导出单文件 HTML → 浏览器打印另存 PDF」（文字可选中），'
+    + '或「导出图片版 PDF」（版式一致但文字不可选）。已为你打开打印对话框作为备选。';
+  function pdfSilentFailureMessage(status, errMsg) {
+    if (status === 501) return EXPORT_NO_CHROME_MSG;
+    return '静默导出失败：' + (errMsg || '未知错误');
   }
   function exportPdfSilent() {
     const payload = currentPayload();
@@ -476,6 +521,15 @@
       saveBytes(blob, name);
       notify('已导出 PDF（文字可选中）：' + name);
     }).catch(function (err) {
+      /* F3：本机无 Chrome（/api/pdf 返回 501）时，给出可行动替代方案，
+         并直接打开打印对话框（文字可选中的另一条路径）作为备选。 */
+      if (err && err.status === 501) {
+        notify(pdfSilentFailureMessage(501));
+        const N = (typeof window !== 'undefined') ? window.__RESUME_NATIVE__ : null;
+        if (N && typeof N.printPage === 'function') { N.printPage(); return; }
+        try { if (global.print) global.print(); } catch (e) { }
+        return;
+      }
       fallback('静默导出失败：' + ((err && err.message) || err));
     }).then(finish, finish);
     return { filename: name };
@@ -497,6 +551,7 @@
     exportMarkdown: exportMarkdown,
     exportPdfSilent: exportPdfSilent,
     // —— 供测试 / 其它模块复用 ——
+    pdfSilentFailureMessage: pdfSilentFailureMessage,
     buildDocx: buildDocx,
     buildPlain: buildPlain,
     buildBlocks: buildBlocks,

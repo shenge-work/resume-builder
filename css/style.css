@@ -254,6 +254,16 @@
   }
   .side-panel-body button:hover{background:var(--ui-btn-hover);}
   .side-panel-body button:disabled{opacity:.55;cursor:default;}
+  /* N6-F1/F2：带说明的导出入口（.has-desc）改为自动高度 + 竖排，避免 32px 固定高把说明裁掉 */
+  .side-panel-body button.has-desc{
+    height:auto;min-height:32px;white-space:normal;overflow:visible;
+    display:flex;flex-direction:column;justify-content:center;gap:1px;
+    padding:5px 10px;line-height:1.25;
+  }
+  .side-panel-body button.has-desc .menu-desc{
+    font-size:10.5px;font-weight:400;color:var(--ui-muted);
+    white-space:normal;overflow:visible;text-overflow:clip;line-height:1.3;
+  }
   .side-panel-body button .check{display:inline-block;width:16px;color:inherit;}
   .side-panel .filename-wrap{display:flex;align-items:center;gap:6px;padding:2px 6px 6px;}
   .side-panel .filename-wrap label{font-size:11.5px;color:var(--ui-muted);font-weight:400;white-space:nowrap;}
@@ -300,9 +310,10 @@
   .resume-drawer-collapse:hover{background:var(--ui-btn-hover);color:var(--ui-text);}
   .resume-drawer-list{flex:1;overflow-y:auto;overflow-x:hidden;padding:8px;display:flex;flex-direction:column;gap:4px;min-width:252px;}
   .resume-item{
-    position:relative;display:flex;flex-direction:column;gap:2px;padding:10px 12px;border-radius:6px;
+    position:relative;display:flex;flex-direction:row;align-items:flex-start;gap:10px;padding:8px 12px;border-radius:6px;
     border:1px solid transparent;cursor:pointer;text-align:left;background:transparent;
   }
+  .resume-item-main{display:flex;flex-direction:column;gap:2px;flex:1;min-width:0;}
   .resume-item:hover{background:var(--ui-btn-hover);}
   .resume-item.active{border-color:var(--ui-focus-border);background:var(--ui-btn-hover);}
   /* 右侧留出「⋯」的位置，标题过长时不与按钮重叠 */
@@ -377,6 +388,15 @@
   .save-bar-retry:hover{background:var(--ui-panel-head-hover);}
   .save-bar:focus-within .save-bar-retry,
   .save-bar-retry:focus-visible{outline:2px solid var(--ui-focus-ring);outline-offset:1px;}
+  /* UX-02 修复：全局键盘焦点环（WCAG 2.4.7 Focus Visible）。
+     覆盖 rail 导航、工具/编辑面板标签、导出等通用按钮与可聚焦控件；
+     输入框沿用各自 .field :focus 样式，不在此重复。 */
+  button:focus-visible,
+  [tabindex]:focus-visible,
+  .panel-header.collapsible:focus-visible{
+    outline:2px solid var(--ui-focus-ring);
+    outline-offset:1px;
+  }
   .save-bar[data-state="editing"],.save-bar[data-state="saving"]{color:var(--ui-text);}
   .save-bar[data-state="failed"],.save-bar[data-state="degraded"]{
     color:var(--ui-text);font-weight:500;border-bottom-color:var(--ui-border);}
@@ -477,7 +497,11 @@
      行间用极细分隔线切出表格感；关键词走浅灰底高亮（纯灰阶，打印同样可见）。 */
   /* 左列宽度随基础字号等比缩放（≈7.2 个汉字宽）：字号调大时列宽同步变宽，
      各行仍共用同一宽度，所以左右两列始终对齐。 */
-  .resume .skill-group.skill-matrix{display:grid;grid-template-columns:calc(var(--font-base,12px) * 7.2) minmax(0,1fr);column-gap:12px;align-items:start;padding:5px 0;border-bottom:1px solid var(--paper-rule-soft);}
+  .resume .skill-group.skill-matrix{display:grid;grid-template-columns:calc(var(--font-base,12px) * 7.2) minmax(0,1fr);column-gap:12px;align-items:start;padding:5px 0;border-bottom:1px solid var(--paper-rule-soft);position:relative;}
+  /* ⚠️ reorder-btns（↑↓）在屏幕上只是 opacity:0，仍会占掉第 1 个 grid 单元格，
+     把 skill-name 挤到右列、skill-body 换行掉进 86px 窄列（应用预览与独立导出页双双错位，
+     仅打印/PDF 因 print 媒体 display:none 幸免）。必须将其移出网格流，钉在行右上角。 */
+  .resume .skill-group.skill-matrix>.reorder-btns{position:absolute;top:5px;right:0;z-index:2;}
   .resume .skill-group.skill-matrix:last-child{border-bottom:none;padding-bottom:0;}
   .resume .skill-name{font-size:calc(var(--font-base) + 0.5px);font-weight:700;color:var(--paper-text);line-height:1.75;}
   .resume .skill-body{min-width:0;}
@@ -537,6 +561,17 @@
   .resume .highlight-tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;}
   .resume .highlight-tag{display:inline-block;font-size:11.5px;line-height:1.2;padding:3px 10px;border:1px solid var(--paper-tag-border);border-radius:999px;color:var(--paper-tag-text);background:var(--paper-tag-bg);letter-spacing:0.3px;}
 
+  /* ===== N9 官网板块在 A4 / PDF 视图下的降级形态 =====
+     kpi-band 与 project-cards 是「个人官网」专属排版；PDF 要信息密度，
+     所以这里给出一行数字带 / 时间线样式，保证同一份数据的 PDF 版式不被官网带偏。 */
+  .resume .kpi-band{display:flex;flex-wrap:wrap;gap:6px 18px;align-items:baseline;}
+  .resume .kpi-item{display:inline-flex;align-items:baseline;gap:5px;position:relative;}
+  .resume .kpi-value{font-size:calc(var(--font-base) + 4px);font-weight:800;color:var(--paper-strong);letter-spacing:0.2px;line-height:1.25;}
+  .resume .kpi-label{font-size:var(--font-base);color:var(--paper-mid);line-height:1.4;}
+  .resume .card-metrics{margin:2px 0 0;padding-left:18px;}
+  .resume .card-metrics li{font-size:var(--font-base);color:var(--paper-text);line-height:1.6;}
+  .resume .evidence{margin:3px 0 0;font-size:calc(var(--font-base) - 1px);color:var(--paper-mid);line-height:1.55;}
+
   /* 分页参考线（仅预览辅助，不输出到 PDF） */
   .page-guide{position:absolute;left:18px;right:18px;border-top:1px dashed var(--ui-guide-line);pointer-events:none;z-index:5;}
   .page-guide span{position:absolute;right:0;top:-17px;background:var(--ui-guide-chip-bg);color:var(--ui-guide-chip-text);font-size:11px;padding:1px 6px;border-radius:3px;}
@@ -562,6 +597,29 @@
   .pdf-modal-body iframe{display:block;width:100%;height:100%;border:none;}
   /* 图片版预览：按宽度自适应，高度撑开后由主体滚动查看长图 */
   .pdf-modal-body img{display:block;width:100%;height:auto;margin:0 auto;}
+
+  /* ===== N9 导出个人官网：脱敏确认 / 完成（部署指引 + 附言）===== */
+  .pf-modal-box{width:min(760px,92vw);height:auto;max-height:88vh;}
+  .pf-step{padding:20px 22px 22px;background:var(--ui-modal-body-bg);color:var(--ui-text);}
+  .pf-step h3{margin:0 0 6px;font-size:15px;}
+  .pf-step .pf-lead{margin:0 0 14px;font-size:12.5px;color:var(--ui-muted);line-height:1.7;}
+  .pf-opt{display:block;margin:10px 0;padding:10px 12px;border:1px solid var(--ui-border-soft);border-radius:6px;background:var(--ui-panel,#fff);font-size:13px;line-height:1.7;cursor:pointer;}
+  .pf-opt input{margin-right:7px;}
+  .pf-opt .pf-opt-sub{display:block;margin:4px 0 0 24px;font-size:12px;color:var(--ui-muted);}
+  .pf-warn{color:#b3261e;}
+  .pf-pub{margin:14px 0 0;font-size:12.5px;line-height:1.85;}
+  .pf-pub .pf-pub-t{font-weight:700;margin:10px 0 2px;}
+  .pf-pub .pf-pub-t:first-child{margin-top:0;}
+  .pf-pub code{background:var(--ui-row,#f5f5f5);padding:1px 5px;border-radius:3px;font-size:12px;}
+  .pf-empty-tip{color:var(--ui-muted);}
+  .pf-row{display:flex;gap:10px;justify-content:flex-end;margin-top:18px;flex-wrap:wrap;}
+  .pf-row button{height:34px;padding:0 18px;font:inherit;font-size:13px;font-weight:600;border-radius:5px;cursor:pointer;border:1px solid var(--ui-border);background:var(--ui-btn-bg,#fff);color:var(--ui-btn-text);}
+  .pf-row button.primary{background:#2e8b57;color:#fff;border-color:#2e8b57;}
+  .pf-row button.primary:hover{background:#26754a;}
+  .pf-deploy{white-space:pre-wrap;font-family:inherit;font-size:12.5px;line-height:1.8;background:var(--ui-row,#f7f7f7);border:1px solid var(--ui-border-soft);border-radius:6px;padding:12px 14px;margin:0 0 14px;max-height:230px;overflow:auto;}
+  .pf-pitch{width:100%;min-height:66px;font:inherit;font-size:13px;line-height:1.7;padding:10px 12px;border:1px solid var(--ui-border);border-radius:6px;background:var(--ui-input-bg,#fff);color:var(--ui-text);resize:vertical;box-sizing:border-box;}
+  .pf-ok{margin:0 0 14px;font-size:13px;line-height:1.7;}
+  .pf-label-sm{display:block;font-size:12px;color:var(--ui-muted);margin:0 0 5px;}
 
   @media print{
     /* 纸张恒定白底黑字：无论当前是夜间还是「纸张跟随夜间」，打印 / 导出一律回到浅色 */
@@ -668,6 +726,15 @@
       cursor:pointer;text-align:left;
     }
     .sync-pane button:active{background:var(--ui-btn-hover);}
+    /* N6：手机端带说明的导出入口同样放开高度 + 竖排 */
+    .sync-pane button.has-desc{
+      height:auto;min-height:44px;white-space:normal;
+      display:flex;flex-direction:column;justify-content:center;gap:2px;
+      padding:6px 16px;line-height:1.25;
+    }
+    .sync-pane button.has-desc .menu-desc{
+      font-size:11px;font-weight:400;color:var(--ui-muted);line-height:1.3;
+    }
     /* 手机端按钮清单同样由 js/ui/menu-actions.js 渲染（与桌面同一份 ACTIONS） */
     #syncMenuBody{display:flex;flex-direction:column;gap:8px;}
     /* 文件名输入框是从桌面清单带过来的，桌面那条规则挂在 .side-panel 下，手机拿不到 */
@@ -796,3 +863,62 @@
   /* 已覆盖：浅底，视觉退到后面 */
   .jd-chip.covered{background:var(--ui-row);border-color:transparent;color:var(--ui-muted);}
   #panel-jd .panel-body{max-height:52vh;overflow:auto;}
+
+  /* =============================================================
+     N3 分享与权限控制：锁定提示条 / 锁定态只读 / 删除撤销条 / 分享标记
+     ============================================================= */
+  /* 锁定提示条：.editor-pane 的直接子元素（不在 .panel 内），因此不会被自身的 inert 锁住 */
+  .lock-bar{
+    display:flex;align-items:center;gap:8px;flex-shrink:0;
+    margin:0 0 8px;padding:8px 10px;
+    background:var(--ui-row-danger);border:1px solid var(--ui-danger);border-radius:6px;
+    color:var(--ui-text);font-size:12px;line-height:1.4;
+  }
+  .lock-bar[hidden]{display:none;}
+  .lock-bar-icon{flex:0 0 auto;}
+  .lock-bar-tip{flex:1;min-width:0;}
+  .lock-bar-btn{
+    flex:0 0 auto;height:26px;padding:0 10px;font-size:12px;cursor:pointer;
+    background:var(--ui-panel);color:var(--ui-text);
+    border:1px solid var(--ui-border);border-radius:4px;
+  }
+  .lock-bar-btn:hover{background:var(--ui-btn-hover);}
+  /* 锁定态：编辑面板置灰。inert 已经挡住鼠标与键盘焦点，这里只补视觉；
+     ⚠️ 老内核（WKWebView < 15.5 / Safari < 15.5）不支持 inert，
+     pointer-events 就是唯一防线，不能省。 */
+  body.resume-locked .editor-pane > .panel{opacity:.62;pointer-events:none;}
+  body.resume-locked .editor-pane > .panel *{pointer-events:none;}
+  /* 预览里的重排入口在锁定态下隐藏（dragstart / click 处理器里另有守卫，双保险） */
+  body.resume-locked .resume .reorder-btns{display:none !important;}
+  body.resume-locked .resume [draggable="true"]{cursor:default;}
+  /* 抽屉卡片：锁定 / 分享中标记 */
+  .resume-item.is-locked .resume-item-title{color:var(--ui-muted);}
+  .resume-item-lock{font-style:normal;}
+  .resume-item-kind.is-public{color:var(--ui-danger);border-color:var(--ui-danger);}
+  /* 删除撤销条：底部居中，10 秒后自动消失（隐藏用 visibility，避免读屏读到） */
+  .undo-toast{
+    position:fixed;left:50%;bottom:24px;transform:translate(-50%,12px);
+    display:flex;align-items:center;gap:12px;max-width:min(560px,92vw);
+    padding:10px 12px;border-radius:8px;z-index:200;
+    background:var(--ui-panel);color:var(--ui-text);
+    border:1px solid var(--ui-border);box-shadow:0 6px 22px rgba(0,0,0,.18);
+    font-size:12.5px;line-height:1.4;
+    opacity:0;visibility:hidden;transition:opacity .16s ease,transform .16s ease,visibility .16s;
+  }
+  .undo-toast.show{opacity:1;visibility:visible;transform:translate(-50%,0);}
+  .undo-toast-text{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .undo-toast-btn{
+    flex:0 0 auto;height:26px;padding:0 12px;font-size:12px;cursor:pointer;font-weight:600;
+    border-radius:4px;border:1px solid var(--ui-danger);
+    background:transparent;color:var(--ui-danger);
+  }
+  .undo-toast-btn:hover{background:var(--ui-row-danger);}
+  /* N3-F2：不可用入口（未开启分享）的说明行 */
+  .side-panel-body button .menu-desc-off{color:var(--ui-danger);}
+  .side-panel-body button.is-disabled{cursor:not-allowed;}
+  @media (max-width:640px){
+    .sync-pane button.is-disabled{opacity:.55;cursor:not-allowed;}
+    .sync-pane button .menu-desc-off{color:var(--ui-danger);}
+    .undo-toast{bottom:calc(64px + env(safe-area-inset-bottom,0px));}
+  }
+  @media print{ .lock-bar,.undo-toast{display:none !important;} }

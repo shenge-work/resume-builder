@@ -84,7 +84,11 @@ function renderResumeInner(){
     const secBreak = sec.pageBreak ? ' page-break-before' : '';
     const secIdEsc = esc(sec.id); /* sec.id 来自可导入 JSON，拼属性前必须转义 */
     h+=`<section class="section${secBreak}" data-drag="section:${secIdEsc}" draggable="true" style="${spacingStyle('section', sec.spacing)}">`;
-    h+=`<h2 class="section-title"><span class="section-title-text">${esc(sec.title)}</span>${reorderBtns('section', secIdEsc, null, null)}</h2>`;
+    /* F6 逐节标题显隐：headingVisible === false 时只隐藏标题（含 ↑↓ 重排按钮），内容仍在；
+       板块仍可由「拖动整段」重排（section 自身带 data-drag）。 */
+    if(sec.headingVisible !== false){
+      h+=`<h2 class="section-title"><span class="section-title-text">${esc(sec.title)}</span>${reorderBtns('section', secIdEsc, null, null)}</h2>`;
+    }
     if(sec.type==='advantages'){
       h+='<ul class="adv">';
       sec.items.forEach((it,i)=>{
@@ -155,6 +159,41 @@ function renderResumeInner(){
         });
         h+='</ul></div>';
       });
+    } else if(sec.type==='kpi-band'){
+      /* N9：官网「大数字带」在 A4 / PDF 视图里的**降级渲染** —— 一行小数字 + 标签，
+         不吃版面。同一份数据，官网首屏要视觉冲击、PDF 要信息密度，两种排版各取所需。 */
+      const kpis = (sec.items||[]).filter(it=>it && (T(it.value).trim() || T(it.label).trim()));
+      if(kpis.length){
+        h+='<div class="kpi-band">';
+        kpis.forEach((it,i)=>{
+          h+=`<div class="kpi-item" data-drag="item:${secIdEsc}:${i}" draggable="true" style="${spacingStyle('kpiItem', it.spacing)}">`
+            + reorderBtns('item', secIdEsc, i, null)
+            + (T(it.value).trim() ? `<span class="kpi-value">${esc(T(it.value))}</span>` : '')
+            + (T(it.label).trim() ? `<span class="kpi-label">${esc(T(it.label))}</span>` : '')
+            + `</div>`;
+        });
+        h+='</div>';
+      }
+    } else if(sec.type==='project-cards'){
+      /* N9：项目卡片墙降级为与 projects 板块一致的时间线样式（**保证 PDF 版式不被官网带偏**）。
+         ⚠️ 重排索引指向的是 sec.cards 而不是 sec.items，所以这里用专用的 kind='card'，
+         复用 'item' 会去改一个不存在的数组。 */
+      (sec.cards||[]).forEach((c,i)=>{
+        if(!c) return;
+        const cardBreak = c.pageBreak ? ' page-break-before' : '';
+        h+=`<div class="project nested${cardBreak}" data-drag="card:${secIdEsc}:${i}" draggable="true" style="${spacingStyle('project', c.spacing)}">${reorderBtns('card', secIdEsc, i, null)}`;
+        h+=`<p class="project-title" style="${spacingStyle('pTitle', c.nameSpacing)}">${esc(T(c.name))}</p>`;
+        if(T(c.stack).trim()) h+=`<span class="stack" style="${spacingStyle('pStack', c.stackSpacing)}">${esc(T(c.stack))}</span>`;
+        if(T(c.desc).trim()) h+=`<p class="desc" style="${spacingStyle('pDesc', c.descSpacing)}">${esc(T(c.desc))}</p>`;
+        const metrics = (c.metrics||[]).map(m=>T(m)).map(s=>String(s).trim()).filter(Boolean);
+        if(metrics.length) h+=`<ul class="card-metrics">`+metrics.map(m=>`<li>${esc(m)}</li>`).join('')+`</ul>`;
+        const ev = [];
+        if(T(c.before).trim()) ev.push('优化前：'+T(c.before));
+        if(T(c.after).trim()) ev.push('优化后：'+T(c.after));
+        if(T(c.approach).trim()) ev.push('手段：'+T(c.approach));
+        if(ev.length) h+=`<p class="evidence" style="${spacingStyle('evidence', c.evidenceSpacing)}">${esc(ev.join('　·　'))}</p>`;
+        h+=`</div>`;
+      });
     } else if(sec.type==='skills'){
       sec.groups.forEach((grp,g)=>{
         const drag = `data-drag="item:${secIdEsc}:${g}" draggable="true"`;
@@ -209,6 +248,12 @@ function renderResumeInner(){
       });
       h += '</div>';
     }
+    else if(sec.type==='custom'){
+      /* F5 自定义板块：标题 + 自由内容（支持 **加粗** 与换行），富文本不落任意 CSS。
+         标题显隐仍由 headingVisible 统一管控（上方 section 头部处理）。 */
+      const html = T(sec.html||'');
+      if(html.trim()) h += '<div class="custom-body">'+boldText(html).replace(/\n/g,'<br>')+'</div>';
+    }
     h+='</section>';
   });
   return h;
@@ -252,14 +297,51 @@ function renderPreview(){
   const m = getPageMargins();
   const marginStyle = `width:210mm;max-width:none;box-sizing:border-box;padding-top:${mmToPx(m.top)}px;padding-right:${mmToPx(m.right)}px;padding-bottom:${mmToPx(m.bottom)}px;padding-left:${mmToPx(m.left)}px;`;
   preview.innerHTML = `<div class="resume" style="${getVarStr()}${marginStyle}">${renderResumeInner()}</div>`;
+  /* N1 主题调色板：把生效主题的 --paper-* 写到 .resume 内联 style（classic 且无微调时清除，
+     交给样式表 / 夜间纸张）。缺 ResumeThemeTemplates 时静默跳过，向后兼容。 */
+  if (global.ResumeThemeTemplates) {
+    try { global.ResumeThemeTemplates.applyPaletteToEl(preview.querySelector('.resume'), data); } catch (e) {}
+  }
   syncPrintPageMargin();
   scheduleDrawPageGuides();
   RB.saveState();
 }
 
+/* ============ N5：给定 payload 渲染简历 HTML 字符串（缩略图 / 分享等场景） ============
+   纯字符串构建、不碰 DOM。为避免改动已稳定多年的渲染层（renderResumeInner 直读模块全局
+   data / currentFonts / currentSpacing），这里用「临时覆盖全局 → 渲染 → finally 恢复」的
+   受保护交换：调用是同步的、不递归，恢复一定发生，不会影响正在编辑的实时预览。
+   返回 '' 表示空简历（调用方据此显示占位纸张）。 */
+function buildResumeHtml(payload) {
+  payload = payload || {};
+  const d = payload.data;
+  if (!d || !Array.isArray(d.sections) || !d.sections.length) return '';
+  /* 全局 data 由 data.js 声明（顶层 let，跨脚本可读写）；测试桩缺省时直接返回空，避免在 Node 端崩。 */
+  if (typeof data === 'undefined') return '';
+  const saved = { data: data, fonts: currentFonts, spacing: currentSpacing };
+  try {
+    data = d;
+    currentFonts = payload.fonts || {};
+    currentSpacing = payload.spacing || {};
+    const m = getPageMargins();
+    const pad = 'padding:' + mmToPx(m.top) + 'px ' + mmToPx(m.right) + 'px '
+      + mmToPx(m.bottom) + 'px ' + mmToPx(m.left) + 'px;';
+    return '<div class="resume" style="' + getVarStr() + pad + '">' + renderResumeInner() + '</div>';
+  } finally {
+    data = saved.data; currentFonts = saved.fonts; currentSpacing = saved.spacing;
+  }
+}
+
 /* ============ 拖拽重排（左侧预览） ============ */
+/* N3-F1：锁定态下预览里的「改数据」操作（拖拽 / ↑↓ 重排）一并禁掉。
+   预览区整体不设 inert —— 那会把长简历的滚动一起锁死；只拦这两个入口。 */
+function isDocLocked(){
+  try{ return !!(typeof document !== 'undefined' && document.body && document.body.classList.contains('resume-locked')); }
+  catch(e){ return false; }
+}
 let drag = null;
 preview.addEventListener('dragstart', e=>{
+  if(isDocLocked()){ e.preventDefault(); drag=null; return; }   // 锁定：不接受拖拽重排
   if(e.target.closest('[data-reorder]')){ e.preventDefault(); drag=null; return; } // ↑↓ 按钮不触发拖拽
   const el = e.target.closest('[data-drag]'); if(!el) return;
   const p = el.dataset.drag.split(':');
@@ -278,7 +360,8 @@ preview.addEventListener('dragover', e=>{
     (drag.kind==='item'    && d[0]==='job'     && d[1]===drag.secId) ||
     (drag.kind==='job'     && d[0]==='item'    && d[1]===drag.secId) ||
     (drag.kind==='job'     && d[0]==='job'     && d[1]===drag.secId) ||
-    (drag.kind==='proj'    && d[0]==='proj'    && d[1]===drag.secId && d[2]===drag.idx);
+    (drag.kind==='proj'    && d[0]==='proj'    && d[1]===drag.secId && d[2]===drag.idx) ||
+    (drag.kind==='card'    && d[0]==='card'    && d[1]===drag.secId);
   if(!ok) return;
   e.preventDefault();
   const r = el.getBoundingClientRect();
@@ -295,6 +378,7 @@ preview.addEventListener('drop', e=>{
   if(drag.kind==='section') moveSection(drag.secId, td[1], drag.dropBefore);
   else if(drag.kind==='job') moveJob(drag.secId, +drag.idx, +td[2], drag.dropBefore);
   else if(drag.kind==='proj') moveProj(drag.secId, +drag.idx, +drag.pidx, +td[3], drag.dropBefore);
+  else if(drag.kind==='card') moveCard(drag.secId, +drag.idx, +td[2], drag.dropBefore);
   else moveItem(drag.secId, +drag.idx, +td[2], drag.dropBefore);
   clearDrag(); renderPreview(); renderEditor();
 });
@@ -303,6 +387,7 @@ preview.addEventListener('dragend', clearDrag);
 preview.addEventListener('click', e=>{
   const b = e.target.closest('[data-reorder]'); if(!b) return;
   e.preventDefault();
+  if(isDocLocked()) return;   // 锁定：↑↓ 重排同样不允许
   const ds = b.dataset;
   const dir = ds.reorder === 'up' ? -1 : 1;
   const moved = reorderWithin(ds.kind, ds.sec, ds.idx !== undefined ? +ds.idx : undefined, ds.pidx !== undefined ? +ds.pidx : undefined, dir);
@@ -341,6 +426,13 @@ function reorderWithin(kind, secId, idx, pidx, dir){
     if((dir<0 && from===0) || (dir>0 && from===arr.length-1)) return false;
     reInsert(arr, from, from+dir, dir<0); return true;
   }
+  /* N9 project-cards 板块：条目挂在 sec.cards（不是 sec.items），需要独立分支 */
+  if(kind==='card'){
+    const sec = getSection(secId); if(!sec || !sec.cards) return false;
+    const arr = sec.cards; const from = +idx;
+    if((dir<0 && from===0) || (dir>0 && from===arr.length-1)) return false;
+    reInsert(arr, from, from+dir, dir<0); return true;
+  }
   // item：advantages 条目 / skills 分组 / projects 板块条目（均挂在 sec.items 或 sec.groups）
   const sec = getSection(secId); if(!sec) return false;
   const arr = sec.type==='skills' ? sec.groups : sec.items; const from = +idx;
@@ -368,6 +460,12 @@ function moveProj(secId,jobIdx,fromIdx,toIdx,before){
   const sec=getSection(secId); if(!sec||!sec.items[jobIdx]) return;
   const arr = sec.items[jobIdx].projects; if(!arr) return;
   reInsert(arr, fromIdx, toIdx, before);
+}
+/* N9 project-cards：卡片数组在 sec.cards 上，与 moveItem（sec.items / sec.groups）分开 */
+function moveCard(secId,fromIdx,toIdx,before){
+  const sec=getSection(secId); if(!sec||!sec.cards) return;
+  if(fromIdx<0||fromIdx>=sec.cards.length) return;
+  reInsert(sec.cards, fromIdx, toIdx, before);
 }
 function reInsert(arr, from, to, before){
   if(from<0||from>=arr.length) return;
@@ -753,6 +851,7 @@ global.ResumeRender = {
   mmToPx: mmToPx, pxToMm: pxToMm, T: T, S: S,
   // html builders
   renderResumeInner: renderResumeInner,
+  buildResumeHtml: buildResumeHtml,
   // constructors（实现已收敛到 editor-schema.js，这里保持导出名不变）
   blankItem: blankItem, blankProject: blankProject, blankSection: blankSection,
   blankPhase: blankPhase, blankSkillGroup: blankSkillGroup, objify: objify,
@@ -763,6 +862,10 @@ global.ResumeRender = {
   renderPreview: renderPreview,
   // 触屏 ↑↓ 排序（#8）：纯重排逻辑 + 按钮 HTML，均不碰 DOM
   reorderWithin: reorderWithin, reorderBtns: reorderBtns,
+  // N9 project-cards 板块的卡片重排（数组挂在 sec.cards，与 items/groups 不同）
+  moveCard: moveCard,
+  // N3-F1 锁定态判定（拖拽 / ↑↓ 重排的守卫条件）
+  isDocLocked: isDocLocked,
   // editor form
   renderEditor: renderEditor, handleListAction: handleListAction,
   // settings panels
