@@ -368,6 +368,8 @@
     const a = document.createElement('a');
     a.href = url; a.download = filename;
     if (document.body && document.body.appendChild) document.body.appendChild(a);
+    /* BUG-04：临时下载锚点的 click 会冒泡到 document 级监听误关侧栏，阻止冒泡 */
+    a.addEventListener('click', function (ev) { ev.stopPropagation(); });
     a.click();
     setTimeout(() => {
       try { URL.revokeObjectURL(url); } catch (e) { }
@@ -387,6 +389,8 @@
     const a = document.createElement('a');
     a.href = url; a.download = filename;
     if (document.body && document.body.appendChild) document.body.appendChild(a);
+    /* BUG-04：同上，阻止下载点击冒泡误关侧栏 */
+    a.addEventListener('click', function (ev) { ev.stopPropagation(); });
     a.click();
     setTimeout(() => {
       try { URL.revokeObjectURL(url); } catch (e) { }

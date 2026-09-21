@@ -41,7 +41,12 @@ async function downloadBlob(blob, filename){
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url; a.download = filename;
-  document.body.appendChild(a); a.click(); a.remove();
+  document.body.appendChild(a);
+  /* BUG-04 修复：临时下载锚点的 click 会冒泡到 document 级监听（pane-mobile.js），
+     因点击目标不在 .side-panel 内而被当作「点空白」→ 收起所有侧栏（工具菜单/AI 面板）。
+     这里阻止冒泡，导出/下载不再误关侧栏，连续导出无需反复展开工具菜单。 */
+  a.addEventListener('click', function (ev) { ev.stopPropagation(); });
+  a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 4000);
 }
 
@@ -149,7 +154,9 @@ function downloadPDFNow(){
   if(currentPdfBlob){ downloadBlob(currentPdfBlob, RB.getFileName('', 'pdf')); return; }
   const a = document.createElement('a');
   a.href = currentPdfBlobUrl; a.download = RB.getFileName('', 'pdf');
-  document.body.appendChild(a); a.click(); a.remove();
+  document.body.appendChild(a);
+  a.addEventListener('click', function (ev) { ev.stopPropagation(); });  // BUG-04：避免冒泡误关侧栏
+  a.click(); a.remove();
 }
 function closePdfModal(){
   document.getElementById('pdfModal').style.display = 'none';
@@ -189,7 +196,9 @@ function doExportDownload(){
   if(!currentExportBlobUrl) return;
   const a = document.createElement('a');
   a.href = currentExportBlobUrl; a.download = currentExportName;
-  document.body.appendChild(a); a.click(); a.remove();
+  document.body.appendChild(a);
+  a.addEventListener('click', function (ev) { ev.stopPropagation(); });  // BUG-04：避免冒泡误关侧栏
+  a.click(); a.remove();
 }
 
 /* ============ 导出长图：把 .resume 整页截为一张 PNG，先预览再下载 ============ */

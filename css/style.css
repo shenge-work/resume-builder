@@ -696,6 +696,11 @@
   /* —— 平板：沿用桌面两栏，仅允许编辑栏稍窄（桌面逻辑不被破坏） —— */
   @media (min-width:641px) and (max-width:1024px){
     .editor-pane{width:380px;}
+    /* BUG-02 修复：桌面规则 .editor-pane .panel{min-width:460px} 在此宽度下会把
+       380px 容器撑破成横向溢出（body.scrollWidth > 视口，且 html/body overflow:hidden
+       无法横滚 → 字号/页边距/间距/体检/JD 面板整体被裁切不可达）。
+       这里把面板 min-width 与容器同宽，消除溢出。 */
+    .editor-pane .panel{min-width:380px;}
     /* 右缘推展面板同步收窄，保持与编辑面板同宽同位 */
     .side-panel.open{width:380px;}
     .side-panel-head,.side-panel-body{min-width:380px;}

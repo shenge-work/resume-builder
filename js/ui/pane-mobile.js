@@ -49,14 +49,29 @@ function syncSideRail(){
     btn.title = (open ? '收起' : '展开') + (label ? label.textContent : '');
   });
 }
+/* BUG-03 修复：互斥折叠只做了一半——展开侧栏会折叠编辑面板，收起侧栏却不还原。
+   这里用模块级标记记住「本次展开侧栏时，编辑面板是否是被互斥强制折叠的」，
+   收起时若确是被互斥折叠的，则自动恢复编辑面板展开态（回到用户打开侧栏前的样子）。 */
+let paneCollapsedBySidePanel = false;
 function setSidePanelOpen(panelId, open, persist){
   const panel = document.getElementById(panelId);
   if (!panel) return;
   if (open) {
     /* 互斥（多选一）：浮动面板展开时，收起右侧编辑面板（persist 跟随本次调用） */
     const app = document.querySelector('.app');
-    if (app && !app.classList.contains('pane-collapsed')) setPaneCollapsed(true, persist);
+    const wasExpanded = app && !app.classList.contains('pane-collapsed');
+    if (wasExpanded) setPaneCollapsed(true, persist);
+    /* 仅当「本次展开侧栏确实折叠了原本展开的编辑面板」才记恢复标记，
+       避免侧栏 A 切侧栏 B 时把前一次的恢复意图带过来 */
+    paneCollapsedBySidePanel = !!wasExpanded;
     document.querySelectorAll('.side-panel.open').forEach(p => { if (p.id !== panelId) p.classList.remove('open'); });
+  } else {
+    /* 收起侧栏：若编辑面板此前是被本侧栏互斥折叠的，自动恢复展开态 */
+    if (paneCollapsedBySidePanel) {
+      paneCollapsedBySidePanel = false;
+      const app = document.querySelector('.app');
+      if (app && app.classList.contains('pane-collapsed')) setPaneCollapsed(false, persist);
+    }
   }
   panel.classList.toggle('open', open);
   syncSideRail();

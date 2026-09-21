@@ -447,6 +447,11 @@
       }]
     }]
   };
+  /* BUG-01 修复：BASIC 是独立定义、只被 renderEditorHTML 直接渲染，
+     从未走 register()，导致其 lists（contact）没进 LIST_INDEX，
+     「＋ 添加联系方式」的 add 操作在 checkAction 里查不到规则而静默失败。
+     这里在模块初始化时对 BASIC.lists 逐个 indexList，补齐注册。 */
+  (BASIC.lists || []).forEach(indexList);
 
   /* ============================================================
    * 八、整块编辑区 HTML

@@ -22,6 +22,14 @@
     global.ResumeRouter.register('/portfolio', global.PortfolioView);
     global.ResumeRouter.register('/portfolio/:id', global.PortfolioView);
 
+    /* BUG-05 修复：为根路径注册显式默认路由，消除「no route matched: /」警告。
+       重定向到工作台默认视图 /editor（与 app.js 初始渲染保持一致，零观感变化）。 */
+    global.ResumeRouter.register('/', {
+      onEnter: function () {
+        try { global.ResumeRouter.navigate('/editor'); } catch (e) {}
+      }
+    });
+
     try { global.ResumeRouter.start(); }
     catch (e) { console.warn('[bootstrap] router.start failed', e); }
   }

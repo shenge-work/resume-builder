@@ -253,6 +253,21 @@ const server = http.createServer((req, res) => {
     return send(res, 400, { error: 'Bad Request: malformed URL' });
   }
 
+  // 3.5) favicon：项目根目录无 favicon.ico，浏览器每次加载都会请求它得到 404，
+  //   在控制台 / 网络面板制造噪音（BUG-05）。这里返回一个内存 SVG 图标（200），
+  //   无需新增文件、不影响其它路由。
+  if (pathname === '/favicon.ico') {
+    const ico = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">'
+      + '<rect width="16" height="16" rx="3" fill="#2f6fed"/>'
+      + '<text x="8" y="12" font-size="10" font-family="sans-serif" text-anchor="middle" fill="#fff">简</text>'
+      + '</svg>';
+    res.writeHead(200, {
+      'Content-Type': 'image/svg+xml',
+      'Cache-Control': 'no-store'
+    });
+    return res.end(ico);
+  }
+
   // —— 写接口：把当前编辑器数据落盘为 data/resume.json ——
   if (req.method === 'POST' && pathname === '/api/resume') {
     let buf = '';
